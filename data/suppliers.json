@@ -1,0 +1,14 @@
+{
+  "suppliers": [
+    {
+      "name": "Wavin Nederland B.V.",
+      "iban": "NL25CITI0266075452",
+      "discount": 0.0,
+      "aliases": [
+        "Wavin-Nederland",
+        "Wavin Nederland B.V.",
+        "Wavin NL"
+      ]
+    }
+  ]
+}
