@@ -18,6 +18,15 @@ def extract_text(file_path: str) -> str:
         return ""
 
 
+# Bedragstoken gelijk aan die voor het bruto-`amount`-veld (EU-notatie).
+_AMOUNT_TOKEN = r"\d{1,3}(?:[.,]\d{3})*[.,]\d{2}"
+# Labels voor bedrag excl. BTW; specifiekere patronen eerst (alternatie).
+_EXCL_VAT_LABEL_RE = re.compile(
+    rf"(?i)(?:Totaal\s+excl\.?|Bedrag\s+excl\.?|Excl\.\s*BTW|Subtotaal|Nettobedrag)"
+    rf"\s*[:]?\s*(?:EUR\b|€)?\s*({_AMOUNT_TOKEN})",
+)
+
+
 def normalize_amount(amount_str: str | None) -> float | None:
     """Normaliseer een bedragstring (EU-notatie) naar `float` of `None`."""
     try:
@@ -70,6 +79,24 @@ def normalize_amount(amount_str: str | None) -> float | None:
         return None
 
 
+def extract_amount_excl_vat(text: str | None) -> float | None:
+    """Zoek een bedrag excl. BTW nabij bekende factuurlabels; zelfde normalisatie als `amount`."""
+    try:
+        t = text or ""
+        if not t:
+            return None
+        candidates: list[float] = []
+        for m in _EXCL_VAT_LABEL_RE.finditer(t):
+            v = normalize_amount(m.group(1))
+            if isinstance(v, float):
+                candidates.append(v)
+        if not candidates:
+            return None
+        return max(candidates)
+    except Exception:
+        return None
+
+
 def build_description(customer_number: str | None, invoice_number: str | None) -> str | None:
     """Bouw description als `{customer_number} / {invoice_number}` wanneer beide bestaan."""
     try:
@@ -91,6 +118,7 @@ def extract_invoice_data(text: str | None) -> dict[str, Any]:
 
     iban: str | None = None
     amount: float | None = None
+    amount_excl_vat: float | None = None
     invoice_number: str | None = None
     customer_number: str | None = None
     supplier_hint: str | None = None
@@ -111,7 +139,7 @@ def extract_invoice_data(text: str | None) -> dict[str, Any]:
     # Amount (pick highest)
     try:
         # Matcht: `amount` (bruto candidates; hoogste wordt gekozen)
-        amount_matches = re.findall(r"\d{1,3}(?:[.,]\d{3})*[.,]\d{2}", text)
+        amount_matches = re.findall(_AMOUNT_TOKEN, text)
         normalized_amounts: list[float] = []
         for a in amount_matches:
             v = normalize_amount(a)
@@ -125,6 +153,17 @@ def extract_invoice_data(text: str | None) -> dict[str, Any]:
     except Exception:
         print("Bedrag niet gevonden")
         amount = None
+
+    # Amount excl. BTW (nabij label; anders None)
+    try:
+        amount_excl_vat = extract_amount_excl_vat(text)
+        if amount_excl_vat is not None:
+            print(f"Bedrag excl. BTW gevonden: {amount_excl_vat}")
+        else:
+            print("Bedrag excl. BTW niet gevonden")
+    except Exception:
+        amount_excl_vat = None
+        print("Bedrag excl. BTW niet gevonden")
 
     # Invoice number
     try:
@@ -237,6 +276,7 @@ def extract_invoice_data(text: str | None) -> dict[str, Any]:
     return {
         "iban": iban,
         "amount": amount,
+        "amount_excl_vat": amount_excl_vat,
         "invoice_number": invoice_number,
         "customer_number": customer_number,
         "description": description,
