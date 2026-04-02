@@ -1,9 +1,17 @@
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any
 
 import pdfplumber
+
+try:
+    import fitz as _fitz
+except ImportError:
+    _fitz = None
+
+logger = logging.getLogger(__name__)
 
 
 def extract_text(file_path: str) -> str:
@@ -22,7 +30,97 @@ def extract_text(file_path: str) -> str:
 _AMOUNT_TOKEN = r"\d{1,3}(?:[.,]\d{3})*[.,]\d{2}"
 # Labels voor bedrag excl. BTW; specifiekere patronen eerst (alternatie).
 _EXCL_VAT_LABEL_RE = re.compile(
-    rf"(?i)(?:Totaal\s+excl\.?|Bedrag\s+excl\.?|Excl\.\s*BTW|Subtotaal|Nettobedrag)"
+    rf"(?i)(?:Totaal\s+netto\s+goederenwaarde|Netto\s+goederenbedrag|"
+    rf"Totaal\s+excl\.?|Bedrag\s+excl\.?|Excl\.\s*BTW|Subtotaal|Nettobedrag)"
+    rf"\s*[:]?\s*(?:EUR\b|€)?\s*({_AMOUNT_TOKEN})",
+)
+
+
+_INVOICE_LABEL_RE = re.compile(
+    r"(?:Factuur(?:\s*nummer|\s*nr\.?)|"
+    r"Invoice\s*(?:number|no\.?|nr\.?)|"
+    r"Nota(?:\s*nummer|\s*nr\.?))",
+    flags=re.IGNORECASE,
+)
+
+_CUSTOMER_LABEL_RE = re.compile(
+    r"(?:Klant(?:en)?(?:\s*nummer|\s*nr\.?|\s*code)|"
+    r"Debiteur(?:en)?(?:\s*nummer|\s*nr\.?)|"
+    r"Lid(?:\s*nummer|\s*nr\.?)|"
+    r"Relatie(?:\s*nummer|\s*nr\.?)|"
+    r"Customer\s*(?:number|no\.?|code|nr\.?)|"
+    r"Account\s*(?:number|no\.?|nr\.?))",
+    flags=re.IGNORECASE,
+)
+
+_FIELD_VALUE_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9\-\/]*")
+
+_NOISE_WORDS = frozenset({
+    "datum", "date", "vervaldatum", "due", "pagina", "page",
+    "btw", "vat", "kvk", "iban", "bic", "swift", "bedrag",
+    "amount", "totaal", "total", "naam", "name", "adres",
+    "omschrijving", "description", "betaling", "payment",
+    "nummer", "number", "netto", "bruto",
+    "op", "klant", "klanten", "klantnr", "uw", "ons", "onze",
+    "van", "de", "het", "per", "factuur", "nota", "nr",
+    "no", "ref", "je", "te", "voor", "aan",
+})
+
+
+def _is_noise_value(val: str) -> bool:
+    return val.strip().lower() in _NOISE_WORDS
+
+
+def _extract_labeled_field(
+    text: str,
+    label_re: re.Pattern,
+    *,
+    min_value_len: int = 2,
+) -> str | None:
+    """Line-by-line extraction: same-line (after colon/separator) first, then next-line.
+
+    Processes per-line to avoid cross-column captures in tabular PDF layouts.
+    Skips up to 3 noise words on the same line before falling back to the next line.
+    """
+    lines = text.split("\n")
+
+    for i, line in enumerate(lines):
+        m = label_re.search(line)
+        if not m:
+            continue
+
+        after = line[m.end():]
+        after_stripped = re.sub(r"^[\s:\.]+", "", after)
+
+        # Skip Dutch postcode false positives (e.g. "1185 XE" from merged columns)
+        if re.match(r"\d{4}\s+[A-Z]{2}\b", after_stripped):
+            continue
+
+        remainder = after_stripped
+        for _ in range(3):
+            vm = _FIELD_VALUE_RE.match(remainder)
+            if not vm:
+                break
+            val = vm.group(0).strip()
+            if len(val) >= min_value_len and not _is_noise_value(val):
+                return val
+            remainder = remainder[vm.end():]
+            remainder = re.sub(r"^[\s:\.]+", "", remainder)
+
+        if i + 1 < len(lines):
+            next_line = lines[i + 1].strip()
+            vm = _FIELD_VALUE_RE.match(next_line)
+            if vm:
+                val = vm.group(0).strip()
+                if len(val) >= min_value_len and not _is_noise_value(val):
+                    return val
+
+    return None
+
+
+_TOTAL_PAYABLE_LABEL_RE = re.compile(
+    rf"(?i)(?:Totaal\s+te\s+betalen|Te\s+voldoen|Total\s+due|"
+    rf"Totaal\s+incl\.?\s*BTW|Factuurbedrag|Totaalbedrag|Te\s+betalen)"
     rf"\s*[:]?\s*(?:EUR\b|€)?\s*({_AMOUNT_TOKEN})",
 )
 
@@ -107,110 +205,143 @@ def build_description(customer_number: str | None, invoice_number: str | None) -
         return None
 
 
-def extract_invoice_data(text: str | None) -> dict[str, Any]:
+def format_remittance_text(
+    customer_number: str | None,
+    invoice_number: str | None,
+    description: str | None = None,
+) -> str:
+    """
+    Tekst voor SEPA-omschrijving (klant / factuur), zonder bestandsnaam.
+
+    Gebruikt `description` uit de parser als die gezet is; anders `build_description`
+    of fallback naar alleen factuur- of klantnummer.
+    """
+    try:
+        if description and str(description).strip():
+            return str(description).strip()
+        bd = build_description(
+            str(customer_number).strip() if customer_number is not None else None,
+            str(invoice_number).strip() if invoice_number is not None else None,
+        )
+        if bd:
+            return bd
+        if invoice_number is not None and str(invoice_number).strip():
+            return str(invoice_number).strip()
+        if customer_number is not None and str(customer_number).strip():
+            return str(customer_number).strip()
+        return ""
+    except Exception:
+        return ""
+
+
+def extract_invoice_data(text: str | None, *, debtor_iban: str | None = None) -> dict[str, Any]:
     """
     Parseer ruwe PDF-tekst naar een Module 3-ready JSON dict.
 
-    Let op: bestaande extractie-logica voor IBAN/amount/type/customer_number wordt niet overschreven;
-    extra fallbacks/hints vullen alleen ontbrekende waarden aan.
+    Args:
+        debtor_iban: If provided, this IBAN is excluded from extraction results
+                     (to avoid capturing the user's own IBAN as a supplier IBAN).
     """
     text = text or ""
 
     iban: str | None = None
+    all_ibans: list[str] = []
     amount: float | None = None
     amount_excl_vat: float | None = None
     invoice_number: str | None = None
     customer_number: str | None = None
     supplier_hint: str | None = None
 
-    # IBAN
+    debtor_clean = re.sub(r"\s+", "", (debtor_iban or "")).upper() if debtor_iban else ""
+
+    # IBAN — find all NL IBANs, filter debtor IBAN, pick the first remaining
     try:
-        # Matcht: `iban`
-        m_iban = re.search(r"\bNL\d{2}[A-Z]{4}\d{10}\b", text)
-        if m_iban:
-            iban = m_iban.group(0)
-            print(f"IBAN gevonden: {iban}")
+        found = re.findall(r"\bNL\d{2}[A-Z]{4}\d{10}\b", text)
+        for candidate in found:
+            if debtor_clean and candidate.upper() == debtor_clean:
+                continue
+            all_ibans.append(candidate)
+        if all_ibans:
+            iban = all_ibans[0]
+            logger.debug("IBAN gevonden: %s (van %d kandidaten)", iban, len(all_ibans))
         else:
-            print("IBAN niet gevonden")
+            logger.debug("IBAN niet gevonden")
     except Exception:
-        print("IBAN niet gevonden")
+        logger.debug("IBAN niet gevonden", exc_info=True)
         iban = None
 
-    # Amount (pick highest)
+    # Amount — prefer labeled "total payable" amounts, fall back to max token
     try:
-        # Matcht: `amount` (bruto candidates; hoogste wordt gekozen)
-        amount_matches = re.findall(_AMOUNT_TOKEN, text)
-        normalized_amounts: list[float] = []
-        for a in amount_matches:
-            v = normalize_amount(a)
-            if isinstance(v, float):
-                normalized_amounts.append(v)
-        if normalized_amounts:
-            amount = max(normalized_amounts)
-            print(f"Bedrag gevonden: {amount}")
+        labeled_amount: float | None = None
+        for m in _TOTAL_PAYABLE_LABEL_RE.finditer(text):
+            v = normalize_amount(m.group(1))
+            if isinstance(v, float) and v > 0:
+                if labeled_amount is None or v > labeled_amount:
+                    labeled_amount = v
+
+        if labeled_amount is not None:
+            amount = labeled_amount
+            logger.debug("Bedrag gevonden (gelabeld): %s", amount)
         else:
-            print("Bedrag niet gevonden")
+            amount_matches = re.findall(_AMOUNT_TOKEN, text)
+            normalized_amounts: list[float] = []
+            for a in amount_matches:
+                v = normalize_amount(a)
+                if isinstance(v, float):
+                    normalized_amounts.append(v)
+            if normalized_amounts:
+                amount = max(normalized_amounts)
+                logger.debug("Bedrag gevonden (max token): %s", amount)
+            else:
+                logger.debug("Bedrag niet gevonden")
     except Exception:
-        print("Bedrag niet gevonden")
+        logger.debug("Bedrag niet gevonden", exc_info=True)
         amount = None
 
     # Amount excl. BTW (nabij label; anders None)
     try:
         amount_excl_vat = extract_amount_excl_vat(text)
         if amount_excl_vat is not None:
-            print(f"Bedrag excl. BTW gevonden: {amount_excl_vat}")
+            logger.debug("Bedrag excl. BTW gevonden: %s", amount_excl_vat)
         else:
-            print("Bedrag excl. BTW niet gevonden")
+            logger.debug("Bedrag excl. BTW niet gevonden")
     except Exception:
         amount_excl_vat = None
-        print("Bedrag excl. BTW niet gevonden")
+        logger.debug("Bedrag excl. BTW niet gevonden", exc_info=True)
 
-    # Invoice number
+    # Invoice number (line-by-line extraction avoids cross-column captures)
     try:
-        # Matcht: `invoice_number`
-        m_inv = re.search(
-            r"(Factuurnummer|Factuurnr\.?|Invoice|Ref)[\s:]*([A-Za-z0-9\-\/]+)",
-            text,
-            flags=re.IGNORECASE,
-        )
-        if m_inv:
-            invoice_number = m_inv.group(2)
-            print(f"Factuurnummer gevonden: {invoice_number}")
+        invoice_number = _extract_labeled_field(text, _INVOICE_LABEL_RE, min_value_len=2)
+        if invoice_number:
+            logger.debug("Factuurnummer gevonden: %s", invoice_number)
         else:
-            print("Factuurnummer niet gevonden")
+            logger.debug("Factuurnummer niet gevonden")
     except Exception:
-        print("Factuurnummer niet gevonden")
+        logger.debug("Factuurnummer niet gevonden", exc_info=True)
         invoice_number = None
 
-    # Customer number
+    # Customer number (comprehensive label variants, alphanumeric capture)
     try:
-        # Matcht: `customer_number`
-        m_cust = re.search(r"(?i)(?:Klant\s*nr\.?|Klantnr|Debiteurnummer|Lidnummer|Customer\s*number)[\s\.:]*([0-9]+)", text)
-        if m_cust:
-            customer_number = m_cust.group(1)
-            print(f"Klantnummer gevonden: {customer_number}")
+        customer_number = _extract_labeled_field(text, _CUSTOMER_LABEL_RE, min_value_len=2)
+        if customer_number:
+            logger.debug("Klantnummer gevonden: %s", customer_number)
         else:
-            print("Klantnummer niet gevonden")
+            logger.debug("Klantnummer niet gevonden")
     except Exception:
-        print("Klantnummer niet gevonden")
+        logger.debug("Klantnummer niet gevonden", exc_info=True)
         customer_number = None
 
-    # Fallback: betaalreferentie "invoice / customer" (vult alleen ontbrekende velden aan)
+    # Restricted fallback: only substantial digit/digit reference patterns (min 5/4 digits)
     try:
-        # Matcht: `invoice_number`, `customer_number` (als `123 / 456`)
         if customer_number is None or invoice_number is None:
-            m_ref = re.search(r"(\d+)\s*/\s*(\d+)", text)
+            m_ref = re.search(r"(\d{5,})\s*/\s*(\d{4,})", text)
             if m_ref:
-                prev_invoice = invoice_number
-                prev_customer = customer_number
-
-                invoice_number = invoice_number or (m_ref.group(1) or "").strip() or None
-                customer_number = customer_number or (m_ref.group(2) or "").strip() or None
-
-                if prev_customer is None and customer_number:
-                    print(f"Klantnummer gevonden via betaalreferentie: {customer_number}")
-                if prev_invoice is None and invoice_number:
-                    print(f"Factuurnummer gevonden via betaalreferentie: {invoice_number}")
+                if invoice_number is None:
+                    invoice_number = m_ref.group(1).strip()
+                    logger.debug("Factuurnummer via betaalreferentie: %s", invoice_number)
+                if customer_number is None:
+                    customer_number = m_ref.group(2).strip()
+                    logger.debug("Klantnummer via betaalreferentie: %s", customer_number)
     except Exception:
         pass
 
@@ -222,13 +353,13 @@ def extract_invoice_data(text: str | None) -> dict[str, Any]:
 
             supplier_hint = extract_supplier_name_hint(text)
             if supplier_hint:
-                print(f"Supplier hint gevonden: {supplier_hint}")
+                logger.debug("Supplier hint gevonden: %s", supplier_hint)
             else:
                 supplier_hint = None
-                print("Supplier hint niet gevonden")
+                logger.debug("Supplier hint niet gevonden")
     except Exception:
         supplier_hint = None
-        print("Supplier hint niet gevonden")
+        logger.debug("Supplier hint niet gevonden", exc_info=True)
 
     # Type
     try:
@@ -237,21 +368,21 @@ def extract_invoice_data(text: str | None) -> dict[str, Any]:
             doc_type = "credit_note"
         else:
             doc_type = "invoice"
-        print(f"Type: {doc_type}")
+        logger.debug("Type: %s", doc_type)
     except Exception:
         doc_type = "invoice"
-        print(f"Type: {doc_type}")
+        logger.debug("Type: %s", doc_type, exc_info=True)
 
     # Description
     try:
         description = build_description(customer_number, invoice_number)
         if description:
-            print(f"Description gemaakt: {description}")
+            logger.debug("Description gemaakt: %s", description)
         else:
-            print("Description niet gemaakt")
+            logger.debug("Description niet gemaakt")
     except Exception:
         description = None
-        print("Description niet gemaakt")
+        logger.debug("Description niet gemaakt", exc_info=True)
 
     # Debug: gemiste velden voor troubleshooting
     try:
@@ -269,12 +400,13 @@ def extract_invoice_data(text: str | None) -> dict[str, Any]:
         if supplier_hint is None:
             missing.append("supplier_hint")
         if missing:
-            print(f"Gemiste velden: {', '.join(missing)}")
+            logger.debug("Gemiste velden: %s", ", ".join(missing))
     except Exception:
         pass
 
     return {
         "iban": iban,
+        "all_ibans": all_ibans,
         "amount": amount,
         "amount_excl_vat": amount_excl_vat,
         "invoice_number": invoice_number,
@@ -284,4 +416,114 @@ def extract_invoice_data(text: str | None) -> dict[str, Any]:
         "supplier_hint": supplier_hint,
         "raw_text": text,
     }
+
+
+def _iban_mod97_valid(iban: str) -> bool:
+    """ISO 13616 mod-97 check."""
+    try:
+        rearranged = iban[4:] + iban[:4]
+        numeric = ""
+        for ch in rearranged:
+            numeric += str(ord(ch) - 55) if ch.isalpha() else ch
+        return int(numeric) % 97 == 1
+    except Exception:
+        return False
+
+
+def _ocr_pixmap_pytesseract(pix) -> str:
+    """OCR a PyMuPDF Pixmap via pytesseract + Pillow (fallback path)."""
+    try:
+        from PIL import Image
+        import pytesseract
+
+        img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+        return pytesseract.image_to_string(img, lang="nld+eng") or ""
+    except Exception:
+        logger.debug("pytesseract OCR mislukt", exc_info=True)
+        return ""
+
+
+def extract_text_from_images(file_path: str) -> str:
+    """OCR all embedded images in a PDF and return the combined text.
+
+    Uses PyMuPDF's built-in Tesseract OCR (get_textpage_ocr) as primary path,
+    with pytesseract + Pillow as fallback.
+    Returns empty string if no OCR backend is available.
+    """
+    if _fitz is None:
+        logger.debug("PyMuPDF niet beschikbaar — OCR overgeslagen")
+        return ""
+
+    try:
+        doc = _fitz.open(file_path)
+    except Exception:
+        logger.debug("Kon PDF niet openen met PyMuPDF: %s", file_path, exc_info=True)
+        return ""
+
+    text_parts: list[str] = []
+    try:
+        for page in doc:
+            images = page.get_images(full=True)
+            if not images:
+                continue
+            for img_info in images:
+                try:
+                    xref = img_info[0]
+                    pix = _fitz.Pixmap(doc, xref)
+                    if pix.n > 4:
+                        pix = _fitz.Pixmap(_fitz.csRGB, pix)
+                    if pix.width < 50 or pix.height < 50:
+                        continue
+
+                    ocr_text = ""
+
+                    # Primary: PyMuPDF built-in OCR via Tesseract
+                    if hasattr(_fitz.Page, "get_textpage_ocr"):
+                        try:
+                            img_pdf = _fitz.open()
+                            img_page = img_pdf.new_page(width=pix.width, height=pix.height)
+                            img_page.insert_image(img_page.rect, pixmap=pix)
+                            tp = img_page.get_textpage_ocr(flags=0, language="nld", dpi=300)
+                            ocr_text = img_page.get_text("text", textpage=tp).strip()
+                            img_pdf.close()
+                        except Exception:
+                            logger.debug("PyMuPDF OCR mislukt voor xref %s, probeer pytesseract", xref, exc_info=True)
+                            ocr_text = ""
+
+                    # Fallback: pytesseract + Pillow
+                    if not ocr_text:
+                        ocr_text = _ocr_pixmap_pytesseract(pix).strip()
+
+                    if ocr_text:
+                        text_parts.append(ocr_text)
+                except Exception:
+                    continue
+    except Exception:
+        logger.debug("OCR verwerking mislukt voor %s", file_path, exc_info=True)
+    finally:
+        doc.close()
+
+    combined = "\n".join(text_parts)
+    if combined:
+        logger.debug("OCR tekst uit afbeeldingen (%d chars): %.200s", len(combined), combined)
+    return combined
+
+
+def extract_ibans_from_images(file_path: str) -> list[str]:
+    """Extract validated NL IBANs from embedded images via OCR.
+
+    Thin wrapper around extract_text_from_images for backward compatibility.
+    """
+    ocr_text = extract_text_from_images(file_path)
+    if not ocr_text:
+        return []
+
+    ibans: list[str] = []
+    seen: set[str] = set()
+    for m in re.finditer(r"\bNL\d{2}\s*[A-Z]{4}\s*\d{4}\s*\d{4}\s*\d{2}\b", ocr_text):
+        candidate = re.sub(r"\s+", "", m.group(0))
+        if candidate not in seen and _iban_mod97_valid(candidate):
+            ibans.append(candidate)
+            seen.add(candidate)
+    return ibans
 

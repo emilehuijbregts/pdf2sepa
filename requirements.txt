@@ -1,4 +1,10 @@
+# In .venv: python -m pip install -r requirements.txt --no-compile
+# (PySide6 bevat .tmpl.py; pip-bytecompilatie faalt anders op sommige Python/pip-combo's.)
 pdfplumber
 lxml
-customtkinter
-
+PySide6
+pymupdf
+pytesseract
+pillow
+pytest
+# Systeemvereiste: Tesseract OCR (brew install tesseract tesseract-lang)

@@ -1,6 +1,7 @@
 """
 E2E verify voor PDF2SEPA: Module 1 (parser), Module 2 (supplier matching),
-Module 3 (payment engine), Module 4 (uitgebreide payment-scenario's), Module 4b (payment simulaties).
+Module 3 (payment engine), Module 4 (uitgebreide payment-scenario's), Module 4b (payment simulaties),
+Module 5 (XML generator).
 Voer uit met: python verify.py
 Exitcode: 0 = alles goed, 1 = iets fout.
 """
@@ -9,10 +10,16 @@ from __future__ import annotations
 
 import io
 import json
-import sys
+import shutil
 import tempfile
 from contextlib import redirect_stdout
+from datetime import date, timedelta
+from decimal import Decimal
 from pathlib import Path
+
+from lxml import etree
+
+from output.sepa_xml import NS, generate_xml
 
 
 def _record(results: list[bool], ok: bool, message: str) -> None:
@@ -42,6 +49,25 @@ def _run_parser_checks(results: list[bool]) -> None:
     _record(results, d.get("amount") == 121.0, "amount correct")
     _record(results, d.get("amount_excl_vat") == 100.0, "amount_excl_vat correct")
 
+    try:
+        from parser.pdf_parser import extract_amount_excl_vat
+
+        excl_netto = extract_amount_excl_vat("Totaal netto goederenwaarde 9,99")
+        _record(results, excl_netto == 9.99, "excl BTW — Totaal netto goederenwaarde")
+        excl_goed = extract_amount_excl_vat("Netto goederenbedrag: 252,72")
+        _record(results, excl_goed == 252.72, "excl BTW — Netto goederenbedrag")
+    except Exception as e:
+        _record(results, False, f"extract_amount_excl_vat netto labels ({e.__class__.__name__})")
+
+    try:
+        from parser.pdf_parser import format_remittance_text
+
+        rem = format_remittance_text("1012146", "7012254003", None)
+        ok_rem = rem == "1012146 / 7012254003" and ".pdf" not in rem
+        _record(results, ok_rem, "format_remittance_text — alleen klant/factuur")
+    except Exception as e:
+        _record(results, False, f"format_remittance_text ({e.__class__.__name__})")
+
 
 def _run_supplier_checks(results: list[bool]) -> None:
     print()
@@ -57,7 +83,7 @@ def _run_supplier_checks(results: list[bool]) -> None:
         "suppliers": [
             {
                 "name": "ING Bank B.V.",
-                "iban": "NL00TEST0123456789",
+                "iban": "NL13TEST0123456789",
                 "aliases": [],
                 "discount": 5.0,
             }
@@ -78,7 +104,7 @@ def _run_supplier_checks(results: list[bool]) -> None:
         db = SupplierDB(path=tmp_path)
         invoice = {
             "supplier_name": "ING Bank B.V.",
-            "iban": "NL00TEST0123456789",
+            "iban": "NL13TEST0123456789",
         }
         out = match_suppliers([invoice], db)[0]
     except Exception as e:
@@ -96,6 +122,51 @@ def _run_supplier_checks(results: list[bool]) -> None:
     _record(results, "match_status" in out, "match_status aanwezig")
     _record(results, out.get("supplier_name") == "ING Bank B.V.", "supplier_name correct")
     _record(results, "discount" in out and out.get("discount") == 5.0, "discount aanwezig")
+
+    # Klantcode-match (stap 4) + IBAN uit database vullen
+    tmp_cc: str | None = None
+    try:
+        payload_cc = {
+            "suppliers": [
+                {
+                    "name": "Klantcode BV",
+                    "iban": "NL62TEST0987654321",
+                    "aliases": ["Klantcode BV"],
+                    "discount": 1.5,
+                    "customer_codes": ["424242"],
+                }
+            ]
+        }
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            suffix=".json",
+            delete=False,
+            encoding="utf-8",
+        ) as tmp:
+            tmp.write(json.dumps(payload_cc, ensure_ascii=False))
+            tmp_cc = tmp.name
+        db_cc = SupplierDB(path=tmp_cc)
+        inv_cc = {
+            "supplier_hint": None,
+            "iban": None,
+            "customer_number": "424242",
+        }
+        out_cc = match_suppliers([inv_cc], db_cc)[0]
+        _record(
+            results,
+            out_cc.get("supplier_name") == "Klantcode BV"
+            and out_cc.get("iban") == "NL62TEST0987654321"
+            and out_cc.get("match_status") in ("matched", "needs_review", "confirmed"),
+            "match via klantcode + IBAN uit DB",
+        )
+    except Exception as e:
+        _record(results, False, f"Klantcode-match crash ({e.__class__.__name__}: {e})")
+    finally:
+        if tmp_cc:
+            try:
+                Path(tmp_cc).unlink(missing_ok=True)
+            except Exception:
+                pass
 
 
 def _run_payment_checks(results: list[bool]) -> None:
@@ -115,7 +186,7 @@ def _run_payment_checks(results: list[bool]) -> None:
             "amount": 121.0,
             "amount_excl_vat": 100.0,
             "discount": 10,
-            "iban": "NL00TEST0123456789",
+            "iban": "NL13TEST0123456789",
             "type": "invoice",
             "invoice_number": "INV-1",
             "description": "test",
@@ -134,7 +205,7 @@ def _run_payment_checks(results: list[bool]) -> None:
         base = {
             "supplier_name": "Test BV",
             "match_status": "matched",
-            "iban": "NL00TEST0123456789",
+            "iban": "NL13TEST0123456789",
             "discount": 0,
         }
         inv2a = {
@@ -163,7 +234,7 @@ def _run_payment_checks(results: list[bool]) -> None:
         base = {
             "supplier_name": "Test BV Over",
             "match_status": "matched",
-            "iban": "NL00TEST0999999999",
+            "iban": "NL78TEST0999999999",
             "discount": 0,
         }
         inv3a = {
@@ -206,7 +277,7 @@ def _run_module4_payment_checks(results: list[bool]) -> None:
             "type": "invoice",
             "supplier_name": "ING Bank B.V.",
             "match_status": "matched",
-            "iban": "NL00TEST0123456789",
+            "iban": "NL13TEST0123456789",
             "invoice_number": "INV001",
             "description": "Testfactuur 1",
         }
@@ -226,7 +297,7 @@ def _run_module4_payment_checks(results: list[bool]) -> None:
             "type": "invoice",
             "supplier_name": "ING Bank B.V.",
             "match_status": "matched",
-            "iban": "NL00TEST0123456789",
+            "iban": "NL13TEST0123456789",
             "invoice_number": "INV002",
             "description": "Testfactuur 2",
         }
@@ -261,7 +332,7 @@ def _run_module4_payment_checks(results: list[bool]) -> None:
             "type": "invoice",
             "supplier_name": "ING Bank B.V.",
             "match_status": "matched",
-            "iban": "NL00TEST0123456789",
+            "iban": "NL13TEST0123456789",
             "invoice_number": "INV003",
             "description": "A",
         }
@@ -272,7 +343,7 @@ def _run_module4_payment_checks(results: list[bool]) -> None:
             "type": "invoice",
             "supplier_name": "ING Bank B.V.",
             "match_status": "matched",
-            "iban": "NL00TEST0123456789",
+            "iban": "NL13TEST0123456789",
             "invoice_number": "INV004",
             "description": "B",
         }
@@ -316,7 +387,7 @@ def _run_module4_payment_checks(results: list[bool]) -> None:
             "type": "invoice",
             "supplier_name": "UNKNOWN",
             "match_status": "unmatched",
-            "iban": "NL00TEST0123456789",
+            "iban": "NL13TEST0123456789",
             "invoice_number": "INV005",
             "description": "Unknown Supplier",
         }
@@ -339,7 +410,7 @@ def _run_module4_payment_checks(results: list[bool]) -> None:
             "type": "invoice",
             "supplier_name": "ING Bank B.V.",
             "match_status": "matched",
-            "iban": "NL00TEST0123456789",
+            "iban": "NL13TEST0123456789",
             "invoice_number": "INV006",
             "description": "No Excl VAT",
         }
@@ -352,6 +423,30 @@ def _run_module4_payment_checks(results: list[bool]) -> None:
         )
     except Exception as e:
         _record(results, False, f"Test 6 crash ({e.__class__.__name__})")
+
+    # Test 6b — IBAN afwijkend van leveranciersdatabase
+    try:
+        invoice_iban_mm = {
+            "amount": 121.0,
+            "amount_excl_vat": 100.0,
+            "discount": 0,
+            "type": "invoice",
+            "supplier_name": "ING Bank B.V.",
+            "match_status": "matched",
+            "iban": "NL13TEST0123456789",
+            "invoice_number": "INV006B",
+            "description": "IBAN mismatch",
+            "iban_mismatch": True,
+        }
+        payments_b, _err_b = calculate_payments([invoice_iban_mm])
+        _record(
+            results,
+            payments_b[0].get("warning") == "iban_mismatch_supplier",
+            "Test 6b — iban_mismatch warning",
+        )
+        _record(results, payments_b[0].get("iban_mismatch") is True, "Test 6b — iban_mismatch flag on payment")
+    except Exception as e:
+        _record(results, False, f"Test 6b crash ({e.__class__.__name__})")
 
     # Test 7 — IBAN: syntactisch ongeldig vs. niet-NL (DE/BE/FR) ok
     try:
@@ -438,7 +533,7 @@ def _run_module4b_payment_simulations(results: list[bool]) -> None:
                         "discount": 10.0,
                         "match_status": "matched",
                         "supplier_name": "Test BV",
-                        "iban": "NL91TEST0123456789",
+                        "iban": "NL13TEST0123456789",
                     }
                 ],
                 "expected_payments": [190.0],
@@ -458,7 +553,7 @@ def _run_module4b_payment_simulations(results: list[bool]) -> None:
                         "discount": 5.0,
                         "match_status": "matched",
                         "supplier_name": "Test BV",
-                        "iban": "NL91TEST0123456789",
+                        "iban": "NL13TEST0123456789",
                     },
                     {
                         "invoice_number": "CRD001",
@@ -468,7 +563,7 @@ def _run_module4b_payment_simulations(results: list[bool]) -> None:
                         "discount": 0.0,
                         "match_status": "matched",
                         "supplier_name": "Test BV",
-                        "iban": "NL91TEST0123456789",
+                        "iban": "NL13TEST0123456789",
                     },
                 ],
                 # 300 - 50 - ((200 - 30) * 5%) = 241.5
@@ -490,7 +585,7 @@ def _run_module4b_payment_simulations(results: list[bool]) -> None:
                         "discount": 0.0,
                         "match_status": "matched",
                         "supplier_name": "Test BV",
-                        "iban": "NL91TEST0123456789",
+                        "iban": "NL13TEST0123456789",
                     },
                     {
                         "invoice_number": "CRD002",
@@ -500,7 +595,7 @@ def _run_module4b_payment_simulations(results: list[bool]) -> None:
                         "discount": 0.0,
                         "match_status": "matched",
                         "supplier_name": "Test BV",
-                        "iban": "NL91TEST0123456789",
+                        "iban": "NL13TEST0123456789",
                     },
                 ],
                 "expected_payments": [],
@@ -520,7 +615,7 @@ def _run_module4b_payment_simulations(results: list[bool]) -> None:
                         "discount": 0.0,
                         "match_status": "matched",
                         "supplier_name": "Test BV",
-                        "iban": "NL91TEST0123456789",
+                        "iban": "NL13TEST0123456789",
                     },
                     {
                         "invoice_number": "F005",
@@ -530,7 +625,7 @@ def _run_module4b_payment_simulations(results: list[bool]) -> None:
                         "discount": 0.0,
                         "match_status": "matched",
                         "supplier_name": "Test BV",
-                        "iban": "NL91TEST0123456789",
+                        "iban": "NL13TEST0123456789",
                     },
                 ],
                 "expected_payments": [200.0, 120.0],
@@ -550,7 +645,7 @@ def _run_module4b_payment_simulations(results: list[bool]) -> None:
                         "discount": 0.0,
                         "match_status": "matched",
                         "supplier_name": "Test BV",
-                        "iban": "NL91TEST0123456789",
+                        "iban": "NL13TEST0123456789",
                     }
                 ],
                 "expected_payments": [],
@@ -570,7 +665,7 @@ def _run_module4b_payment_simulations(results: list[bool]) -> None:
                         "discount": 10.0,
                         "match_status": "matched",
                         "supplier_name": "Test BV",
-                        "iban": "NL91TEST0123456789",
+                        "iban": "NL13TEST0123456789",
                     }
                 ],
                 "expected_payments": [150.0],
@@ -637,6 +732,201 @@ def _run_module4b_payment_simulations(results: list[bool]) -> None:
         _record(results, False, f"Module 4b crash ({type(e).__name__}: {e})")
 
 
+def _run_module5_xml_generator_checks(results: list[bool]) -> None:
+    print()
+    print("[ Module 5 — XML Generator ]")
+
+    def qn(local: str) -> str:
+        return f"{{{NS}}}{local}"
+
+    def _dec2(s: str) -> Decimal:
+        return Decimal(str(s)).quantize(Decimal("0.01"))
+
+    tmp_dir = tempfile.mkdtemp()
+    try:
+        debtor = {
+            "name": "Test Bedrijf BV",
+            "iban": "NL02ABNA0123456789",
+            "bic": "ABNANL2A",
+        }
+        exec_dt = (date.today() + timedelta(days=1)).isoformat()
+
+        # Test 1 — basisgeneratie
+        payment_a = {
+            "supplier_name": "Test Leverancier A",
+            "iban": "NL20INGB0001234567",
+            "amount": 100.00,
+            "description": "REF001",
+            "invoice_number": "INV001",
+        }
+        payment_b = {
+            "supplier_name": "Test Leverancier B",
+            "iban": "NL25CITI0266075452",
+            "amount": 57.00,
+            "description": "REF002",
+            "invoice_number": "INV002",
+        }
+        try:
+            out_path = generate_xml(
+                [payment_a, payment_b],
+                debtor,
+                exec_dt,
+                output_dir=tmp_dir,
+            )
+        except Exception as e:
+            _record(results, False, f"Test 1 — generate_xml crash ({e.__class__.__name__})")
+            out_path = None
+
+        if out_path is not None:
+            _record(results, Path(out_path).is_file(), "Test 1 — bestand bestaat op pad")
+            root = None
+            try:
+                tree = etree.parse(out_path)
+                root = tree.getroot()
+                _record(results, True, "Test 1 — geldige XML (lxml parse)")
+            except Exception as e:
+                _record(results, False, f"Test 1 — XML parse FAIL ({e.__class__.__name__})")
+
+            if root is not None:
+                ns_ok = root.tag == qn("Document") and root.nsmap.get(None) == NS
+                _record(results, ns_ok, "Test 1 — namespace exact pain.001.001.09")
+
+                txs = root.findall(f".//{qn('CdtTrfTxInf')}")
+                n_found = len(txs)
+                _record(results, n_found == 2, "Test 1 — aantal CdtTrfTxInf = 2")
+
+                instd = [el.text for el in root.findall(f".//{qn('InstdAmt')}")]
+                _record(results, instd == ["100.00", "57.00"], "Test 1 — InstdAmt 100.00 en 57.00")
+                xml_sum = sum((_dec2(x) for x in instd if x is not None), start=Decimal("0.00"))
+                xml_sum_str = f"{xml_sum:.2f}"
+
+                grp_nb = root.find(f".//{qn('GrpHdr')}/{qn('NbOfTxs')}")
+                pmt_nb = root.find(f".//{qn('PmtInf')}/{qn('NbOfTxs')}")
+                _record(
+                    results,
+                    grp_nb is not None and grp_nb.text == str(n_found),
+                    "Test 1 — GrpHdr NbOfTxs matcht CdtTrfTxInf",
+                )
+                _record(
+                    results,
+                    pmt_nb is not None and pmt_nb.text == str(n_found),
+                    "Test 1 — PmtInf NbOfTxs matcht CdtTrfTxInf",
+                )
+
+                grp_cs = root.find(f".//{qn('GrpHdr')}/{qn('CtrlSum')}")
+                pmt_cs = root.find(f".//{qn('PmtInf')}/{qn('CtrlSum')}")
+                _record(
+                    results,
+                    grp_cs is not None and grp_cs.text == xml_sum_str,
+                    "Test 1 — GrpHdr CtrlSum matcht som InstdAmt",
+                )
+                _record(
+                    results,
+                    pmt_cs is not None and pmt_cs.text == xml_sum_str,
+                    "Test 1 — PmtInf CtrlSum matcht som InstdAmt",
+                )
+
+                # PmtTpInf/SvcLvl/Cd exact "SEPA"
+                cd = root.find(f".//{qn('PmtInf')}/{qn('PmtTpInf')}/{qn('SvcLvl')}/{qn('Cd')}")
+                _record(results, cd is not None and cd.text == "SEPA", "Test 1 — SvcLvl/Cd = SEPA")
+
+                # ChrgBr verplicht SLEV
+                ch = root.find(f".//{qn('PmtInf')}/{qn('ChrgBr')}")
+                _record(results, ch is not None and ch.text == "SLEV", "Test 1 — ChrgBr = SLEV")
+
+                reqd_dt = root.find(f".//{qn('ReqdExctnDt')}/{qn('Dt')}")
+                _record(
+                    results,
+                    reqd_dt is not None and (reqd_dt.text or "").strip() == exec_dt,
+                    "Test 1 — ReqdExctnDt/Dt is execution_date",
+                )
+
+                dbic = root.find(f".//{qn('PmtInf')}/{qn('DbtrAgt')}/{qn('FinInstnId')}/{qn('BICFI')}")
+                _record(results, dbic is not None and (dbic.text or "").strip() == "ABNANL2A", "Test 1 — DbtrAgt/BICFI aanwezig")
+
+                # InstrId + EndToEndId per tx, Ustrd <= 140
+                pmt_ids = root.findall(f".//{qn('CdtTrfTxInf')}/{qn('PmtId')}")
+                ok_ids = True
+                for pid in pmt_ids:
+                    instr = pid.find(qn("InstrId"))
+                    e2e = pid.find(qn("EndToEndId"))
+                    if instr is None or not (instr.text or "").strip():
+                        ok_ids = False
+                        break
+                    if e2e is None or not (e2e.text or "").strip():
+                        ok_ids = False
+                        break
+                _record(results, ok_ids and len(pmt_ids) == n_found, "Test 1 — InstrId en EndToEndId aanwezig per tx")
+
+                ustrd_elems = root.findall(f".//{qn('RmtInf')}/{qn('Ustrd')}")
+                _record(
+                    results,
+                    len(ustrd_elems) == n_found and all(len((u.text or "")) <= 140 for u in ustrd_elems),
+                    "Test 1 — Ustrd aanwezig en <= 140",
+                )
+
+        # Test 2 — CtrlSum precisie
+        try:
+            p2 = [
+                {
+                    "supplier_name": "Precisie A",
+                    "iban": "NL20INGB0001234567",
+                    "amount": 10.10,
+                    "description": "P1",
+                    "invoice_number": "P1",
+                },
+                {
+                    "supplier_name": "Precisie B",
+                    "iban": "NL25CITI0266075452",
+                    "amount": 20.20,
+                    "description": "P2",
+                    "invoice_number": "P2",
+                },
+                {
+                    "supplier_name": "Precisie C",
+                    "iban": "NL02ABNA0123456789",
+                    "amount": 30.30,
+                    "description": "P3",
+                    "invoice_number": "P3",
+                },
+            ]
+            path2 = generate_xml(p2, debtor, exec_dt, output_dir=tmp_dir)
+            t2 = etree.parse(path2)
+            r2 = t2.getroot()
+            cs2 = r2.findall(f".//{qn('CtrlSum')}")
+            _record(
+                results,
+                len(cs2) > 0 and all(el.text == "60.60" for el in cs2),
+                "Test 2 — CtrlSum precisie \"60.60\"",
+            )
+        except Exception as e:
+            _record(results, False, f"Test 2 crash ({e.__class__.__name__})")
+
+        # Test 3 — speciale tekens
+        umlaut_name = "Müller & Zöhne GmbH"
+        try:
+            p3 = [
+                {
+                    "supplier_name": umlaut_name,
+                    "iban": "NL20INGB0001234567",
+                    "amount": 1.0,
+                    "description": "U",
+                    "invoice_number": "U1",
+                }
+            ]
+            path3 = generate_xml(p3, debtor, exec_dt, output_dir=tmp_dir)
+            t3 = etree.parse(path3)
+            _record(results, True, "Test 3 — geldige XML na speciale tekens")
+            nm_elems = t3.findall(f".//{qn('Cdtr')}/{qn('Nm')}")
+            got = nm_elems[0].text if nm_elems else None
+            _record(results, got == umlaut_name, "Test 3 — leveranciersnaam correct (Unicode)")
+        except Exception as e:
+            _record(results, False, f"Test 3 crash ({e.__class__.__name__})")
+
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
 def main() -> int:
     results: list[bool] = []
 
@@ -657,6 +947,11 @@ def main() -> int:
     _run_module4b_payment_simulations(results)
     m4b_ok = all(results[m4b_start:])
     print("All Module 4b checks passed ✅" if m4b_ok else "Some Module 4b checks failed ❌")
+
+    m5_start = len(results)
+    _run_module5_xml_generator_checks(results)
+    m5_ok = all(results[m5_start:])
+    print("All Module 5 checks passed ✅" if m5_ok else "Some Module 5 checks failed ❌")
 
     print()
     all_ok = all(results)

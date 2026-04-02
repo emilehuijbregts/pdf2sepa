@@ -22,10 +22,37 @@ def _clean_iban(iban: str | None) -> str:
 
 
 def _is_plausible_iban(iban: str) -> bool:
-    """Syntactische IBAN-check: lengte ISO 15–34, 2-letter landcode, alleen A–Z en 0–9; geen mod-97."""
+    """IBAN validation: format check + mod-97 checksum."""
     if len(iban) < 15 or len(iban) > 34:
         return False
-    return bool(re.fullmatch(r"[A-Z]{2}[0-9A-Z]{13,32}", iban))
+    if not re.fullmatch(r"[A-Z]{2}[0-9A-Z]{13,32}", iban):
+        return False
+    return _iban_mod97_valid(iban)
+
+
+def _iban_mod97_valid(iban: str) -> bool:
+    """ISO 13616 mod-97 check. Returns True for valid IBANs."""
+    try:
+        rearranged = iban[4:] + iban[:4]
+        numeric = ""
+        for ch in rearranged:
+            if ch.isdigit():
+                numeric += ch
+            else:
+                numeric += str(ord(ch) - 55)
+        return int(numeric) % 97 == 1
+    except Exception:
+        return False
+
+
+def clean_iban(iban: str | None) -> str:
+    """Publieke IBAN-normalisatie; zelfde gedrag als intern gebruik in deze module."""
+    return _clean_iban(iban)
+
+
+def is_plausible_iban(iban: str) -> bool:
+    """Publieke syntactische IBAN-check voor UI en externe callers."""
+    return _is_plausible_iban(iban)
 
 
 def calculate_payments(invoices: list[dict]) -> tuple[list[dict], list[dict]]:
@@ -37,14 +64,18 @@ def calculate_payments(invoices: list[dict]) -> tuple[list[dict], list[dict]]:
     err = _ErrorBuckets()
     payments: list[dict] = []
 
+    _ACCEPTED_STATUSES = {"matched", "new", "confirmed", "reviewed"}
+
     accepted: list[dict] = []
     for inv in invoices:
         ms = inv.get("match_status")
-        if ms in ("matched", "new"):
+        if ms in _ACCEPTED_STATUSES:
             accepted.append(inv)
             continue
         if ms == "no_hint":
             reason = "no_supplier_hint"
+        elif ms == "needs_review":
+            reason = "needs_review"
         else:
             reason = "unmatched_supplier"
         err.add(reason, inv.get("supplier_name"), [inv])
@@ -165,7 +196,9 @@ def _process_supplier_group(
     ):
         creds = linked.get(id(inv), [])
         discount = float(inv.get("discount") or 0)
-        warning: str | None = None
+        warn_parts: list[str] = []
+        if inv.get("iban_mismatch"):
+            warn_parts.append("iban_mismatch_supplier")
 
         if not creds:
             excl = inv.get("amount_excl_vat")
@@ -173,7 +206,7 @@ def _process_supplier_group(
                 korting = excl * (discount / 100)
             else:
                 korting = 0.0
-                warning = "no_excl_vat_amount_discount_skipped"
+                warn_parts.append("no_excl_vat_amount_discount_skipped")
             te_betalen = round((inv["amount"] - korting) + 1e-9, 2)
         else:
             saldo_incl = inv["amount"] - sum(c["amount"] for c in creds)
@@ -186,8 +219,10 @@ def _process_supplier_group(
                 korting = saldo_excl * (discount / 100)
             else:
                 korting = 0.0
-                warning = "no_excl_vat_amount_discount_skipped"
+                warn_parts.append("no_excl_vat_amount_discount_skipped")
             te_betalen = round((saldo_incl - korting) + 1e-9, 2)
+
+        warning: str | None = "|".join(warn_parts) if warn_parts else None
 
         sup_out = inv.get("supplier_name")
         sup_for_err = sup_out if sup_out is not None else group_supplier
@@ -225,6 +260,7 @@ def _process_supplier_group(
                 else "",
                 "credit_notes_applied": credit_notes_applied,
                 "warning": warning,
+                "iban_mismatch": bool(inv.get("iban_mismatch")),
                 "status": "ok",
             }
         )

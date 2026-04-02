@@ -3,11 +3,47 @@
     {
       "name": "Wavin Nederland B.V.",
       "iban": "NL25CITI0266075452",
-      "discount": 0.0,
+      "discount": 2.0,
       "aliases": [
         "Wavin-Nederland",
         "Wavin Nederland B.V.",
         "Wavin NL"
+      ],
+      "customer_codes": [
+        "1012146"
+      ]
+    },
+    {
+      "name": "SALO B.V.",
+      "iban": "NL64ABNA0589033654",
+      "discount": 0.0,
+      "aliases": [
+        "SALO B.V."
+      ],
+      "customer_codes": [
+        "3503"
+      ]
+    },
+    {
+      "name": "Bosta B.V.",
+      "iban": "NL58INGB0006364795",
+      "discount": 0.0,
+      "aliases": [
+        "Bosta B.V."
+      ],
+      "customer_codes": [
+        "NL01114276"
+      ]
+    },
+    {
+      "name": "Technische Unie B.V.",
+      "iban": "NL71ABNA0804385750",
+      "discount": 0.0,
+      "aliases": [
+        "Technische Unie B.V."
+      ],
+      "customer_codes": [
+        "3903168"
       ]
     }
   ]

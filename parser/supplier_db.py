@@ -3,7 +3,7 @@ Supplier database beheer + robuuste matching logica.
 
 - Beheert `data/suppliers.json`
 - Faalt veilig bij ontbrekend/corrupte JSON
-- Matching volgorde: IBAN (hard) → alias → fuzzy
+- Matching volgorde: IBAN (hard) → alias → fuzzy → klantcode
 
 Let op: gebruikt alleen standaard libraries (json, difflib, re) zoals vereist.
 """
@@ -100,10 +100,20 @@ class SupplierDB:
 
             supplier["_clean_name"] = self._clean_name(str(name))
             supplier["_clean_aliases"] = [self._clean_name(str(a)) for a in aliases if a]
+            codes = supplier.get("customer_codes")
+            if not isinstance(codes, list):
+                codes = []
+            supplier["customer_codes"] = [
+                str(c).strip() for c in codes if str(c or "").strip()
+            ]
+            supplier["_clean_customer_codes"] = [
+                self._normalize_customer_code(c) for c in supplier["customer_codes"]
+            ]
         except Exception:
             # Optimization only; ignore
             supplier["_clean_name"] = ""
             supplier["_clean_aliases"] = []
+            supplier["_clean_customer_codes"] = []
 
     def _clean_iban(self, iban: str) -> str:
         """
@@ -184,96 +194,142 @@ class SupplierDB:
         except Exception:
             return []
 
-    def find_supplier(self, supplier_hint: str | None, iban: str | None) -> dict | None:
+    def _normalize_customer_code(self, code: str) -> str:
         """
-        Zoek supplier met EXACT deze volgorde:
+        Normaliseer klant-/lidnummer voor vergelijking.
 
-        1) IBAN match (HARD RULE)
-           - als iban niet None: loop suppliers, als IBAN matcht → direct return
-           - IBAN vergelijking gebeurt altijd via `_clean_iban(...)`
-
-        2) Alias match
-           - als supplier_hint bestaat: clean hint en check aliases (substring of exact)
-
-        3) Fuzzy match
-           - SequenceMatcher ratio op cleaned hint vs cleaned name + aliases
-           - beste score bepaalt match
-           - match alleen als best_supplier != None én best_score >= 0.80
-
-        Geen match → None.
+        Lange numerieke codes vergelijken we op cijfers alleen (1012146 vs 1.012.146).
+        Korte of alfanumerieke codes: strip + lowercase.
         """
 
         try:
-            # Step 1 — IBAN match (hard rule)
-            if iban is not None:
-                iban_clean = self._clean_iban(iban)
+            s = str(code or "").strip()
+            if not s:
+                return ""
+            digits = re.sub(r"\D", "", s)
+            if len(digits) >= 4:
+                return digits
+            return s.casefold()
+        except Exception:
+            return ""
+
+    def find_supplier_scored(
+        self,
+        supplier_hint: str | None,
+        iban: str | None,
+        customer_number: str | None = None,
+    ) -> tuple[dict | None, dict]:
+        """Find the best-matching supplier and report which characteristics matched.
+
+        Returns:
+            ``(supplier, match_info)`` where ``match_info`` contains booleans
+            ``iban_match``, ``alias_match``, ``fuzzy_match``, ``customer_code_match``
+            and a ``fuzzy_score`` float.
+        """
+        empty_info: dict = {
+            "iban_match": False,
+            "alias_match": False,
+            "fuzzy_match": False,
+            "fuzzy_score": 0.0,
+            "customer_code_match": False,
+        }
+
+        try:
+            iban_clean = self._clean_iban(iban) if iban else ""
+            hint_clean = self._clean_name(supplier_hint) if supplier_hint else ""
+            inv_cc = self._normalize_customer_code(str(customer_number)) if customer_number else ""
+
+            scored: list[tuple[dict, dict, int]] = []
+
+            for s in self.suppliers:
+                info = dict(empty_info)
+
+                if not isinstance(s.get("_clean_aliases"), list):
+                    self._refresh_supplier_cache(s)
+
                 if iban_clean:
-                    for s in self.suppliers:
-                        sup_iban = self._clean_iban(s.get("iban") or "")
-                        if iban_clean and sup_iban and iban_clean == sup_iban:
-                            return s
+                    sup_iban = self._clean_iban(s.get("iban") or "")
+                    if sup_iban and iban_clean == sup_iban:
+                        info["iban_match"] = True
 
-            # Step 2 — Alias match
-            if supplier_hint:
-                hint_clean = self._clean_name(supplier_hint)
                 if hint_clean:
-                    for s in self.suppliers:
-                        aliases_clean = s.get("_clean_aliases")
-                        if not isinstance(aliases_clean, list):
-                            self._refresh_supplier_cache(s)
-                            aliases_clean = s.get("_clean_aliases") or []
+                    for a in (s.get("_clean_aliases") or []):
+                        if a and (hint_clean == a or hint_clean in a or a in hint_clean):
+                            info["alias_match"] = True
+                            break
 
-                        for a_clean in aliases_clean:
-                            if not a_clean:
-                                continue
-                            if hint_clean == a_clean or (hint_clean in a_clean) or (a_clean in hint_clean):
-                                return s
-
-            # Step 3 — Fuzzy match
-            if supplier_hint:
-                hint_clean = self._clean_name(supplier_hint)
-                if not hint_clean:
-                    return None
-
-                best_supplier: dict | None = None
-                best_score: float = -1.0
-
-                for s in self.suppliers:
-                    name_clean = s.get("_clean_name")
-                    aliases_clean = s.get("_clean_aliases")
-                    if not isinstance(name_clean, str) or not isinstance(aliases_clean, list):
-                        self._refresh_supplier_cache(s)
-                        name_clean = s.get("_clean_name") or ""
-                        aliases_clean = s.get("_clean_aliases") or []
-
-                    candidates = [name_clean, *aliases_clean]
-                    for cand in candidates:
-                        if not cand:
+                if hint_clean and not info["alias_match"]:
+                    name_clean = s.get("_clean_name") or ""
+                    cands = [name_clean, *(s.get("_clean_aliases") or [])]
+                    best = 0.0
+                    for c in cands:
+                        if not c:
                             continue
-                        score = SequenceMatcher(None, hint_clean, cand).ratio()
-                        if score > best_score:
-                            best_score = score
-                            best_supplier = s
+                        sc = SequenceMatcher(None, hint_clean, c).ratio()
+                        if sc > best:
+                            best = sc
+                    info["fuzzy_score"] = best
+                    if best >= 0.85:
+                        info["fuzzy_match"] = True
 
-                # Safety: alleen matchen als er echt een kandidaat is en score >= 0.80
-                if best_supplier is not None and best_score >= 0.80:
-                    # TODO: later confidence level opslaan voor UI
-                    return best_supplier
+                if inv_cc:
+                    for cc in (s.get("_clean_customer_codes") or []):
+                        if cc and cc == inv_cc:
+                            info["customer_code_match"] = True
+                            break
 
-                return None
+                n = sum([
+                    info["iban_match"],
+                    info["alias_match"],
+                    info["customer_code_match"],
+                    info["fuzzy_match"],
+                ])
+                if n > 0:
+                    scored.append((s, info, n))
 
-            return None
+            if not scored:
+                return None, dict(empty_info)
+
+            scored.sort(key=lambda x: (x[2], x[1].get("fuzzy_score", 0)), reverse=True)
+            best_supplier, best_info, _ = scored[0]
+            return best_supplier, best_info
+
+        except Exception:
+            return None, dict(empty_info)
+
+    def find_supplier(
+        self,
+        supplier_hint: str | None,
+        iban: str | None,
+        customer_number: str | None = None,
+        *,
+        match_customer_code: bool = True,
+    ) -> dict | None:
+        """Backward-compatible wrapper around ``find_supplier_scored``."""
+        try:
+            sup, _ = self.find_supplier_scored(
+                supplier_hint, iban,
+                customer_number if match_customer_code else None,
+            )
+            return sup
         except Exception:
             return None
 
-    def add_supplier(self, name: str, iban: str, discount: float = 0.0, aliases: list | None = None):
+    def add_supplier(
+        self,
+        name: str,
+        iban: str,
+        discount: float = 0.0,
+        aliases: list | None = None,
+        customer_codes: list | None = None,
+    ):
         """
         Voeg een supplier toe en sla direct op.
 
         Regels:
         - name zit altijd in aliases
         - aliases=None → lege lijst
-        - voorkom duplicates: als `find_supplier(name, iban)` iets oplevert → skip (optioneel log)
+        - voorkom duplicates: ``find_supplier`` zonder klantcode-match
         - nooit crashen op slechte input
         """
 
@@ -282,13 +338,15 @@ class SupplierDB:
             iban = str(iban or "").strip()
             if aliases is None or not isinstance(aliases, list):
                 aliases = []
+            if customer_codes is None or not isinstance(customer_codes, list):
+                customer_codes = []
 
             # Optional sanity check (lightweight)
             if iban and not self._is_plausible_nl_iban(iban):
                 print(f"[SupplierDB] Waarschuwing: IBAN lijkt geen NL-IBAN: {iban!r}")
 
-            # Duplicate prevention
-            if self.find_supplier(supplier_hint=name, iban=iban):
+            # Duplicate prevention (geen klantcode-match: voorkomt skip bij nieuwe code)
+            if self.find_supplier(name, iban, None, match_customer_code=False):
                 print(f"[SupplierDB] Supplier '{name}' al aanwezig, skip.")
                 return
 
@@ -296,6 +354,9 @@ class SupplierDB:
             aliases = [*aliases, name]
             aliases = [str(a).strip() for a in aliases if str(a or "").strip()]
             aliases = self._dedup_preserve_order(aliases)
+
+            codes = [str(c).strip() for c in customer_codes if str(c or "").strip()]
+            codes = self._dedup_preserve_order(codes)
 
             try:
                 discount_f = float(discount)
@@ -307,6 +368,7 @@ class SupplierDB:
                 "iban": self._clean_iban(iban) if iban else "",
                 "discount": discount_f,
                 "aliases": aliases,
+                "customer_codes": codes,
             }
 
             self.suppliers.append(supplier)
@@ -315,7 +377,68 @@ class SupplierDB:
         except Exception:
             return
 
-    def update_supplier(self, name: str, **kwargs):
+    def merge_or_add_supplier(
+        self,
+        name: str,
+        iban: str,
+        customer_code: str | None = None,
+        discount: float = 0.0,
+    ) -> bool:
+        """
+        Voeg leverancier toe, of merge klantcode in bestaande (match op IBAN, anders op naam).
+
+        Retourneert ``True`` als opslaan is gelukt.
+        """
+
+        try:
+            name = str(name or "").strip()
+            iban = str(iban or "").strip()
+            code_raw = str(customer_code or "").strip()
+            if not name or not iban:
+                return False
+
+            existing: dict | None = None
+            ic = self._clean_iban(iban)
+            if ic:
+                for s in self.suppliers:
+                    if self._clean_iban(s.get("iban") or "") == ic:
+                        existing = s
+                        break
+            if existing is None:
+                nc = self._clean_name(name)
+                for s in self.suppliers:
+                    if self._clean_name(s.get("name") or "") == nc:
+                        existing = s
+                        break
+
+            if existing is not None:
+                if code_raw:
+                    merged = list(existing.get("customer_codes") or [])
+                    if not isinstance(merged, list):
+                        merged = []
+                    merged = [str(x).strip() for x in merged if str(x or "").strip()]
+                    if code_raw not in merged:
+                        merged.append(code_raw)
+                    existing["customer_codes"] = self._dedup_preserve_order(merged)
+                if ic and not self._clean_iban(existing.get("iban") or ""):
+                    existing["iban"] = ic
+                self._refresh_supplier_cache(existing)
+                self.save()
+                return True
+
+            n_before = len(self.suppliers)
+            self.add_supplier(
+                name,
+                iban,
+                discount,
+                aliases=[name],
+                customer_codes=[code_raw] if code_raw else [],
+            )
+            return len(self.suppliers) > n_before
+        except Exception:
+            return False
+
+    def update_supplier(self, name: str, **kwargs) -> bool:
         """
         Update een bestaande supplier en sla direct op.
 
@@ -326,12 +449,14 @@ class SupplierDB:
           - aliases:
             - append (dedup) standaard
             - overwrite alleen als `overwrite_aliases=True`
+
+        Retourneert ``True`` als een leverancier is gevonden en opgeslagen.
         """
 
         try:
             target_clean = self._clean_name(name)
             if not target_clean:
-                return
+                return False
 
             supplier: dict | None = None
             for s in self.suppliers:
@@ -340,7 +465,7 @@ class SupplierDB:
                     break
 
             if supplier is None:
-                return
+                return False
 
             # IBAN overwrite
             if "iban" in kwargs:
@@ -384,10 +509,50 @@ class SupplierDB:
 
                 supplier["aliases"] = self._dedup_preserve_order([a for a in merged if a])
 
+            if "customer_codes" in kwargs:
+                overwrite_cc = bool(kwargs.get("overwrite_customer_codes", False))
+                new_cc = kwargs.get("customer_codes")
+                if not isinstance(new_cc, list):
+                    new_cc = []
+                cleaned_cc = [str(c).strip() for c in new_cc if str(c or "").strip()]
+                if overwrite_cc:
+                    merged_cc = cleaned_cc
+                else:
+                    existing_cc = supplier.get("customer_codes") or []
+                    if not isinstance(existing_cc, list):
+                        existing_cc = []
+                    merged_cc = [
+                        *([str(x).strip() for x in existing_cc if str(x or "").strip()]),
+                        *cleaned_cc,
+                    ]
+                supplier["customer_codes"] = self._dedup_preserve_order(merged_cc)
+
             self._refresh_supplier_cache(supplier)
             self.save()
+            return True
         except Exception:
-            return
+            return False
+
+    def delete_supplier(self, name: str) -> bool:
+        """Verwijder leverancier op canonieke naam. ``True`` als er iets verwijderd is."""
+        try:
+            target_clean = self._clean_name(name)
+            if not target_clean:
+                return False
+            before = len(self.suppliers)
+            self.suppliers = [
+                s
+                for s in self.suppliers
+                if self._clean_name(s.get("name") or "") != target_clean
+            ]
+            if len(self.suppliers) == before:
+                return False
+            self._data["suppliers"] = self.suppliers
+            self._rebuild_runtime_cache()
+            self.save()
+            return True
+        except Exception:
+            return False
 
     def get_all(self) -> list:
         """
@@ -404,7 +569,7 @@ class SupplierDB:
                 for k, v in (s or {}).items():
                     if isinstance(k, str) and k.startswith("_clean"):
                         continue
-                    if k == "aliases" and isinstance(v, list):
+                    if k in ("aliases", "customer_codes") and isinstance(v, list):
                         d[k] = list(v)
                     else:
                         d[k] = v

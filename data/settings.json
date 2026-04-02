@@ -1,0 +1,24 @@
+{
+  "debtor": {
+    "name": "Handelsonderneming Duister",
+    "iban": "NL31INGB0663727200",
+    "bic": "INGBNL2A"
+  },
+  "export_dir": "exports",
+  "last_invoice_dir": "/Users/eh/Downloads/Test facturen",
+  "window_width": 1372,
+  "window_height": 560,
+  "window_x": 27,
+  "window_y": 217,
+  "column_widths": {
+    "0": 138,
+    "1": 160,
+    "2": 58,
+    "3": 112,
+    "4": 199,
+    "5": 76,
+    "6": 57,
+    "7": 102,
+    "8": 428
+  }
+}

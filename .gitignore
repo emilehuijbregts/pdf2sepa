@@ -2,6 +2,8 @@
 .env.*
 
 # Python
+.venv/
+venv/
 __pycache__/
 *.py[cod]
 *.pyo
@@ -20,6 +22,7 @@ build/
 .DS_Store
 .idea/
 .vscode/
+.cursor/
 
 # Local logs/artifacts
 logs/*

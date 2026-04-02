@@ -1,0 +1,121 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:pain.001.001.09">
+  <CstmrCdtTrfInitn>
+    <GrpHdr>
+      <MsgId>MSG-20260402154303</MsgId>
+      <CreDtTm>2026-04-02T15:43:03</CreDtTm>
+      <NbOfTxs>4</NbOfTxs>
+      <CtrlSum>1765.03</CtrlSum>
+      <InitgPty>
+        <Nm>Handelsonderneming Duister</Nm>
+      </InitgPty>
+    </GrpHdr>
+    <PmtInf>
+      <PmtInfId>PMT-20260402154303</PmtInfId>
+      <PmtMtd>TRF</PmtMtd>
+      <BtchBookg>true</BtchBookg>
+      <NbOfTxs>4</NbOfTxs>
+      <CtrlSum>1765.03</CtrlSum>
+      <PmtTpInf>
+        <SvcLvl>
+          <Cd>SEPA</Cd>
+        </SvcLvl>
+      </PmtTpInf>
+      <ReqdExctnDt>2026-04-02</ReqdExctnDt>
+      <Dbtr>
+        <Nm>Handelsonderneming Duister</Nm>
+      </Dbtr>
+      <DbtrAcct>
+        <Id>
+          <IBAN>NL91ABNA0417164300</IBAN>
+        </Id>
+      </DbtrAcct>
+      <DbtrAgt>
+        <FinInstnId>
+          <BIC>ABNANL2G</BIC>
+        </FinInstnId>
+      </DbtrAgt>
+      <ChrgBr>SLEV</ChrgBr>
+      <CdtTrfTxInf>
+        <PmtId>
+          <InstrId>7012254003</InstrId>
+          <EndToEndId>7012254003</EndToEndId>
+        </PmtId>
+        <Amt>
+          <InstdAmt Ccy="EUR">120.18</InstdAmt>
+        </Amt>
+        <Cdtr>
+          <Nm>Wavin Nederland B.V.</Nm>
+        </Cdtr>
+        <CdtrAcct>
+          <Id>
+            <IBAN>NL25CITI0266075452</IBAN>
+          </Id>
+        </CdtrAcct>
+        <RmtInf>
+          <Ustrd>1012146 / 7012254003</Ustrd>
+        </RmtInf>
+      </CdtTrfTxInf>
+      <CdtTrfTxInf>
+        <PmtId>
+          <InstrId>VF1781638</InstrId>
+          <EndToEndId>VF1781638</EndToEndId>
+        </PmtId>
+        <Amt>
+          <InstdAmt Ccy="EUR">542.59</InstdAmt>
+        </Amt>
+        <Cdtr>
+          <Nm>SALO B.V.</Nm>
+        </Cdtr>
+        <CdtrAcct>
+          <Id>
+            <IBAN>NL64ABNA0589033654</IBAN>
+          </Id>
+        </CdtrAcct>
+        <RmtInf>
+          <Ustrd>3503 / VF1781638</Ustrd>
+        </RmtInf>
+      </CdtTrfTxInf>
+      <CdtTrfTxInf>
+        <PmtId>
+          <InstrId>KvK</InstrId>
+          <EndToEndId>KvK</EndToEndId>
+        </PmtId>
+        <Amt>
+          <InstdAmt Ccy="EUR">12.09</InstdAmt>
+        </Amt>
+        <Cdtr>
+          <Nm>FACTUUR Technische Unie B.V.</Nm>
+        </Cdtr>
+        <CdtrAcct>
+          <Id>
+            <IBAN>NL71ABNA0804385750</IBAN>
+          </Id>
+        </CdtrAcct>
+        <RmtInf>
+          <Ustrd>232210 / KvK</Ustrd>
+        </RmtInf>
+      </CdtTrfTxInf>
+      <CdtTrfTxInf>
+        <PmtId>
+          <InstrId>NL01D00078069</InstrId>
+          <EndToEndId>NL01D00078069</EndToEndId>
+        </PmtId>
+        <Amt>
+          <InstdAmt Ccy="EUR">1090.17</InstdAmt>
+        </Amt>
+        <Cdtr>
+          <Nm>Bosta B.V.</Nm>
+        </Cdtr>
+        <CdtrAcct>
+          <Id>
+            <IBAN>NL58INGB0006364795</IBAN>
+          </Id>
+        </CdtrAcct>
+        <RmtInf>
+          <Ustrd>20260446 / NL01D00078069</Ustrd>
+        </RmtInf>
+      </CdtTrfTxInf>
+    </PmtInf>
+  </CstmrCdtTrfInitn>
+</Document>
