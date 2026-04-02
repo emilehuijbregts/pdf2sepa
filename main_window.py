@@ -686,6 +686,61 @@ class MainWindow(QMainWindow):
                 out.append((inv, reason))
         return out
 
+    def _resolve_iban_mismatches(self, invoices: list[dict], db: SupplierDB) -> None:
+        """Prompt user when PDF IBAN differs from DB IBAN.
+
+        DB IBAN is already set on each invoice by the matcher.  This dialog
+        lets the user choose to *update* the DB to the PDF IBAN, or keep
+        the verified DB IBAN (default / recommended).
+        """
+        MismatchKey = tuple[str, str]
+        mismatches: dict[MismatchKey, dict] = {}
+        for inv in invoices:
+            if not inv.get("iban_mismatch"):
+                continue
+            sup = str(inv.get("supplier_name") or "")
+            pdf_iban = str(inv.get("pdf_iban") or "")
+            if not sup or not pdf_iban:
+                continue
+            key: MismatchKey = (sup, pdf_iban)
+            if key not in mismatches:
+                mismatches[key] = {
+                    "supplier_name": sup,
+                    "db_iban": str(inv.get("iban") or ""),
+                    "pdf_iban": pdf_iban,
+                    "invoices": [],
+                }
+            mismatches[key]["invoices"].append(inv)
+
+        if not mismatches:
+            return
+
+        for info in mismatches.values():
+            supplier_name = info["supplier_name"]
+            db_iban = info["db_iban"]
+            pdf_iban = info["pdf_iban"]
+            n = len(info["invoices"])
+
+            answer = QMessageBox.question(
+                self,
+                "IBAN-afwijking gedetecteerd",
+                f"Leverancier: {supplier_name}\n"
+                f"Aantal facturen: {n}\n\n"
+                f"Database IBAN:\t{db_iban}\n"
+                f"Factuur IBAN:\t{pdf_iban}\n\n"
+                "De database-IBAN wordt standaard gebruikt (aanbevolen).\n"
+                "Wil je de database bijwerken naar het factuur-IBAN?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer == QMessageBox.StandardButton.Yes:
+                db.update_supplier(supplier_name, iban=pdf_iban)
+                for inv in info["invoices"]:
+                    inv["iban"] = pdf_iban
+
+            for inv in info["invoices"]:
+                inv.pop("iban_mismatch", None)
+
     def _enrich_payments_with_source_files(
         self, payments: list[dict], invoices: list[dict]
     ) -> None:
@@ -760,6 +815,7 @@ class MainWindow(QMainWindow):
 
         db = SupplierDB(path=self._supplier_db_path())
         matched = match_suppliers(all_raw, db)
+        self._resolve_iban_mismatches(matched, db)
         payments, errors = calculate_payments(matched)
         self._enrich_payments_with_source_files(payments, matched)
         n_err_rows = self._populate_table_from_load(payments, errors, matched)
@@ -1012,7 +1068,18 @@ class MainWindow(QMainWindow):
             if len(review_selected) > 1:
                 action_all = menu.addAction(f"Bevestig alle geselecteerde ({len(review_selected)})")
                 action_all.triggered.connect(lambda: self._confirm_review_rows(review_selected))
-        if status not in ("fout",):
+        if status == "fout":
+            action_restore = menu.addAction("Herstel naar OK")
+            action_restore.triggered.connect(lambda: self._restore_rows_from_error([row]))
+            selected = self._selected_table_rows()
+            fout_selected = [
+                r for r in selected
+                if self._cell_text(r, PaymentColumn.STATUS).lower() == "fout"
+            ]
+            if len(fout_selected) > 1:
+                action_all_restore = menu.addAction(f"Herstel alle geselecteerde ({len(fout_selected)})")
+                action_all_restore.triggered.connect(lambda: self._restore_rows_from_error(fout_selected))
+        else:
             action_fout = menu.addAction("Markeer als fout")
             action_fout.triggered.connect(lambda: self._mark_rows_as_error([row]))
         if not menu.isEmpty():
@@ -1030,6 +1097,13 @@ class MainWindow(QMainWindow):
             self._table.setItem(r, PaymentColumn.STATUS, self._item_readonly("fout"))
             self._table.setItem(r, PaymentColumn.ERROR, self._item_readonly("Handmatig gemarkeerd als fout."))
         self._apply_row_colors()
+
+    def _restore_rows_from_error(self, rows: list[int]) -> None:
+        for r in rows:
+            self._table.setItem(r, PaymentColumn.STATUS, self._item_readonly("reviewed"))
+            self._table.setItem(r, PaymentColumn.ERROR, self._item_readonly(""))
+        self._apply_row_colors()
+        self._set_status(f"{len(rows)} rij(en) hersteld naar OK.")
 
     def _strip_iban_mismatch_warning_row(self, r: int) -> None:
         err_it = self._table.item(r, PaymentColumn.ERROR)
@@ -1279,9 +1353,13 @@ class MainWindow(QMainWindow):
             return
 
         review_rows: list[int] = []
+        fout_rows: list[int] = []
         for r in range(self._table.rowCount()):
-            if self._cell_text(r, PaymentColumn.STATUS).lower() in ("needs_review", "needs review"):
+            st = self._cell_text(r, PaymentColumn.STATUS).lower()
+            if st in ("needs_review", "needs review"):
                 review_rows.append(r)
+            elif st == "fout":
+                fout_rows.append(r)
 
         if review_rows:
             answer = QMessageBox.question(
@@ -1296,6 +1374,22 @@ class MainWindow(QMainWindow):
             if answer == QMessageBox.StandardButton.Yes:
                 for r in review_rows:
                     self._table.setItem(r, PaymentColumn.STATUS, self._item_readonly("reviewed"))
+                self._apply_row_colors()
+
+        if fout_rows:
+            answer = QMessageBox.question(
+                self,
+                "Rijen met fouten",
+                f"{len(fout_rows)} rij(en) heeft status 'fout' en wordt niet meegenomen in de export.\n\n"
+                "Ja = herstel en neem alsnog mee in export.\n"
+                "Nee = sla over (rest wordt wel geëxporteerd).",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer == QMessageBox.StandardButton.Yes:
+                for r in fout_rows:
+                    self._table.setItem(r, PaymentColumn.STATUS, self._item_readonly("reviewed"))
+                    self._table.setItem(r, PaymentColumn.ERROR, self._item_readonly(""))
                 self._apply_row_colors()
 
         self._clear_row_validation_marks()

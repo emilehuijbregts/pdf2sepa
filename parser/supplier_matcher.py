@@ -67,16 +67,41 @@ def match_suppliers(invoices: list[dict], db: SupplierDB) -> list[dict]:
 
             invoice_copy["match_status"] = status
 
+            # --- Master data: DB is authoritative for stable supplier fields ---
+
+            # IBAN: always prefer DB; store PDF value for mismatch detection
             inv_iban_raw = invoice.get("iban")
             inv_iban = str(inv_iban_raw).strip() if inv_iban_raw is not None else ""
             sup_iban_raw = supplier.get("iban")
             sup_iban = str(sup_iban_raw).strip() if sup_iban_raw is not None else ""
 
-            if not inv_iban and sup_iban:
+            if inv_iban:
+                invoice_copy["pdf_iban"] = inv_iban
+
+            if sup_iban:
                 invoice_copy["iban"] = supplier["iban"]
-            elif inv_iban and sup_iban:
-                if db._clean_iban(inv_iban) != db._clean_iban(sup_iban):
+                if inv_iban and db._clean_iban(inv_iban) != db._clean_iban(sup_iban):
                     invoice_copy["iban_mismatch"] = True
+
+            # Customer code: prefer DB value when a matching code exists
+            pdf_cc = str(invoice.get("customer_number") or "").strip()
+            if pdf_cc:
+                invoice_copy["pdf_customer_number"] = pdf_cc
+
+            db_codes = supplier.get("customer_codes") or []
+            if db_codes:
+                matched_code = None
+                if pdf_cc:
+                    norm_pdf = db._normalize_customer_code(pdf_cc)
+                    for code in db_codes:
+                        if norm_pdf and db._normalize_customer_code(code) == norm_pdf:
+                            matched_code = code
+                            break
+                db_cc = matched_code or db_codes[0]
+                invoice_copy["customer_number"] = db_cc
+                inv_no = invoice_copy.get("invoice_number")
+                if db_cc and inv_no:
+                    invoice_copy["description"] = f"{db_cc} / {inv_no}"
         else:
             invoice_copy["supplier_name"] = None
             invoice_copy["discount"] = 0.0
