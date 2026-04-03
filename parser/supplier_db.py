@@ -11,8 +11,15 @@ Let op: gebruikt alleen standaard libraries (json, difflib, re) zoals vereist.
 from __future__ import annotations
 
 import json
+import logging
 import re
 from difflib import SequenceMatcher
+from pathlib import Path
+
+from logic.settings import atomic_write
+from logic.validation import mask_iban_for_log
+
+logger = logging.getLogger(__name__)
 
 
 class SupplierDB:
@@ -343,11 +350,11 @@ class SupplierDB:
 
             # Optional sanity check (lightweight)
             if iban and not self._is_plausible_nl_iban(iban):
-                print(f"[SupplierDB] Waarschuwing: IBAN lijkt geen NL-IBAN: {iban!r}")
+                logger.warning("IBAN lijkt geen NL-IBAN: %s", mask_iban_for_log(iban))
 
             # Duplicate prevention (geen klantcode-match: voorkomt skip bij nieuwe code)
             if self.find_supplier(name, iban, None, match_customer_code=False):
-                print(f"[SupplierDB] Supplier '{name}' al aanwezig, skip.")
+                logger.info("Supplier '%s' al aanwezig, skip.", name)
                 return
 
             # Ensure name in aliases
@@ -474,7 +481,10 @@ class SupplierDB:
                     if new_iban is not None:
                         new_iban_s = str(new_iban).strip()
                         if new_iban_s and not self._is_plausible_nl_iban(new_iban_s):
-                            print(f"[SupplierDB] Waarschuwing: IBAN lijkt geen NL-IBAN: {new_iban_s!r}")
+                            logger.warning(
+                                "IBAN lijkt geen NL-IBAN: %s",
+                                mask_iban_for_log(new_iban_s),
+                            )
                         supplier["iban"] = self._clean_iban(new_iban_s) if new_iban_s else ""
                 except Exception:
                     pass
@@ -589,10 +599,8 @@ class SupplierDB:
 
         try:
             payload = {"suppliers": self.get_all()}
-            text = json.dumps(payload, indent=2, ensure_ascii=False)
-            with open(self.path, "w", encoding="utf-8") as f:
-                f.write(text)
-                f.write("\n")
+            text = json.dumps(payload, indent=2, ensure_ascii=False) + "\n"
+            atomic_write(Path(self.path), text)
         except Exception:
-            return
+            logger.debug("Leveranciersbestand opslaan mislukt", exc_info=True)
 

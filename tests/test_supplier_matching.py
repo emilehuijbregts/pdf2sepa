@@ -183,3 +183,18 @@ class TestSupplierDB:
         db = SupplierDB(path=str(p))
         assert db.get_all() == []
         assert p.exists()
+
+
+class TestLoadFailedShortcut:
+    def test_load_error_skips_matching(self, empty_db, tmp_path):
+        pdf = tmp_path / "broken.pdf"
+        inv = {
+            "source_file": str(pdf),
+            "load_error": "no_text",
+            "iban": None,
+        }
+        out = match_suppliers([inv], empty_db)
+        assert len(out) == 1
+        assert out[0]["match_status"] == "load_failed"
+        assert out[0]["supplier_name"] == "broken.pdf"
+        assert out[0]["load_error"] == "no_text"

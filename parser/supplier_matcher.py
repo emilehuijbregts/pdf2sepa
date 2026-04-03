@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import logging
 import re
+from pathlib import Path
 
+from logic.validation import mask_iban_for_log
 from parser.supplier_db import SupplierDB
 
 logger = logging.getLogger(__name__)
@@ -47,6 +49,17 @@ def match_suppliers(invoices: list[dict], db: SupplierDB) -> list[dict]:
     out: list[dict] = []
 
     for invoice in invoices:
+        if invoice.get("load_error"):
+            src = str(invoice.get("source_file") or "")
+            base = Path(src).name if src else "PDF"
+            out.append({
+                **invoice,
+                "supplier_name": base,
+                "match_status": "load_failed",
+                "discount": 0.0,
+            })
+            continue
+
         invoice_copy = invoice.copy()
 
         supplier, match_info = db.find_supplier_scored(
@@ -147,7 +160,11 @@ def _try_ocr_upgrade(
                 for m in re.finditer(r"NL\d{2}\s*[A-Z]{4}\s*\d{4}\s*\d{4}\s*\d{2}", ocr_text):
                     candidate = re.sub(r"\s+", "", m.group(0))
                     if db._clean_iban(candidate) == sup_iban:
-                        logger.info("OCR bevestigde IBAN %s voor %s", candidate, supplier.get("name"))
+                        logger.info(
+                            "OCR bevestigde IBAN %s voor %s",
+                            mask_iban_for_log(candidate),
+                            supplier.get("name"),
+                        )
                         match_info["iban_match"] = True
                         match_info["ocr_confirmed"] = True
                         break

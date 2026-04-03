@@ -1,18 +1,25 @@
 """
 Applicatie-instellingen: SEPA-betaler (naam/IBAN/BIC in JSON-sleutel ``debtor``), exportmap.
 
-Merge en defaults zitten hier; het Instellingen-paneel in de app schrijft door naar
-``data/settings.json``.
+Bestanden ``settings.json`` en (door de app) ``suppliers.json`` staan in de **gegevensmap**,
+conform bootstrap in ``logic/paths.py`` (standaard ``{app}/data``).
+Relatieve ``export_dir`` is t.o.v. die gegevensmap; ``last_invoice_dir`` blijft optioneel
+relatief t.o.v. de applicatiemap (``APP_BASE``) voor backwards compatibility.
 """
 
 from __future__ import annotations
 
 import json
+import logging
+import os
+import shutil
 from copy import deepcopy
 from pathlib import Path
 from typing import Any, Optional
 
-from logic.payment_engine import clean_iban, is_plausible_iban
+from logic.validation import clean_iban, is_plausible_iban
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_SETTINGS: dict[str, Any] = {
     "debtor": {
@@ -81,6 +88,28 @@ def resolve_settings_path(
     return p
 
 
+def apply_legacy_export_dir_migration(
+    settings: dict[str, Any],
+    *,
+    user_data_dir: Path,
+    app_base: Path,
+) -> bool:
+    """Leg export vast op ``app_base/exports`` als dat de oude default was (relatief ``exports``).
+
+    Voorkomt dat na ``base_dir=user_data_dir`` plotseling ``data/exports`` wordt gebruikt
+    i.p.v. de bestaande project-exportmap.
+    """
+    exp = settings.get("export_dir")
+    if not isinstance(exp, str) or exp.strip() != str(DEFAULT_SETTINGS["export_dir"]):
+        return False
+    legacy = (app_base / "exports").resolve()
+    would_be = (user_data_dir / "exports").resolve()
+    if legacy.is_dir() and not would_be.exists():
+        settings["export_dir"] = str(legacy)
+        return True
+    return False
+
+
 def validate_debtor_for_export(debtor: Any) -> Optional[str]:
     """Controleer verplichte debtor-velden voor SEPA-export. ``None`` = ok, anders fouttekst."""
     if not isinstance(debtor, dict):
@@ -123,15 +152,36 @@ def load_settings(path: str = "data/settings.json") -> dict[str, Any]:
     return normalize_settings(parsed)
 
 
+def atomic_write(path: Path, content: str) -> None:
+    """Write *content* to *path* atomically: write to .tmp then os.replace.
+
+    Creates a .bak copy of the existing file before overwriting.
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    if path.exists():
+        bak = path.with_suffix(path.suffix + ".bak")
+        try:
+            shutil.copy2(str(path), str(bak))
+        except OSError:
+            logger.debug("Backup aanmaken mislukt voor %s", path)
+
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(content)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(str(tmp), str(path))
+
+
 def save_settings(settings: dict[str, Any], path: str = "data/settings.json") -> bool:
     """Sla het settings-dict op als JSON. Bij IO-fout False, anders True."""
     p = Path(path)
     try:
-        p.parent.mkdir(parents=True, exist_ok=True)
-        text = json.dumps(settings, indent=2, ensure_ascii=False)
-        with open(p, "w", encoding="utf-8") as f:
-            f.write(text)
-            f.write("\n")
+        text = json.dumps(settings, indent=2, ensure_ascii=False) + "\n"
+        atomic_write(p, text)
     except OSError:
+        logger.debug("Settings opslaan mislukt", exc_info=True)
         return False
     return True

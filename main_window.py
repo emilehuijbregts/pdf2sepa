@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import shutil
 import sys
 from copy import deepcopy
 from datetime import date
@@ -38,9 +39,12 @@ from PySide6.QtWidgets import (
 )
 
 from logic.invoice_folder_loader import load_invoices_from_folder
-from logic.payment_engine import calculate_payments, clean_iban, is_plausible_iban
+from logic.payment_engine import calculate_payments
+from logic.validation import clean_iban, is_plausible_iban
+from logic.paths import read_user_data_root, write_user_data_root
 from logic.settings import (
     DEFAULT_SETTINGS,
+    apply_legacy_export_dir_migration,
     load_settings,
     merge_debtor_with_defaults,
     resolve_settings_path,
@@ -70,6 +74,8 @@ _ERROR_REASON_NL: dict[str, str] = {
     "negative_amount": "Te betalen bedrag is negatief.",
     "missing_iban": "IBAN ontbreekt in PDF of niet ingevuld.",
     "invalid_iban": "IBAN is ongeldig.",
+    "pdf_read_failed": "PDF kon niet worden gelezen (bestand beschadigd, versleuteld of geen geldige PDF).",
+    "pdf_no_text": "PDF bevat geen uitleesbare tekst (vaak een scan); los dit op in de brondocumenten of voeg tekst toe.",
 }
 
 _WARNING_NL: dict[str, str] = {
@@ -206,7 +212,7 @@ class SettingsDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Instellingen")
         self.setMinimumWidth(560)
-        self.resize(560, 340)
+        self.resize(560, 440)
         root = QVBoxLayout(self)
         info = QLabel("Deze gegevens zijn nodig voor correcte SEPA-export")
         info.setWordWrap(True)
@@ -214,8 +220,10 @@ class SettingsDialog(QDialog):
         form = QFormLayout()
         root.addLayout(form)
         self._field_edits: dict[str, QLineEdit] = {}
+        self._selected_user_data_dir: Optional[Path] = None
         self._selected_export_dir: Optional[Path] = None
         self._build_form(form)
+        self._build_user_data_dir_row(form)
         self._build_export_dir_row(form)
 
         bbox = QDialogButtonBox()
@@ -247,6 +255,53 @@ class SettingsDialog(QDialog):
             edit.setToolTip(_UW_GEGEVENS_XML_HINT)
             self._field_edits[key] = edit
             form.addRow(QLabel(label_text), edit)
+
+    def _build_user_data_dir_row(self, form: QFormLayout) -> None:
+        mw = self.parent()
+        ud_path = None
+        if isinstance(mw, MainWindow):
+            ud_path = mw._user_data_dir
+
+        container = QVBoxLayout()
+        container.setSpacing(4)
+
+        self._user_data_dir_edit = QLineEdit()
+        self._user_data_dir_edit.setReadOnly(True)
+        self._user_data_dir_edit.setMinimumWidth(300)
+        self._user_data_dir_edit.setText(str(ud_path) if ud_path else "")
+        self._user_data_dir_edit.setToolTip(
+            "Instellingen (settings.json) en leveranciersdatabase (suppliers.json). "
+            "Kies bijvoorbeeld een map op de server (UNC-pad)."
+        )
+        self._user_data_dir_edit.setStyleSheet("background-color: palette(window);")
+        container.addWidget(self._user_data_dir_edit)
+
+        btn = QPushButton("Kies map…")
+        btn.setFixedWidth(120)
+        btn.clicked.connect(self._on_choose_user_data_dir)
+        container.addWidget(btn)
+
+        wrapper = QWidget()
+        wrapper.setLayout(container)
+        form.addRow(QLabel("Gegevensmap:"), wrapper)
+
+    def _on_choose_user_data_dir(self) -> None:
+        mw = self.parent()
+        if not isinstance(mw, MainWindow):
+            return
+        start = (
+            str(self._selected_user_data_dir)
+            if self._selected_user_data_dir
+            else str(mw._user_data_dir)
+        )
+        path: Optional[str] = QFileDialog.getExistingDirectory(
+            self, "Selecteer gegevensmap (instellingen & leveranciers)", start
+        )
+        if not path:
+            return
+        selected = Path(path).resolve()
+        self._selected_user_data_dir = selected
+        self._user_data_dir_edit.setText(str(selected))
 
     def _build_export_dir_row(self, form: QFormLayout) -> None:
         mw = self.parent()
@@ -291,13 +346,16 @@ class SettingsDialog(QDialog):
         if not isinstance(mw, MainWindow):
             self.reject()
             return
+        if self._selected_user_data_dir is not None:
+            if not mw._apply_user_data_directory(self._selected_user_data_dir, dialog_parent=self):
+                return
         updates = {key: self._field_edits[key].text() for key in self._field_edits}
         if not mw._apply_debtor_and_save(updates):
             QMessageBox.warning(
                 self,
                 "Instellingen",
                 "Uw gegevens konden niet worden opgeslagen. Controleer schrijfrechten op "
-                "data/settings.json.",
+                f"{mw._settings_path()}.",
             )
             return
         if self._selected_export_dir is not None:
@@ -305,8 +363,8 @@ class SettingsDialog(QDialog):
                 QMessageBox.warning(
                     self,
                     "Instellingen",
-                    "De exportmap kon niet worden opgeslagen. Controleer schrijfrechten op "
-                    "data/settings.json.",
+                    "De exportmap kon niet worden opgeslagen. Controleer schrijfrechten in de "
+                    "gegevensmap (settings.json).",
                 )
                 return
         self.accept()
@@ -325,8 +383,13 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("PDF2SEPA Desktop Client")
-        self._settings: dict[str, Any] = load_settings(str(APP_BASE / "data" / "settings.json"))
+        self._user_data_dir: Path = read_user_data_root(APP_BASE)
+        self._settings: dict[str, Any] = load_settings(str(self._settings_path()))
         self._ensure_debtor_dict()
+        if apply_legacy_export_dir_migration(
+            self._settings, user_data_dir=self._user_data_dir, app_base=APP_BASE
+        ):
+            save_settings(self._settings, str(self._settings_path()))
         self._selected_folder: Optional[Path] = None
         self._payment_sources: list[PaymentSource] = []
         self._status_label = QLabel("")
@@ -342,10 +405,10 @@ class MainWindow(QMainWindow):
         self._restore_window_geometry()
 
     def _supplier_db_path(self) -> str:
-        return str(APP_BASE / "data" / "suppliers.json")
+        return str(self._user_data_dir / "suppliers.json")
 
     def _settings_path(self) -> Path:
-        return APP_BASE / "data" / "settings.json"
+        return self._user_data_dir / "settings.json"
 
     def _restore_selected_folder_from_settings(self) -> None:
         raw = str(self._settings.get("last_invoice_dir") or "").strip()
@@ -365,10 +428,102 @@ class MainWindow(QMainWindow):
         if not save_settings(self._settings, str(self._settings_path())):
             logger.warning("Kon last_invoice_dir niet opslaan")
 
+    def _apply_user_data_directory(self, new_dir: Path, *, dialog_parent: QWidget) -> bool:
+        """Wijzig gegevensmap: bootstrap, kopieer of laad bestaande bestanden, herbouw ``_settings``."""
+        new_r = new_dir.resolve()
+        if new_r == self._user_data_dir.resolve():
+            return True
+        try:
+            new_r.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            QMessageBox.warning(
+                dialog_parent,
+                "Instellingen",
+                "De gegevensmap kon niet worden aangemaakt.",
+            )
+            return False
+        probe = new_r / ".pdf2sepa_write_test"
+        try:
+            probe.write_text("ok", encoding="utf-8")
+            probe.unlink()
+        except OSError:
+            QMessageBox.warning(
+                dialog_parent,
+                "Instellingen",
+                "Geen schrijfrecht op de gekozen gegevensmap.",
+            )
+            return False
+
+        old = self._user_data_dir
+        old_settings = old / "settings.json"
+        old_sup = old / "suppliers.json"
+        new_settings = new_r / "settings.json"
+        new_sup = new_r / "suppliers.json"
+
+        if new_settings.exists() or new_sup.exists():
+            answer = QMessageBox.question(
+                dialog_parent,
+                "Gegevensmap",
+                "De gekozen map bevat al settings.json en/of suppliers.json.\n\n"
+                "Overschakelen en die bestanden gebruiken? "
+                "(Daarna worden de velden in dit venster alsnog naar die map opgeslagen.)",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return False
+            if not write_user_data_root(new_r, APP_BASE):
+                QMessageBox.warning(
+                    dialog_parent,
+                    "Instellingen",
+                    "Kon het pad naar de gegevensmap niet bewaren (bootstrap-bestand).",
+                )
+                return False
+            self._user_data_dir = new_r
+            self._settings = load_settings(str(self._settings_path()))
+            self._ensure_debtor_dict()
+            return True
+
+        if old_settings.exists():
+            try:
+                shutil.copy2(old_settings, new_settings)
+            except OSError:
+                QMessageBox.warning(
+                    dialog_parent,
+                    "Instellingen",
+                    "Kon settings.json niet naar de nieuwe gegevensmap kopiëren.",
+                )
+                return False
+        if old_sup.exists():
+            try:
+                shutil.copy2(old_sup, new_sup)
+            except OSError:
+                QMessageBox.warning(
+                    dialog_parent,
+                    "Instellingen",
+                    "Kon suppliers.json niet naar de nieuwe gegevensmap kopiëren.",
+                )
+                return False
+        if not write_user_data_root(new_r, APP_BASE):
+            QMessageBox.warning(
+                dialog_parent,
+                "Instellingen",
+                "Kon het pad naar de gegevensmap niet bewaren (bootstrap-bestand).",
+            )
+            return False
+        self._user_data_dir = new_r
+        self._settings = load_settings(str(self._settings_path()))
+        self._ensure_debtor_dict()
+        if apply_legacy_export_dir_migration(
+            self._settings, user_data_dir=self._user_data_dir, app_base=APP_BASE
+        ):
+            save_settings(self._settings, str(self._settings_path()))
+        return True
+
     def _persist_export_dir(self, folder: Path) -> bool:
         folder = folder.resolve()
         try:
-            rel = folder.relative_to(APP_BASE)
+            rel = folder.relative_to(self._user_data_dir)
             self._settings["export_dir"] = str(rel)
         except ValueError:
             self._settings["export_dir"] = str(folder)
@@ -559,7 +714,7 @@ class MainWindow(QMainWindow):
 
     def _resolve_export_dir(self) -> Path:
         raw: str = str(self._settings.get("export_dir") or "exports")
-        return resolve_settings_path(raw, base_dir=APP_BASE)
+        return resolve_settings_path(raw, base_dir=self._user_data_dir)
 
     def _set_status(self, text: str) -> None:
         self._status_label.setText(text)
@@ -1233,28 +1388,88 @@ class MainWindow(QMainWindow):
         self._save_window_geometry()
         super().closeEvent(event)
 
-    def _log_export(self, xml_path: str, payments: list[dict], total: float) -> None:
-        """Append an entry to exports/export_log.json for audit trail."""
+    def _export_log_path(self) -> Path:
+        return self._resolve_export_dir() / "export_log.json"
+
+    def _read_export_log(self) -> list[dict]:
         import json
-        log_path = self._resolve_export_dir() / "export_log.json"
+        log_path = self._export_log_path()
         try:
-            entries: list = []
-            if log_path.exists():
-                with open(log_path, "r", encoding="utf-8") as f:
-                    entries = json.loads(f.read() or "[]")
-                if not isinstance(entries, list):
-                    entries = []
+            if not log_path.exists():
+                return []
+            with open(log_path, "r", encoding="utf-8") as f:
+                entries = json.loads(f.read() or "[]")
+            return entries if isinstance(entries, list) else []
+        except Exception:
+            logger.debug("Export log lezen mislukt", exc_info=True)
+            return []
+
+    def _log_export(self, xml_path: str, payments: list[dict], total: float) -> None:
+        """Append an entry to exports/export_log.json (audit trail; bevat o.a. leverancier/factuur)."""
+        import json
+        from logic.settings import atomic_write
+
+        log_path = self._export_log_path()
+        try:
+            entries = self._read_export_log()
             entries.append({
                 "timestamp": date.today().isoformat(),
                 "file": Path(xml_path).name,
                 "n_payments": len(payments),
                 "total_eur": total,
+                "payments": [
+                    {
+                        "supplier": str(p.get("supplier_name") or ""),
+                        "invoice": str(p.get("invoice_number") or ""),
+                        "amount": p.get("amount", 0),
+                    }
+                    for p in payments
+                ],
             })
-            with open(log_path, "w", encoding="utf-8") as f:
-                f.write(json.dumps(entries, indent=2, ensure_ascii=False))
-                f.write("\n")
+            text = json.dumps(entries, indent=2, ensure_ascii=False) + "\n"
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            atomic_write(log_path, text)
         except Exception:
             logger.debug("Export log schrijven mislukt", exc_info=True)
+
+    def _check_duplicate_payments(
+        self, payment_dicts: list[dict[str, Any]]
+    ) -> list[tuple[str, str, float, str]]:
+        """Check payment_dicts against export log for previously exported invoices.
+
+        Returns list of (supplier, invoice_number, amount, export_date) for duplicates.
+        """
+        entries = self._read_export_log()
+        exported: dict[tuple[str, str, float], str] = {}
+        for entry in entries:
+            ts = str(entry.get("timestamp") or "")
+            for p in entry.get("payments") or []:
+                if not isinstance(p, dict):
+                    continue
+                key = (
+                    str(p.get("supplier") or "").strip().lower(),
+                    str(p.get("invoice") or "").strip(),
+                    float(p.get("amount") or 0),
+                )
+                if key[1]:
+                    exported[key] = ts
+
+        duplicates: list[tuple[str, str, float, str]] = []
+        for p in payment_dicts:
+            sup = str(p.get("supplier_name") or "").strip().lower()
+            inv = str(p.get("invoice_number") or "").strip()
+            amt = float(p.get("amount") or 0)
+            if not inv:
+                continue
+            key = (sup, inv, amt)
+            if key in exported:
+                duplicates.append((
+                    str(p.get("supplier_name") or ""),
+                    inv,
+                    amt,
+                    exported[key],
+                ))
+        return duplicates
 
     def _on_about(self) -> None:
         QMessageBox.about(
@@ -1427,6 +1642,27 @@ class MainWindow(QMainWindow):
         if not payment_dicts:
             self._set_status("Fout: geen betalingsregels om te exporteren")
             return
+
+        duplicates = self._check_duplicate_payments(payment_dicts)
+        if duplicates:
+            lines: list[str] = []
+            for sup, inv, amt, ts in duplicates[:10]:
+                lines.append(f"  {sup}  |  {inv}  |  EUR {_format_amount_nl(amt)}  (export {ts})")
+            if len(duplicates) > 10:
+                lines.append(f"  … en nog {len(duplicates) - 10} andere")
+            detail = "\n".join(lines)
+            dup_answer = QMessageBox.warning(
+                self,
+                "Mogelijke dubbele betalingen",
+                f"{len(duplicates)} factuur/facturen zijn al eerder geëxporteerd:\n\n"
+                f"{detail}\n\n"
+                "Wil je toch doorgaan?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if dup_answer != QMessageBox.StandardButton.Yes:
+                self._set_status("XML export geannuleerd (dubbele betalingen).")
+                return
 
         total_amount = sum(p.get("amount", 0) for p in payment_dicts)
         confirm = QMessageBox.question(

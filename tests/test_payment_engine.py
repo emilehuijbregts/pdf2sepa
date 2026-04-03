@@ -139,6 +139,35 @@ class TestErrorCases:
         payments, _ = calculate_payments([inv])
         assert len(payments) == 1
 
+    def test_load_failed_no_text(self):
+        inv = {
+            "supplier_name": "x.pdf",
+            "match_status": "load_failed",
+            "load_error": "no_text",
+        }
+        payments, errors = calculate_payments([inv])
+        assert len(payments) == 0
+        assert any(e["reason"] == "pdf_no_text" for e in errors)
+
+    def test_load_failed_read_failed(self):
+        inv = {
+            "supplier_name": "y.pdf",
+            "match_status": "load_failed",
+            "load_error": "read_failed",
+        }
+        payments, errors = calculate_payments([inv])
+        assert len(payments) == 0
+        assert any(e["reason"] == "pdf_read_failed" for e in errors)
+
+    def test_load_failed_defaults_to_pdf_read_failed(self):
+        inv = {
+            "supplier_name": "z.pdf",
+            "match_status": "load_failed",
+        }
+        payments, errors = calculate_payments([inv])
+        assert len(payments) == 0
+        assert any(e["reason"] == "pdf_read_failed" for e in errors)
+
     def test_zero_amount_after_discount(self):
         inv = _base_invoice(amount=100.0, amount_excl_vat=100.0, discount=100)
         payments, errors = calculate_payments([inv])

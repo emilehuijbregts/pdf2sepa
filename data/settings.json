@@ -6,10 +6,10 @@
   },
   "export_dir": "exports",
   "last_invoice_dir": "/Users/eh/Downloads/Test facturen",
-  "window_width": 1100,
+  "window_width": 1172,
   "window_height": 560,
   "window_x": 79,
-  "window_y": 254,
+  "window_y": 286,
   "column_widths": {
     "0": 138,
     "1": 160,
@@ -18,7 +18,7 @@
     "4": 199,
     "5": 202,
     "6": 50,
-    "7": 77,
-    "8": 89
+    "7": 45,
+    "8": 193
   }
 }

@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import logging
 import re
+from pathlib import Path
 from typing import Any
 
 import pdfplumber
+
+from logic.validation import _iban_mod97_valid, mask_iban_for_log
 
 try:
     import fitz as _fitz
@@ -14,15 +17,21 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
+def extract_text_strict(file_path: str) -> str:
+    """Lees alle tekst uit een PDF. Gooit bij open/read-fouten (voor per-bestand afhandeling)."""
+    pages_text: list[str] = []
+    with pdfplumber.open(file_path) as pdf:
+        for page in pdf.pages:
+            pages_text.append(page.extract_text() or "")
+    return "\n".join(pages_text)
+
+
 def extract_text(file_path: str) -> str:
     """Extracteer alle tekst uit een PDF (alle pagina's), samengevoegd met newlines."""
     try:
-        pages_text: list[str] = []
-        with pdfplumber.open(file_path) as pdf:
-            for page in pdf.pages:
-                pages_text.append(page.extract_text() or "")
-        return "\n".join(pages_text)
+        return extract_text_strict(file_path)
     except Exception:
+        logger.warning("PDF tekst uitlezen mislukt: %s", Path(file_path).name)
         return ""
 
 
@@ -263,7 +272,11 @@ def extract_invoice_data(text: str | None, *, debtor_iban: str | None = None) ->
             all_ibans.append(candidate)
         if all_ibans:
             iban = all_ibans[0]
-            logger.debug("IBAN gevonden: %s (van %d kandidaten)", iban, len(all_ibans))
+            logger.debug(
+                "IBAN gevonden: %s (van %d kandidaten)",
+                mask_iban_for_log(iban),
+                len(all_ibans),
+            )
         else:
             logger.debug("IBAN niet gevonden")
     except Exception:
@@ -416,18 +429,6 @@ def extract_invoice_data(text: str | None, *, debtor_iban: str | None = None) ->
         "supplier_hint": supplier_hint,
         "raw_text": text,
     }
-
-
-def _iban_mod97_valid(iban: str) -> bool:
-    """ISO 13616 mod-97 check."""
-    try:
-        rearranged = iban[4:] + iban[:4]
-        numeric = ""
-        for ch in rearranged:
-            numeric += str(ord(ch) - 55) if ch.isalpha() else ch
-        return int(numeric) % 97 == 1
-    except Exception:
-        return False
 
 
 def _ocr_pixmap_pytesseract(pix) -> str:

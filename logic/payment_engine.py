@@ -1,58 +1,18 @@
 # Bouwt betaalopdrachten op basis van geparste factuurdata en leveranciersregels.
 """Verwerkt verrijkte factuurdicts naar betalingen en fouten.
 
-Alleen ``match_status`` ``matched`` en ``new`` worden verder verwerkt. De parser/matcher
- gebruikt doorgaans ``no_hint`` i.p.v. ``new``; die status valt bij filter af.
+Statuses ``matched``, ``new``, ``confirmed``, ``reviewed`` worden verder verwerkt.
+``load_failed`` (met ``load_error`` in het factuurdict) wordt als PDF-fout gerapporteerd.
 
 Geen mutatie van invoerdicts.
 """
 
 from __future__ import annotations
 
-import re
+from logic.validation import clean_iban, is_plausible_iban
 
-
-def _clean_iban(iban: str | None) -> str:
-    try:
-        s = str(iban or "")
-        s = re.sub(r"\s+", "", s)
-        return s.upper().strip()
-    except Exception:
-        return ""
-
-
-def _is_plausible_iban(iban: str) -> bool:
-    """IBAN validation: format check + mod-97 checksum."""
-    if len(iban) < 15 or len(iban) > 34:
-        return False
-    if not re.fullmatch(r"[A-Z]{2}[0-9A-Z]{13,32}", iban):
-        return False
-    return _iban_mod97_valid(iban)
-
-
-def _iban_mod97_valid(iban: str) -> bool:
-    """ISO 13616 mod-97 check. Returns True for valid IBANs."""
-    try:
-        rearranged = iban[4:] + iban[:4]
-        numeric = ""
-        for ch in rearranged:
-            if ch.isdigit():
-                numeric += ch
-            else:
-                numeric += str(ord(ch) - 55)
-        return int(numeric) % 97 == 1
-    except Exception:
-        return False
-
-
-def clean_iban(iban: str | None) -> str:
-    """Publieke IBAN-normalisatie; zelfde gedrag als intern gebruik in deze module."""
-    return _clean_iban(iban)
-
-
-def is_plausible_iban(iban: str) -> bool:
-    """Publieke syntactische IBAN-check voor UI en externe callers."""
-    return _is_plausible_iban(iban)
+_clean_iban = clean_iban
+_is_plausible_iban = is_plausible_iban
 
 
 def calculate_payments(invoices: list[dict]) -> tuple[list[dict], list[dict]]:
@@ -69,6 +29,11 @@ def calculate_payments(invoices: list[dict]) -> tuple[list[dict], list[dict]]:
     accepted: list[dict] = []
     for inv in invoices:
         ms = inv.get("match_status")
+        if ms == "load_failed":
+            code = str(inv.get("load_error") or "read_failed")
+            reason = "pdf_no_text" if code == "no_text" else "pdf_read_failed"
+            err.add(reason, inv.get("supplier_name"), [inv])
+            continue
         if ms in _ACCEPTED_STATUSES:
             accepted.append(inv)
             continue
