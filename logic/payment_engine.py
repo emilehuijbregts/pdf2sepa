@@ -9,20 +9,32 @@ Geen mutatie van invoerdicts.
 
 from __future__ import annotations
 
+from datetime import date
+from decimal import Decimal
+
+from logic.payment_amounts import amount_to_decimal
 from logic.validation import clean_iban, is_plausible_iban
 
 _clean_iban = clean_iban
 _is_plausible_iban = is_plausible_iban
 
-
-def calculate_payments(invoices: list[dict]) -> tuple[list[dict], list[dict]]:
+def calculate_payments(
+    invoices: list[dict],
+    *,
+    session_date: date | None = None,
+) -> tuple[list[dict], list[dict]]:
     """
     Returns:
         (payments, errors) waarbij ``payments`` succesvolle betaalregels zijn en
         ``errors`` documenten of groepen die niet verwerkt konden worden.
+
+    Args:
+        session_date: Kalenderdatum voor ``execution_date`` bij modus direct;
+            default ``date.today()`` indien None.
     """
     err = _ErrorBuckets()
     payments: list[dict] = []
+    sess = session_date if session_date is not None else date.today()
 
     _ACCEPTED_STATUSES = {"matched", "new", "confirmed", "reviewed"}
 
@@ -55,14 +67,13 @@ def calculate_payments(invoices: list[dict]) -> tuple[list[dict], list[dict]]:
         groups.setdefault(gkey, []).append(inv)
 
     for _gkey, group_invs in sorted(groups.items(), key=lambda x: x[0]):
-        _process_supplier_group(group_invs, err, payments)
+        _process_supplier_group(group_invs, err, payments, sess)
 
     pay_sorted = sorted(
         payments,
         key=lambda p: (p.get("supplier_name") or "", p.get("invoice_number") or ""),
     )
     return pay_sorted, err.to_list()
-
 
 class _ErrorBuckets:
     """Fouten gegroepeerd op (reason, supplier_name)."""
@@ -83,18 +94,17 @@ class _ErrorBuckets:
             )
         ]
 
-
 def _doc_type(d: dict) -> str:
     t = d.get("type")
     if t == "credit_note":
         return "credit_note"
     return "invoice"
 
-
 def _process_supplier_group(
     group_invs: list[dict],
     err: _ErrorBuckets,
     payments: list[dict],
+    session: date,
 ) -> None:
     group_supplier = group_invs[0].get("supplier_name")
     display_name = str(group_supplier) if group_supplier is not None else ""
@@ -155,6 +165,8 @@ def _process_supplier_group(
             )
             return
 
+    pct_100 = amount_to_decimal("100")
+
     for inv in sorted(
         valid_invoices,
         key=lambda x: (-x["amount"], str(x.get("invoice_number", ""))),
@@ -164,39 +176,53 @@ def _process_supplier_group(
         warn_parts: list[str] = []
         if inv.get("iban_mismatch"):
             warn_parts.append("iban_mismatch_supplier")
+        if inv.get("supplier_term_trusted") is False:
+            warn_parts.append("supplier_term_not_applied")
+        inv_date = inv.get("invoice_date")
+        src = str(inv.get("invoice_date_source") or "missing")
+        if not inv_date:
+            warn_parts.append("missing_invoice_date")
 
         if not creds:
             excl = inv.get("amount_excl_vat")
+            amt_dec = amount_to_decimal(inv["amount"])
             if excl is not None:
-                korting = excl * (discount / 100)
+                korting = amount_to_decimal(excl) * amount_to_decimal(discount) / pct_100
             else:
-                korting = 0.0
-                warn_parts.append("no_excl_vat_amount_discount_skipped")
-            te_betalen = round((inv["amount"] - korting) + 1e-9, 2)
+                korting = amount_to_decimal(0)
+                if discount > 0:
+                    warn_parts.append("no_excl_vat_amount_discount_skipped")
+            te_betalen_dec = (amt_dec - korting).quantize(Decimal("0.01"))
         else:
-            saldo_incl = inv["amount"] - sum(c["amount"] for c in creds)
+            saldo_incl = amount_to_decimal(inv["amount"]) - sum(
+                (amount_to_decimal(c["amount"]) for c in creds), start=Decimal("0")
+            )
+            saldo_incl = saldo_incl.quantize(Decimal("0.01"))
             if inv.get("amount_excl_vat") is not None and all(
                 c.get("amount_excl_vat") is not None for c in creds
             ):
-                saldo_excl = float(inv["amount_excl_vat"]) - sum(
-                    float(c["amount_excl_vat"]) for c in creds
+                saldo_excl = amount_to_decimal(inv["amount_excl_vat"]) - sum(
+                    (amount_to_decimal(c["amount_excl_vat"]) for c in creds), start=Decimal("0")
                 )
-                korting = saldo_excl * (discount / 100)
+                korting = (saldo_excl * amount_to_decimal(discount) / pct_100).quantize(
+                    Decimal("0.01")
+                )
             else:
-                korting = 0.0
-                warn_parts.append("no_excl_vat_amount_discount_skipped")
-            te_betalen = round((saldo_incl - korting) + 1e-9, 2)
+                korting = amount_to_decimal(0)
+                if discount > 0:
+                    warn_parts.append("no_excl_vat_amount_discount_skipped")
+            te_betalen_dec = (saldo_incl - korting).quantize(Decimal("0.01"))
 
         warning: str | None = "|".join(warn_parts) if warn_parts else None
 
         sup_out = inv.get("supplier_name")
         sup_for_err = sup_out if sup_out is not None else group_supplier
 
-        if te_betalen == 0:
-            err.add("zero_amount", sup_for_err, [inv])
-            continue
-        if te_betalen < 0:
-            err.add("negative_amount", sup_for_err, [inv])
+        if te_betalen_dec <= Decimal("0"):
+            if te_betalen_dec == Decimal("0"):
+                err.add("zero_amount", sup_for_err, [inv])
+            else:
+                err.add("negative_amount", sup_for_err, [inv])
             continue
 
         iban_raw = (inv.get("iban") or "").strip()
@@ -214,11 +240,21 @@ def _process_supplier_group(
             if c.get("invoice_number") is not None
         ]
 
+        trusted = bool(inv.get("supplier_term_trusted"))
+        try:
+            raw_term = int(inv.get("supplier_payment_term_days_raw") or 0)
+        except (TypeError, ValueError):
+            raw_term = 0
+        effective_term = raw_term if trusted else 0
+        inv_date_out = inv.get("invoice_date")
+        if inv_date_out is not None:
+            inv_date_out = str(inv_date_out).strip() or None
+
         payments.append(
             {
                 "supplier_name": str(sup_out) if sup_out is not None else display_name,
                 "iban": iban,
-                "amount": te_betalen,
+                "amount": float(te_betalen_dec),
                 "description": inv.get("description") if inv.get("description") is not None else "",
                 "invoice_number": str(inv["invoice_number"])
                 if inv.get("invoice_number") is not None
@@ -227,5 +263,14 @@ def _process_supplier_group(
                 "warning": warning,
                 "iban_mismatch": bool(inv.get("iban_mismatch")),
                 "status": "ok",
+                "invoice_date": inv_date_out,
+                "invoice_date_source": src
+                if src in ("parsed", "manual", "missing")
+                else "missing",
+                "supplier_term_trusted": trusted,
+                "supplier_payment_term_days_raw": raw_term,
+                "supplier_payment_term_days_effective": effective_term,
+                "date_mode": "direct",
+                "execution_date": session.isoformat(),
             }
         )

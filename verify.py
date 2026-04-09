@@ -758,6 +758,7 @@ def _run_module5_xml_generator_checks(results: list[bool]) -> None:
             "amount": 100.00,
             "description": "REF001",
             "invoice_number": "INV001",
+            "execution_date": exec_dt,
         }
         payment_b = {
             "supplier_name": "Test Leverancier B",
@@ -765,12 +766,12 @@ def _run_module5_xml_generator_checks(results: list[bool]) -> None:
             "amount": 57.00,
             "description": "REF002",
             "invoice_number": "INV002",
+            "execution_date": exec_dt,
         }
         try:
             out_path = generate_xml(
                 [payment_a, payment_b],
                 debtor,
-                exec_dt,
                 output_dir=tmp_dir,
             )
         except Exception as e:
@@ -874,6 +875,7 @@ def _run_module5_xml_generator_checks(results: list[bool]) -> None:
                     "amount": 10.10,
                     "description": "P1",
                     "invoice_number": "P1",
+                    "execution_date": exec_dt,
                 },
                 {
                     "supplier_name": "Precisie B",
@@ -881,6 +883,7 @@ def _run_module5_xml_generator_checks(results: list[bool]) -> None:
                     "amount": 20.20,
                     "description": "P2",
                     "invoice_number": "P2",
+                    "execution_date": exec_dt,
                 },
                 {
                     "supplier_name": "Precisie C",
@@ -888,9 +891,10 @@ def _run_module5_xml_generator_checks(results: list[bool]) -> None:
                     "amount": 30.30,
                     "description": "P3",
                     "invoice_number": "P3",
+                    "execution_date": exec_dt,
                 },
             ]
-            path2 = generate_xml(p2, debtor, exec_dt, output_dir=tmp_dir)
+            path2 = generate_xml(p2, debtor, output_dir=tmp_dir)
             t2 = etree.parse(path2)
             r2 = t2.getroot()
             cs2 = r2.findall(f".//{qn('CtrlSum')}")
@@ -912,9 +916,10 @@ def _run_module5_xml_generator_checks(results: list[bool]) -> None:
                     "amount": 1.0,
                     "description": "U",
                     "invoice_number": "U1",
+                    "execution_date": exec_dt,
                 }
             ]
-            path3 = generate_xml(p3, debtor, exec_dt, output_dir=tmp_dir)
+            path3 = generate_xml(p3, debtor, output_dir=tmp_dir)
             t3 = etree.parse(path3)
             _record(results, True, "Test 3 — geldige XML na speciale tekens")
             nm_elems = t3.findall(f".//{qn('Cdtr')}/{qn('Nm')}")

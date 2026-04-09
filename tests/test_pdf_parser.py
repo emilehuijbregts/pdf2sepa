@@ -200,6 +200,10 @@ class TestIbanExtraction:
         d = extract_invoice_data("Betaal op rekeningnummer NL25CITI0266075452 svp")
         assert d["iban"] == "NL25CITI0266075452"
 
+    def test_iban_with_spaces_is_normalized(self):
+        d = extract_invoice_data("IBAN: NL25 CITI 0266 0754 52")
+        assert d["iban"] == "NL25CITI0266075452"
+
 
 # ---------------------------------------------------------------------------
 # Amount extraction

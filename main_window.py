@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import logging
+import json
+import re
 import shutil
 import sys
+import time
 from copy import deepcopy
 from datetime import date
+from decimal import Decimal
 from enum import IntEnum
 from collections.abc import Callable
 from pathlib import Path
@@ -39,6 +43,14 @@ from PySide6.QtWidgets import (
 )
 
 from logic.invoice_folder_loader import load_invoices_from_folder
+from logic.payment_amounts import amount_to_decimal, format_eur_xml, sum_decimals
+from logic.payment_dates import (
+    execution_date_for_direct,
+    execution_date_for_due,
+    is_valid_iso_date_str,
+    is_weekend,
+    parse_iso_date,
+)
 from logic.payment_engine import calculate_payments
 from logic.validation import clean_iban, is_plausible_iban
 from logic.paths import read_user_data_root, write_user_data_root
@@ -60,6 +72,34 @@ from ui.suppliers_dialog import SuppliersDialog
 logger = logging.getLogger(__name__)
 
 APP_BASE = Path(__file__).resolve().parent
+_AGENT_DEBUG_LOG_PATH = Path("/Users/eh/Documents/Cursor/PDF2SEPA/.cursor/debug-791bb6.log")
+_AGENT_DEBUG_SESSION_ID = "791bb6"
+
+
+def _agent_debug_log(
+    location: str,
+    message: str,
+    data: dict[str, Any],
+    *,
+    hypothesis_id: str,
+    run_id: str = "initial",
+) -> None:
+    # region agent log
+    try:
+        payload = {
+            "sessionId": _AGENT_DEBUG_SESSION_ID,
+            "runId": run_id,
+            "hypothesisId": hypothesis_id,
+            "location": location,
+            "message": message,
+            "data": data,
+            "timestamp": int(time.time() * 1000),
+        }
+        with _AGENT_DEBUG_LOG_PATH.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(payload, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+    # endregion
 
 _ERROR_REASON_NL: dict[str, str] = {
     "no_supplier_hint": "Geen leveranciersnaam herkend in PDF; voeg een alias toe of vul handmatig in.",
@@ -80,13 +120,59 @@ _ERROR_REASON_NL: dict[str, str] = {
 
 _WARNING_NL: dict[str, str] = {
     "no_excl_vat_amount_discount_skipped": "Geen bedrag excl. BTW; korting niet toegepast.",
-    "iban_mismatch_supplier": "IBAN op factuur wijkt af van ‘mijn leveranciers’; controleer of je de leverancier wilt bijwerken.",
+    "iban_mismatch_supplier": "IBAN komt niet overeen met bekende leverancier — controleer naam en rekening.",
+    "supplier_term_not_applied": "Leverancier niet automatisch bevestigd → betaaltermijn niet toegepast.",
+    "missing_invoice_date": "Factuurdatum onbekend; vul handmatig in voor ‘op uiterste datum’.",
 }
-
 
 def _nl_error_reason(reason: str) -> str:
     return _ERROR_REASON_NL.get(reason, reason)
 
+_SIGNAL_LABELS: dict[str, str] = {
+    "iban": "IBAN",
+    "customer_number": "klantnummer",
+    "invoice_number": "factuurnummer",
+    "supplier_hint": "naam uit factuurtekst",
+    "email_domain": "e-maildomein",
+    "kvk": "KvK",
+    "vat": "BTW-nummer",
+    "payment_term": "betalingstermijn",
+}
+
+def _matches_completeness_text(inv: dict[str, Any]) -> str:
+    missing: list[str] = []
+    if not str(inv.get("invoice_number") or "").strip():
+        missing.append("factuurnummer")
+    if not str(inv.get("customer_number") or "").strip():
+        missing.append("klantnummer")
+    if not str(inv.get("invoice_date") or "").strip():
+        missing.append("factuurdatum")
+    if not str(inv.get("iban") or "").strip():
+        missing.append("IBAN")
+    return "Volledig ✓" if not missing else f"Mist: {', '.join(missing)}"
+
+def _core_matches_text(inv: dict[str, Any]) -> str:
+    source = str(inv.get("supplier_match_source") or "").strip()
+    core = inv.get("db_core_matches") or []
+    core_clean = [str(x).strip() for x in core if str(x).strip()]
+    if source == "db_match":
+        if len(core_clean) >= 2:
+            return f"2/2 bevestigd ({', '.join(core_clean[:2])})"
+        if core_clean:
+            return f"1/2 bevestigd ({core_clean[0]})"
+        return "0/2 bevestigd"
+
+    # Voor nieuwe leveranciers: sterke fallback-signalen als voorlopige kernmatch.
+    signals = inv.get("match_signals") or []
+    signal_set = {str(s).strip() for s in signals if str(s).strip()}
+    fallback_order = ["iban", "customer_number", "kvk", "vat", "email_domain"]
+    provisional = [k for k in fallback_order if k in signal_set][:2]
+    provisional_labels = [_SIGNAL_LABELS.get(k, k) for k in provisional]
+    if len(provisional_labels) >= 2:
+        return f"2/2 voorlopig ({' + '.join(provisional_labels)})"
+    if provisional_labels:
+        return f"1/2 voorlopig ({provisional_labels[0]})"
+    return "0/2 voorlopig"
 
 def _nl_payment_warning(warn: object | None) -> str:
     if not warn:
@@ -100,11 +186,9 @@ def _nl_payment_warning(warn: object | None) -> str:
         out.append(_WARNING_NL.get(key, key))
     return " · ".join(out)
 
-
 def _pdf_basename_from_dict(d: dict[str, Any]) -> str:
     sf = d.get("_source_file") or d.get("source_file")
     return Path(str(sf)).name if sf else ""
-
 
 def _error_row_supplier(inv: dict[str, Any]) -> str:
     sn = inv.get("supplier_name")
@@ -114,7 +198,6 @@ def _error_row_supplier(inv: dict[str, Any]) -> str:
     if hint and str(hint).strip():
         return str(hint).strip()
     return ""
-
 
 def _discount_str_from_inv(inv: dict[str, Any]) -> str:
     d = inv.get("discount")
@@ -127,6 +210,20 @@ def _discount_str_from_inv(inv: dict[str, Any]) -> str:
     except Exception:
         return "0"
 
+def _parse_term_days_from_text(raw: str) -> int | None:
+    try:
+        s = str(raw or "").strip()
+        if not s:
+            return 0
+        m = re.search(r"-?\d+", s)
+        if not m:
+            return None
+        v = int(m.group(0))
+        if v < 0:
+            return None
+        return v
+    except Exception:
+        return None
 
 class PaymentColumn(IntEnum):
     """Kolomindices voor de betalingstabel."""
@@ -138,15 +235,27 @@ class PaymentColumn(IntEnum):
     DESCRIPTION = 4
     PDF = 5
     DISCOUNT = 6
-    STATUS = 7
-    ERROR = 8
-
+    INVOICE_DATE = 7
+    EXECUTION_DATE = 8
+    TERM_HINT = 9
+    CORE_MATCHES = 10
+    MATCH_COMPLETE = 11
+    STATUS = 12
+    ERROR = 13
 
 # Factuurnummer voor SEPA EndToEndId; opgeslagen op leveranciercel (UserRole).
 _ROW_INVOICE_META_ROLE = Qt.ItemDataRole.UserRole
 # Ruwe warning-code(s) pipe-gescheiden; voor IBAN-bijwerken en tonen na bewerken.
 _ROW_WARNING_RAW_ROLE = Qt.ItemDataRole.UserRole + 1
-
+_ROW_INVOICE_DATE_SOURCE_ROLE = Qt.ItemDataRole.UserRole + 2
+_ROW_DATE_MODE_ROLE = Qt.ItemDataRole.UserRole + 3
+_ROW_EFFECTIVE_TERM_ROLE = Qt.ItemDataRole.UserRole + 4
+_ROW_TERM_TRUSTED_ROLE = Qt.ItemDataRole.UserRole + 5
+_ROW_EMAIL_DOMAIN_ROLE = Qt.ItemDataRole.UserRole + 6
+_ROW_KVK_NUMBER_ROLE = Qt.ItemDataRole.UserRole + 7
+_ROW_VAT_NUMBER_ROLE = Qt.ItemDataRole.UserRole + 8
+_ROW_BASE_INCL_ROLE = Qt.ItemDataRole.UserRole + 9
+_ROW_BASE_EXCL_ROLE = Qt.ItemDataRole.UserRole + 10
 
 _READ_ONLY_FLAGS = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
 
@@ -163,7 +272,6 @@ DEBTOR_FORM_FIELDS: tuple[tuple[str, str, str, str | None], ...] = (
     ("bic", "Uw BIC:", "ABNANL2A", ">XXXXXXXXxxx;_"),
 )
 
-
 def _normalize_debtor_field(key: str, value: str) -> str:
     if key == "name":
         return str(value or "").strip()
@@ -173,24 +281,27 @@ def _normalize_debtor_field(key: str, value: str) -> str:
         return "".join(c for c in str(value or "") if c.isalnum()).upper()
     return str(value or "").strip()
 
-
 class PaymentSource(NamedTuple):
     """Gelabelde factuurbron: naam voor status/UI en loader zonder argumenten."""
 
     name: str
     load: Callable[[], list[dict]]
 
-
 def _format_amount_nl(amount: float) -> str:
     return f"{amount:.2f}".replace(".", ",")
 
+def _term_status_label(trusted: bool | None, effective_days: int) -> str:
+    if trusted is True:
+        return f"Termijn: {effective_days} dagen (toegepast)"
+    if trusted is False:
+        return "Termijn niet toegepast (onzekere match)"
+    return "—"
 
 def _parse_amount_str(raw: str) -> float:
     s = (raw or "").strip().replace(",", ".")
     if not s:
         raise ValueError("leeg bedrag")
     return float(s)
-
 
 class _AmountTableItem(QTableWidgetItem):
     """Tabelcel Bedrag met numerieke sorteer-sleutel in UserRole."""
@@ -203,7 +314,6 @@ class _AmountTableItem(QTableWidgetItem):
         if isinstance(a, (int, float)) and isinstance(b, (int, float)):
             return float(a) < float(b)
         return super().__lt__(other)
-
 
 class SettingsDialog(QDialog):
     """Dialoog voor SEPA debtor-gegevens; formuliervelden komen uit ``DEBTOR_FORM_FIELDS``."""
@@ -369,7 +479,6 @@ class SettingsDialog(QDialog):
                 return
         self.accept()
 
-
 class MainWindow(QMainWindow):
     """
     Hoofdvenster voor de PDF2SEPA desktop client.
@@ -399,6 +508,8 @@ class MainWindow(QMainWindow):
         self._persist_sort_order: Qt.SortOrder = Qt.SortOrder.AscendingOrder
         self._sort_persist_connected: bool = False
         self._deleted_rows_undo: list[list[tuple[int, str]]] = []
+        self._session_date = date.today()
+        self._suppress_table_item_changed: bool = False
         self._restore_selected_folder_from_settings()
         self._setup_ui()
         self._setup_shortcuts()
@@ -628,6 +739,11 @@ class MainWindow(QMainWindow):
             "Omschrijving",
             "PDF",
             "Korting",
+            "Factuurdatum",
+            "Betaaldatum",
+            "Betaaltermijn",
+            "Kernmatches",
+            "Matches compleet",
             "Status",
             "Foutmelding",
         ]
@@ -641,11 +757,16 @@ class MainWindow(QMainWindow):
             PaymentColumn.IBAN: 180,
             PaymentColumn.AMOUNT: 90,
             PaymentColumn.CUSTOMER_CODE: 100,
-            PaymentColumn.DESCRIPTION: 250,
-            PaymentColumn.PDF: 140,
-            PaymentColumn.DISCOUNT: 65,
+            PaymentColumn.DESCRIPTION: 220,
+            PaymentColumn.PDF: 120,
+            PaymentColumn.DISCOUNT: 55,
+            PaymentColumn.INVOICE_DATE: 100,
+            PaymentColumn.EXECUTION_DATE: 100,
+            PaymentColumn.TERM_HINT: 200,
+            PaymentColumn.CORE_MATCHES: 260,
+            PaymentColumn.MATCH_COMPLETE: 220,
             PaymentColumn.STATUS: 80,
-            PaymentColumn.ERROR: 180,
+            PaymentColumn.ERROR: 200,
         }
         for col in range(len(headers)):
             hdr.setSectionResizeMode(col, QHeaderView.ResizeMode.Interactive)
@@ -659,6 +780,7 @@ class MainWindow(QMainWindow):
         self._table.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
         self._table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._table.customContextMenuRequested.connect(self._on_table_context_menu)
+        self._table.itemChanged.connect(self._on_table_item_changed)
         layout.addWidget(self._table, stretch=1)
 
         self._payment_sources = []
@@ -757,11 +879,21 @@ class MainWindow(QMainWindow):
         description = self._cell_text(row, PaymentColumn.DESCRIPTION).casefold()
         pdf = self._cell_text(row, PaymentColumn.PDF).casefold()
         cust = self._cell_text(row, PaymentColumn.CUSTOMER_CODE).casefold()
+        inv_dt = self._cell_text(row, PaymentColumn.INVOICE_DATE).casefold()
+        ex_dt = self._cell_text(row, PaymentColumn.EXECUTION_DATE).casefold()
+        term = self._cell_text(row, PaymentColumn.TERM_HINT).casefold()
+        core_matches = self._cell_text(row, PaymentColumn.CORE_MATCHES).casefold()
+        match_complete = self._cell_text(row, PaymentColumn.MATCH_COMPLETE).casefold()
         return (
             needle in supplier
             or needle in description
             or needle in pdf
             or needle in cust
+            or needle in inv_dt
+            or needle in ex_dt
+            or needle in term
+            or needle in core_matches
+            or needle in match_complete
         )
 
     def _apply_filter_to_table(self, filter_text: str) -> None:
@@ -781,7 +913,7 @@ class MainWindow(QMainWindow):
                 color = self._COLOR_ERROR
             elif status in ("needs_review", "needs review"):
                 color = self._COLOR_NEEDS_REVIEW
-            elif status in ("ok", "confirmed", "reviewed", "handmatig"):
+            elif status in ("ok", "matched", "new", "confirmed", "reviewed", "handmatig"):
                 color = self._COLOR_CONFIRMED
             else:
                 continue
@@ -850,6 +982,7 @@ class MainWindow(QMainWindow):
         """
         MismatchKey = tuple[str, str]
         mismatches: dict[MismatchKey, dict] = {}
+
         for inv in invoices:
             if not inv.get("iban_mismatch"):
                 continue
@@ -875,6 +1008,20 @@ class MainWindow(QMainWindow):
             db_iban = info["db_iban"]
             pdf_iban = info["pdf_iban"]
             n = len(info["invoices"])
+            # region agent log
+            _agent_debug_log(
+                "main_window.py:_resolve_iban_mismatches:prompt",
+                "IBAN-afwijking prompt wordt getoond",
+                {
+                    "supplier_name": supplier_name,
+                    "invoice_count": n,
+                    "db_iban": db_iban,
+                    "pdf_iban": pdf_iban,
+                },
+                hypothesis_id="H9",
+                run_id="post-fix",
+            )
+            # endregion
 
             answer = QMessageBox.question(
                 self,
@@ -971,7 +1118,7 @@ class MainWindow(QMainWindow):
         db = SupplierDB(path=self._supplier_db_path())
         matched = match_suppliers(all_raw, db)
         self._resolve_iban_mismatches(matched, db)
-        payments, errors = calculate_payments(matched)
+        payments, errors = calculate_payments(matched, session_date=self._session_date)
         self._enrich_payments_with_source_files(payments, matched)
         n_err_rows = self._populate_table_from_load(payments, errors, matched)
         progress.close()
@@ -1036,6 +1183,67 @@ class MainWindow(QMainWindow):
             return cns, ins
         return "", inv_no_pay
 
+    def _match_inv_for_payment(self, invoices: list[dict], payment: dict) -> dict | None:
+        sup = str(payment.get("supplier_name") or "")
+        inv_no_pay = str(payment.get("invoice_number") or "")
+        for inv in invoices:
+            if str(inv.get("supplier_name") or "") != sup:
+                continue
+            if inv_no_pay and str(inv.get("invoice_number") or "") != inv_no_pay:
+                continue
+            return inv
+        return None
+
+    def _payment_base_amounts_for_row(
+        self, invoices: list[dict], payment: dict, inv_match: dict | None
+    ) -> tuple[float | None, float | None]:
+        """Bepaal basisbedragen (incl/excl) voor lokale korting-herberekening per rij."""
+        if not inv_match:
+            return None, None
+        try:
+            inv_amount = amount_to_decimal(inv_match.get("amount"))
+        except Exception:
+            return None, None
+        credit_numbers = {
+            str(x).strip()
+            for x in (payment.get("credit_notes_applied") or [])
+            if str(x).strip()
+        }
+        if not credit_numbers:
+            base_incl = inv_amount
+            excl = inv_match.get("amount_excl_vat")
+            base_excl = amount_to_decimal(excl) if excl is not None else None
+            return float(base_incl), float(base_excl) if base_excl is not None else None
+
+        supplier = str(payment.get("supplier_name") or "")
+        credits: list[dict[str, Any]] = []
+        for inv in invoices:
+            if str(inv.get("supplier_name") or "") != supplier:
+                continue
+            inv_no = str(inv.get("invoice_number") or "").strip()
+            if inv_no and inv_no in credit_numbers:
+                credits.append(inv)
+        credit_incl = sum((amount_to_decimal(c.get("amount")) for c in credits), start=Decimal("0"))
+        base_incl = (inv_amount - credit_incl).quantize(Decimal("0.01"))
+        if inv_match.get("amount_excl_vat") is None:
+            return float(base_incl), None
+        if any(c.get("amount_excl_vat") is None for c in credits):
+            return float(base_incl), None
+        credit_excl = sum(
+            (amount_to_decimal(c.get("amount_excl_vat")) for c in credits), start=Decimal("0")
+        )
+        base_excl = (amount_to_decimal(inv_match.get("amount_excl_vat")) - credit_excl).quantize(
+            Decimal("0.01")
+        )
+        return float(base_incl), float(base_excl)
+
+    @staticmethod
+    def _parse_discount_pct(raw: str) -> float:
+        s = (raw or "").strip().replace(",", ".")
+        if not s:
+            return 0.0
+        return float(s)
+
     def _get_row_invoice_number(self, row: int) -> str:
         it = self._table.item(row, PaymentColumn.SUPPLIER)
         if not it:
@@ -1055,22 +1263,75 @@ class MainWindow(QMainWindow):
         status: str,
         error_msg: str,
         *,
+        supplier_tooltip: str = "",
+        core_matches_info: str = "",
+        match_complete_info: str = "",
+        email_domain: str = "",
+        kvk_number: str = "",
+        vat_number: str = "",
         invoice_number_meta: str = "",
         warning_raw: str | None = None,
+        invoice_date: str = "",
+        execution_date: str = "",
+        term_hint: str = "—",
+        date_mode: str = "direct",
+        invoice_date_source: str = "missing",
+        effective_term_days: int = 0,
+        supplier_term_trusted: bool | None = None,
+        base_amount_incl: float | None = None,
+        base_amount_excl: float | None = None,
     ) -> None:
         r = self._table.rowCount()
         self._table.insertRow(r)
         sup_item = self._item_editable(supplier)
+        if supplier_tooltip:
+            sup_item.setToolTip(supplier_tooltip)
+        if email_domain:
+            sup_item.setData(_ROW_EMAIL_DOMAIN_ROLE, email_domain)
+        if kvk_number:
+            sup_item.setData(_ROW_KVK_NUMBER_ROLE, kvk_number)
+        if vat_number:
+            sup_item.setData(_ROW_VAT_NUMBER_ROLE, vat_number)
         if invoice_number_meta:
             sup_item.setData(_ROW_INVOICE_META_ROLE, invoice_number_meta)
         self._table.setItem(r, PaymentColumn.SUPPLIER, sup_item)
         self._table.setItem(r, PaymentColumn.IBAN, self._item_editable(iban))
-        self._table.setItem(r, PaymentColumn.AMOUNT, self._item_amount(amount_display))
+        amt_item = self._item_amount(amount_display)
+        if base_amount_incl is not None:
+            amt_item.setData(_ROW_BASE_INCL_ROLE, float(base_amount_incl))
+        if base_amount_excl is not None:
+            amt_item.setData(_ROW_BASE_EXCL_ROLE, float(base_amount_excl))
+        self._table.setItem(r, PaymentColumn.AMOUNT, amt_item)
         self._table.setItem(r, PaymentColumn.CUSTOMER_CODE, self._item_editable(customer_code))
         self._table.setItem(r, PaymentColumn.DESCRIPTION, self._item_editable(description))
         pdf_disp = pdf_name if pdf_name.strip() else "—"
         self._table.setItem(r, PaymentColumn.PDF, self._item_readonly(pdf_disp))
         self._table.setItem(r, PaymentColumn.DISCOUNT, self._item_editable(discount))
+
+        inv_it = self._item_editable(invoice_date)
+        inv_it.setData(_ROW_INVOICE_DATE_SOURCE_ROLE, invoice_date_source)
+        if invoice_date_source == "manual" and invoice_date.strip():
+            inv_it.setToolTip("Handmatig ingesteld — factuurdatum")
+        elif invoice_date_source == "parsed":
+            inv_it.setToolTip("Uit PDF geëxtraheerd")
+        self._table.setItem(r, PaymentColumn.INVOICE_DATE, inv_it)
+
+        ex_it = self._item_editable(execution_date)
+        ex_it.setData(_ROW_DATE_MODE_ROLE, date_mode)
+        if date_mode == "manual":
+            ex_it.setToolTip("Handmatig ingesteld — betaaldatum")
+        self._table.setItem(r, PaymentColumn.EXECUTION_DATE, ex_it)
+
+        term_it = self._item_readonly(term_hint)
+        if status in ("ok", "new", "matched", "confirmed", "reviewed", "handmatig"):
+            term_it = self._item_editable(term_hint)
+        term_it.setData(_ROW_EFFECTIVE_TERM_ROLE, int(effective_term_days))
+        if supplier_term_trusted is not None:
+            term_it.setData(_ROW_TERM_TRUSTED_ROLE, supplier_term_trusted)
+        self._table.setItem(r, PaymentColumn.TERM_HINT, term_it)
+        self._table.setItem(r, PaymentColumn.CORE_MATCHES, self._item_readonly(core_matches_info))
+        self._table.setItem(r, PaymentColumn.MATCH_COMPLETE, self._item_readonly(match_complete_info))
+
         self._table.setItem(r, PaymentColumn.STATUS, self._item_readonly(status))
         err_item = self._item_readonly(error_msg)
         if warning_raw:
@@ -1087,6 +1348,7 @@ class MainWindow(QMainWindow):
         hdr.blockSignals(True)
         error_row_count = 0
         try:
+            self._suppress_table_item_changed = True
             self._table.setSortingEnabled(False)
             self._table.setRowCount(0)
             for p in payments:
@@ -1102,6 +1364,21 @@ class MainWindow(QMainWindow):
                 )
                 pdf = _pdf_basename_from_dict(p)
                 wr = p.get("warning")
+                tr = p.get("supplier_term_trusted")
+                trusted: bool | None = bool(tr) if tr is not None else None
+                eff_term = int(p.get("supplier_payment_term_days_effective") or 0)
+                inv_d = str(p.get("invoice_date") or "").strip()
+                inv_src = str(p.get("invoice_date_source") or "missing")
+                ex_d = str(p.get("execution_date") or "").strip() or self._session_date.isoformat()
+                mode = str(p.get("date_mode") or "direct")
+                term_lbl = _term_status_label(trusted, eff_term)
+                inv_match = self._match_inv_for_payment(invoices, p)
+                base_incl, base_excl = self._payment_base_amounts_for_row(invoices, p, inv_match)
+                core_info = _core_matches_text(inv_match or {})
+                complete_info = _matches_completeness_text(inv_match or {})
+                email_dom = str((inv_match or {}).get("email_domain") or "")
+                kvk_no = str((inv_match or {}).get("kvk_number") or "")
+                vat_no = str((inv_match or {}).get("vat_number") or "")
                 self._append_table_row(
                     str(p.get("supplier_name", "")),
                     str(p.get("iban", "")),
@@ -1112,8 +1389,23 @@ class MainWindow(QMainWindow):
                     disc,
                     str(p.get("status", "ok")),
                     err_cell,
+                    supplier_tooltip=f"{core_info} | {complete_info}",
+                    core_matches_info=core_info,
+                    match_complete_info=complete_info,
+                    email_domain=email_dom,
+                    kvk_number=kvk_no,
+                    vat_number=vat_no,
                     invoice_number_meta=inv_meta,
                     warning_raw=str(wr).strip() if wr else None,
+                    invoice_date=inv_d,
+                    execution_date=ex_d,
+                    term_hint=term_lbl,
+                    date_mode=mode,
+                    invoice_date_source=inv_src,
+                    effective_term_days=eff_term,
+                    supplier_term_trusted=trusted,
+                    base_amount_incl=base_incl,
+                    base_amount_excl=base_excl,
                 )
             needs_review_invs = [
                 (inv, r)
@@ -1136,6 +1428,12 @@ class MainWindow(QMainWindow):
                     inv.get("description"),
                 )
                 pdf_r = _pdf_basename_from_dict(inv)
+                inv_dr = str(inv.get("invoice_date") or "").strip()
+                src_r = str(inv.get("invoice_date_source") or "missing")
+                tr_r = inv.get("supplier_term_trusted")
+                trusted_r = bool(tr_r) if isinstance(tr_r, bool) else False
+                raw_term_r = int(inv.get("supplier_payment_term_days_raw") or 0)
+                eff_r = raw_term_r if trusted_r else 0
                 self._append_table_row(
                     _error_row_supplier(inv),
                     str(inv.get("iban") or ""),
@@ -1146,7 +1444,20 @@ class MainWindow(QMainWindow):
                     _discount_str_from_inv(inv),
                     "needs_review",
                     _nl_error_reason("needs_review"),
+                    supplier_tooltip=f"{_core_matches_text(inv)} | {_matches_completeness_text(inv)}",
+                    core_matches_info=_core_matches_text(inv),
+                    match_complete_info=_matches_completeness_text(inv),
+                    email_domain=str(inv.get("email_domain") or ""),
+                    kvk_number=str(inv.get("kvk_number") or ""),
+                    vat_number=str(inv.get("vat_number") or ""),
                     invoice_number_meta=inv_meta_r,
+                    invoice_date=inv_dr,
+                    execution_date=self._session_date.isoformat(),
+                    term_hint=_term_status_label(trusted_r, eff_r),
+                    date_mode="direct",
+                    invoice_date_source=src_r,
+                    effective_term_days=eff_r,
+                    supplier_term_trusted=trusted_r,
                 )
             for inv, reason in other_errors:
                 error_row_count += 1
@@ -1160,6 +1471,10 @@ class MainWindow(QMainWindow):
                     inv.get("description"),
                 )
                 pdf_e = _pdf_basename_from_dict(inv)
+                inv_de = str(inv.get("invoice_date") or "").strip()
+                src_e = str(inv.get("invoice_date_source") or "missing")
+                base_err = _nl_error_reason(reason)
+                sig_info = f"{_core_matches_text(inv)} | {_matches_completeness_text(inv)}"
                 self._append_table_row(
                     _error_row_supplier(inv),
                     str(inv.get("iban") or ""),
@@ -1169,8 +1484,19 @@ class MainWindow(QMainWindow):
                     pdf_e,
                     _discount_str_from_inv(inv),
                     "fout",
-                    _nl_error_reason(reason),
+                    base_err,
+                    supplier_tooltip=sig_info,
+                    core_matches_info=_core_matches_text(inv),
+                    match_complete_info=_matches_completeness_text(inv),
+                    email_domain=str(inv.get("email_domain") or ""),
+                    kvk_number=str(inv.get("kvk_number") or ""),
+                    vat_number=str(inv.get("vat_number") or ""),
                     invoice_number_meta=inv_meta_e,
+                    invoice_date=inv_de,
+                    execution_date=self._session_date.isoformat(),
+                    term_hint="—",
+                    date_mode="direct",
+                    invoice_date_source=src_e,
                 )
             self._auto_resize_columns_to_content()
             self._table.setSortingEnabled(True)
@@ -1178,6 +1504,7 @@ class MainWindow(QMainWindow):
                 self._table.sortByColumn(self._persist_sort_column, self._persist_sort_order)
         finally:
             hdr.blockSignals(False)
+            self._suppress_table_item_changed = False
         if not self._sort_persist_connected:
             hdr.sortIndicatorChanged.connect(self._on_sort_indicator_changed)
             self._sort_persist_connected = True
@@ -1202,8 +1529,82 @@ class MainWindow(QMainWindow):
         self._payment_sources = [self._make_map_folder_source(folder)]
         self._load_payments_from_sources()
 
+    def _on_reapply_discounts(self, rows: list[int] | None = None) -> None:
+        target_rows = [r for r in (rows if rows is not None else self._selected_table_rows()) if r >= 0]
+        if not target_rows:
+            QMessageBox.information(
+                self,
+                "Korting toepassen",
+                "Selecteer eerst één of meer rijen.",
+            )
+            return
+        updated = 0
+        skipped = 0
+        for r in target_rows:
+            if r >= self._table.rowCount():
+                skipped += 1
+                continue
+            status = self._cell_text(r, PaymentColumn.STATUS).lower()
+            if status in ("fout", "needs_review", "needs review"):
+                skipped += 1
+                continue
+            amt_item = self._table.item(r, PaymentColumn.AMOUNT)
+            if not amt_item:
+                skipped += 1
+                continue
+            base_incl_raw = amt_item.data(_ROW_BASE_INCL_ROLE)
+            base_excl_raw = amt_item.data(_ROW_BASE_EXCL_ROLE)
+            if base_incl_raw is None:
+                skipped += 1
+                continue
+            try:
+                base_incl = amount_to_decimal(base_incl_raw)
+                base_excl = amount_to_decimal(base_excl_raw) if base_excl_raw is not None else None
+                disc_pct = self._parse_discount_pct(self._cell_text(r, PaymentColumn.DISCOUNT))
+            except Exception:
+                skipped += 1
+                continue
+            discount_amt = amount_to_decimal(0)
+            if base_excl is not None:
+                discount_amt = (base_excl * amount_to_decimal(disc_pct) / amount_to_decimal("100")).quantize(
+                    Decimal("0.01")
+                )
+            elif disc_pct > 0:
+                skipped += 1
+                continue
+            new_amt = (base_incl - discount_amt).quantize(Decimal("0.01"))
+            if new_amt <= Decimal("0"):
+                skipped += 1
+                continue
+            amt_item.setText(_format_amount_nl(float(new_amt)))
+            amt_item.setData(Qt.ItemDataRole.UserRole, float(new_amt))
+            updated += 1
+        self._refresh_filter_and_sort_after_row_change()
+        self._set_status(
+            f"Korting toegepast op {updated} rij(en) zonder facturen opnieuw te laden."
+            + (f" Overgeslagen: {skipped}." if skipped else "")
+        )
+
     def _on_add_row(self) -> None:
-        self._append_table_row("", "", "", "", "", "", "0", "handmatig", "", invoice_number_meta="")
+        self._suppress_table_item_changed = True
+        self._append_table_row(
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "0",
+            "handmatig",
+            "",
+            invoice_number_meta="",
+            invoice_date="",
+            execution_date=self._session_date.isoformat(),
+            term_hint="—",
+            date_mode="direct",
+            invoice_date_source="missing",
+        )
+        self._suppress_table_item_changed = False
         self._refresh_filter_and_sort_after_row_change()
 
     def _on_table_context_menu(self, pos) -> None:
@@ -1237,8 +1638,67 @@ class MainWindow(QMainWindow):
         else:
             action_fout = menu.addAction("Markeer als fout")
             action_fout.triggered.connect(lambda: self._mark_rows_as_error([row]))
+        if status != "fout":
+            menu.addAction("Betaal direct (sessiedatum)").triggered.connect(
+                lambda: self._apply_pay_direct_rows(self._selected_table_rows() or [row])
+            )
+            menu.addAction("Betaal op uiterste betaaldatum").triggered.connect(
+                lambda: self._apply_pay_due_rows(self._selected_table_rows() or [row])
+            )
+            menu.addAction("Korting toepassen op geselecteerde rij(en)").triggered.connect(
+                lambda: self._on_reapply_discounts(self._selected_table_rows() or [row])
+            )
         if not menu.isEmpty():
             menu.exec(self._table.viewport().mapToGlobal(pos))
+
+    def _apply_pay_direct_rows(self, rows: list[int]) -> None:
+        self._suppress_table_item_changed = True
+        for r in rows:
+            if r < 0 or r >= self._table.rowCount():
+                continue
+            it = self._table.item(r, PaymentColumn.EXECUTION_DATE)
+            if not it:
+                continue
+            it.setData(_ROW_DATE_MODE_ROLE, "direct")
+            it.setText(self._session_date.isoformat())
+            it.setToolTip("")
+        self._suppress_table_item_changed = False
+        self._set_status(f"{len(rows)} rij(en): betalingsmodus direct (sessiedatum).")
+
+    def _apply_pay_due_rows(self, rows: list[int]) -> None:
+        missing: list[int] = []
+        self._suppress_table_item_changed = True
+        for r in rows:
+            if r < 0 or r >= self._table.rowCount():
+                continue
+            inv_txt = self._cell_text(r, PaymentColumn.INVOICE_DATE).strip()
+            if not inv_txt:
+                missing.append(r + 1)
+                continue
+            term_it = self._table.item(r, PaymentColumn.TERM_HINT)
+            try:
+                eff = int(term_it.data(_ROW_EFFECTIVE_TERM_ROLE)) if term_it else 0
+            except (TypeError, ValueError):
+                eff = 0
+            ex = execution_date_for_due(inv_txt, eff, self._session_date)
+            if ex is None:
+                missing.append(r + 1)
+                continue
+            it = self._table.item(r, PaymentColumn.EXECUTION_DATE)
+            if it:
+                it.setData(_ROW_DATE_MODE_ROLE, "due")
+                it.setText(ex)
+                it.setToolTip("")
+        self._suppress_table_item_changed = False
+        if missing:
+            QMessageBox.warning(
+                self,
+                "Factuurdatum ontbreekt",
+                "Voor ‘op uiterste betaaldatum’ is een factuurdatum verplicht.\n"
+                f"Rij(en): {', '.join(str(x) for x in sorted(set(missing)))}",
+            )
+        else:
+            self._set_status(f"{len(rows)} rij(en): modus uiterste betaaldatum toegepast.")
 
     def _confirm_review_rows(self, rows: list[int]) -> None:
         for r in rows:
@@ -1279,6 +1739,14 @@ class MainWindow(QMainWindow):
 
     def _on_sync_selected_to_suppliers(self) -> None:
         rows = self._selected_table_rows()
+        # region agent log
+        _agent_debug_log(
+            "main_window.py:_on_sync_selected_to_suppliers:start",
+            "Sync suppliers gestart",
+            {"selected_rows": rows, "selected_count": len(rows)},
+            hypothesis_id="H1",
+        )
+        # endregion
         if not rows:
             QMessageBox.information(
                 self,
@@ -1295,15 +1763,90 @@ class MainWindow(QMainWindow):
             iban = self._cell_text(r, PaymentColumn.IBAN)
             code = self._cell_text(r, PaymentColumn.CUSTOMER_CODE)
             disc_raw = self._cell_text(r, PaymentColumn.DISCOUNT)
+            term_raw = self._cell_text(r, PaymentColumn.TERM_HINT)
+            status_raw = self._cell_text(r, PaymentColumn.STATUS)
+            sup_it = self._table.item(r, PaymentColumn.SUPPLIER)
+            email_dom = str(sup_it.data(_ROW_EMAIL_DOMAIN_ROLE) or "").strip() if sup_it else ""
+            kvk_no = str(sup_it.data(_ROW_KVK_NUMBER_ROLE) or "").strip() if sup_it else ""
+            vat_no = str(sup_it.data(_ROW_VAT_NUMBER_ROLE) or "").strip() if sup_it else ""
+            # region agent log
+            _agent_debug_log(
+                "main_window.py:_on_sync_selected_to_suppliers:row_input",
+                "Rijwaarden voor sync",
+                {
+                    "row": r,
+                    "supplier": name,
+                    "iban_present": bool(iban),
+                    "customer_code": code,
+                    "discount_raw": disc_raw,
+                    "term_raw": term_raw,
+                    "status": status_raw,
+                },
+                hypothesis_id="H1",
+            )
+            # endregion
             if not name or not iban:
+                # region agent log
+                _agent_debug_log(
+                    "main_window.py:_on_sync_selected_to_suppliers:skip_missing",
+                    "Rij overgeslagen door ontbrekende naam/iban",
+                    {"row": r, "supplier": name, "iban_present": bool(iban)},
+                    hypothesis_id="H1",
+                )
+                # endregion
+                failed += 1
+                continue
+            term_days = _parse_term_days_from_text(term_raw)
+            if term_days is None:
+                # region agent log
+                _agent_debug_log(
+                    "main_window.py:_on_sync_selected_to_suppliers:skip_term_parse",
+                    "Rij overgeslagen door onleesbare termijntekst",
+                    {"row": r, "supplier": name, "term_raw": term_raw},
+                    hypothesis_id="H2",
+                )
+                # endregion
                 failed += 1
                 continue
             try:
                 d = float(disc_raw.replace(",", ".")) if disc_raw.strip() else 0.0
             except ValueError:
                 d = 0.0
-            merged = db.merge_or_add_supplier(name, iban, code or None, d)
-            updated = db.update_supplier(name, iban=iban, discount=d)
+            merged = db.merge_or_add_supplier(
+                name,
+                iban,
+                code or None,
+                d,
+                default_payment_term_days=term_days,
+                vat_number=vat_no or None,
+                kvk_number=kvk_no or None,
+                email_domain=email_dom or None,
+            )
+            updated = db.update_supplier(
+                name,
+                iban=iban,
+                discount=d,
+                default_payment_term_days=term_days,
+                vat_numbers=[vat_no] if vat_no else [],
+                kvk_numbers=[kvk_no] if kvk_no else [],
+                email_domains=[email_dom] if email_dom else [],
+            )
+            # region agent log
+            _agent_debug_log(
+                "main_window.py:_on_sync_selected_to_suppliers:store_result",
+                "Resultaat merge/update leverancier",
+                {
+                    "row": r,
+                    "supplier": name,
+                    "merged": bool(merged),
+                    "updated": bool(updated),
+                    "term_days": term_days,
+                    "discount": d,
+                    "iban_present": bool(iban),
+                },
+                hypothesis_id="H3",
+            )
+            # endregion
             if merged or updated:
                 ok += 1
                 self._strip_iban_mismatch_warning_row(r)
@@ -1312,6 +1855,25 @@ class MainWindow(QMainWindow):
                 failed += 1
         if changed:
             self._refresh_filter_and_sort_after_row_change()
+            # region agent log
+            _agent_debug_log(
+                "main_window.py:_on_sync_selected_to_suppliers:reload_after_change",
+                "Tabel opnieuw ingelezen na leverancier-update",
+                {"source_count": len(self._payment_sources)},
+                hypothesis_id="H4",
+                run_id="post-fix",
+            )
+            # endregion
+            if self._payment_sources:
+                self._load_payments_from_sources()
+        # region agent log
+        _agent_debug_log(
+            "main_window.py:_on_sync_selected_to_suppliers:end",
+            "Sync suppliers afgerond",
+            {"ok": ok, "failed": failed, "changed": changed},
+            hypothesis_id="H3",
+        )
+        # endregion
         msg = f"Verwerkt: {ok} leverancier(s) toegevoegd of bijgewerkt."
         if failed:
             msg += f" Overgeslagen (ontbrekende naam/IBAN of niet opgeslagen): {failed}."
@@ -1407,7 +1969,24 @@ class MainWindow(QMainWindow):
     def _log_export(self, xml_path: str, payments: list[dict], total: float) -> None:
         """Append an entry to exports/export_log.json (audit trail; bevat o.a. leverancier/factuur)."""
         import json
+        from collections import defaultdict
+
         from logic.settings import atomic_write
+
+        batches_map: dict[str, list[dict]] = defaultdict(list)
+        for p in payments:
+            batches_map[str(p.get("execution_date") or "").strip()].append(p)
+        batches_out: list[dict] = []
+        for ex in sorted(batches_map.keys()):
+            if not ex:
+                continue
+            plist = batches_map[ex]
+            decs = [amount_to_decimal(x.get("amount")) for x in plist]
+            batches_out.append({
+                "execution_date": ex,
+                "n_tx": len(plist),
+                "total_eur": float(sum_decimals(decs)),
+            })
 
         log_path = self._export_log_path()
         try:
@@ -1416,12 +1995,15 @@ class MainWindow(QMainWindow):
                 "timestamp": date.today().isoformat(),
                 "file": Path(xml_path).name,
                 "n_payments": len(payments),
+                "n_batches": len(batches_out),
                 "total_eur": total,
+                "batches": batches_out,
                 "payments": [
                     {
                         "supplier": str(p.get("supplier_name") or ""),
                         "invoice": str(p.get("invoice_number") or ""),
                         "amount": p.get("amount", 0),
+                        "execution_date": str(p.get("execution_date") or ""),
                     }
                     for p in payments
                 ],
@@ -1507,9 +2089,86 @@ class MainWindow(QMainWindow):
         disc_norm = "" if disc in ("0", "0.0", "0,0") else disc
         return not (sup or iban or amt or desc or disc_norm)
 
+    def _cell_date_mode(self, row: int) -> str:
+        it = self._table.item(row, PaymentColumn.EXECUTION_DATE)
+        if not it:
+            return "direct"
+        v = it.data(_ROW_DATE_MODE_ROLE)
+        s = str(v).strip().lower() if v is not None else "direct"
+        if s in ("direct", "due", "manual"):
+            return s
+        return "direct"
+
+    def _set_row_date_mode(self, row: int, mode: str) -> None:
+        it = self._table.item(row, PaymentColumn.EXECUTION_DATE)
+        if it:
+            it.setData(_ROW_DATE_MODE_ROLE, mode)
+
+    def _on_table_item_changed(self, item: QTableWidgetItem) -> None:
+        if self._suppress_table_item_changed:
+            return
+        col = item.column()
+        if col == PaymentColumn.INVOICE_DATE:
+            item.setData(_ROW_INVOICE_DATE_SOURCE_ROLE, "manual")
+            t = item.text().strip()
+            if t:
+                item.setToolTip("Handmatig ingesteld — factuurdatum")
+            else:
+                item.setToolTip("")
+        elif col == PaymentColumn.EXECUTION_DATE:
+            self._set_row_date_mode(item.row(), "manual")
+            item.setToolTip("Handmatig ingesteld — betaaldatum")
+        elif col == PaymentColumn.SUPPLIER:
+            term_it = self._table.item(item.row(), PaymentColumn.TERM_HINT)
+            term_editable = bool(
+                term_it and bool(term_it.flags() & Qt.ItemFlag.ItemIsEditable)
+            )
+            # region agent log
+            _agent_debug_log(
+                "main_window.py:_on_table_item_changed:supplier",
+                "Leveranciersnaam handmatig aangepast",
+                {
+                    "row": item.row(),
+                    "supplier_new": item.text().strip(),
+                    "status": self._cell_text(item.row(), PaymentColumn.STATUS),
+                    "term_raw": self._cell_text(item.row(), PaymentColumn.TERM_HINT),
+                    "term_editable": term_editable,
+                },
+                hypothesis_id="H16",
+                run_id="post-fix",
+            )
+            # endregion
+        elif col == PaymentColumn.DISCOUNT:
+            # region agent log
+            _agent_debug_log(
+                "main_window.py:_on_table_item_changed:discount",
+                "Korting handmatig aangepast in tabel",
+                {
+                    "row": item.row(),
+                    "supplier": self._cell_text(item.row(), PaymentColumn.SUPPLIER),
+                    "discount_raw": item.text().strip(),
+                    "amount_visible": self._cell_text(item.row(), PaymentColumn.AMOUNT),
+                    "recalc_triggered": False,
+                },
+                hypothesis_id="H4",
+            )
+            # endregion
+
     def _payment_dict_from_row(self, row: int) -> dict[str, Any]:
         disc_raw = self._cell_text(row, PaymentColumn.DISCOUNT)
         inv_no = self._get_row_invoice_number(row)
+        inv_dt_cell = self._table.item(row, PaymentColumn.INVOICE_DATE)
+        inv_src = inv_dt_cell.data(_ROW_INVOICE_DATE_SOURCE_ROLE) if inv_dt_cell else "missing"
+        if inv_src is None:
+            inv_src = "missing"
+        term_it = self._table.item(row, PaymentColumn.TERM_HINT)
+        eff_raw = term_it.data(_ROW_EFFECTIVE_TERM_ROLE) if term_it else 0
+        try:
+            eff_term = int(eff_raw) if eff_raw is not None else 0
+        except (TypeError, ValueError):
+            eff_term = 0
+        tr_raw = term_it.data(_ROW_TERM_TRUSTED_ROLE) if term_it else None
+        inv_date_txt = self._cell_text(row, PaymentColumn.INVOICE_DATE).strip()
         return {
             "supplier_name": self._cell_text(row, PaymentColumn.SUPPLIER),
             "iban": self._cell_text(row, PaymentColumn.IBAN),
@@ -1517,6 +2176,12 @@ class MainWindow(QMainWindow):
             "description": self._cell_text(row, PaymentColumn.DESCRIPTION),
             "invoice_number": inv_no,
             "discount": disc_raw if disc_raw else "0",
+            "invoice_date": inv_date_txt or None,
+            "invoice_date_source": str(inv_src),
+            "execution_date": self._cell_text(row, PaymentColumn.EXECUTION_DATE).strip(),
+            "date_mode": self._cell_date_mode(row),
+            "supplier_payment_term_days_effective": eff_term,
+            "supplier_term_trusted": tr_raw if tr_raw is not None else None,
         }
 
     def _table_rows_to_payment_dicts(self) -> list[dict[str, Any]]:
@@ -1552,7 +2217,64 @@ class MainWindow(QMainWindow):
             return "bedrag is ongeldig"
         if amt <= 0:
             return "bedrag moet groter zijn dan nul"
+        ex = str(p.get("execution_date") or "").strip()
+        if not ex or not is_valid_iso_date_str(ex):
+            return "betaaldatum ontbreekt of ongeldig (YYYY-MM-DD)"
+        mode = str(p.get("date_mode") or "direct")
+        if mode == "due" and not (p.get("invoice_date") and str(p.get("invoice_date")).strip()):
+            return "factuurdatum verplicht voor ‘op uiterste betaaldatum’"
         return None
+
+    def _finalize_payment_for_export(self, p: dict[str, Any]) -> None:
+        """Vul execution_date vlak vóór XML; manual blijft ongemoeid."""
+        mode = str(p.get("date_mode") or "direct")
+        if mode == "manual":
+            return
+        if mode == "direct":
+            p["execution_date"] = execution_date_for_direct(self._session_date)
+            return
+        if mode == "due":
+            ex = execution_date_for_due(
+                p.get("invoice_date"),
+                int(p.get("supplier_payment_term_days_effective") or 0),
+                self._session_date,
+            )
+            if ex is None:
+                raise ValueError("due-modus zonder geldige factuurdatum")
+            p["execution_date"] = ex
+
+    def _build_export_batch_summary_nl(self, payments: list[dict[str, Any]]) -> str:
+        from collections import defaultdict
+
+        groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for p in payments:
+            groups[str(p.get("execution_date") or "").strip()].append(p)
+        lines: list[str] = ["Je staat op het punt te exporteren:", ""]
+        all_decs: list[Decimal] = []
+        grand_n = 0
+        for ex in sorted(groups.keys()):
+            if not ex:
+                continue
+            plist = groups[ex]
+            decs = [amount_to_decimal(x.get("amount")) for x in plist]
+            all_decs.extend(decs)
+            total = sum_decimals(decs)
+            grand_n += len(plist)
+            amt_nl = format_eur_xml(total).replace(".", ",")
+            ex_d = parse_iso_date(ex)
+            label = (
+                f"{ex_d.day:02d}-{ex_d.month:02d}-{ex_d.year}"
+                if ex_d
+                else ex
+            )
+            if ex == self._session_date.isoformat():
+                label = f"{label} (sessie)"
+            lines.append(f"{label}: €{amt_nl} — {len(plist)} betaling(en)")
+        grand = sum_decimals(all_decs)
+        grand_s = format_eur_xml(grand).replace(".", ",")
+        lines.append("")
+        lines.append(f"Totaal: €{grand_s} — {grand_n} betaling(en)")
+        return "\n".join(lines)
 
     def _validate_debtor(self) -> Optional[str]:
         self._ensure_debtor_dict()
@@ -1611,7 +2333,7 @@ class MainWindow(QMainWindow):
         QApplication.processEvents()
 
         invalid: list[tuple[int, str]] = []
-        payment_dicts: list[dict[str, Any]] = []
+        row_payment_pairs: list[tuple[int, dict[str, Any]]] = []
 
         for r in range(self._table.rowCount()):
             if self._is_row_blank(r):
@@ -1624,11 +2346,20 @@ class MainWindow(QMainWindow):
             except ValueError:
                 invalid.append((r, "ongeldig bedrag"))
                 continue
+            mode = str(p.get("date_mode") or "direct")
+            if mode == "due" and not (p.get("invoice_date") and str(p.get("invoice_date")).strip()):
+                invalid.append((r, "factuurdatum verplicht voor ‘op uiterste betaaldatum’"))
+                continue
+            try:
+                self._finalize_payment_for_export(p)
+            except ValueError as e:
+                invalid.append((r, str(e)))
+                continue
             msg = self._validate_single_payment_row(p)
             if msg:
                 invalid.append((r, msg))
             else:
-                payment_dicts.append(p)
+                row_payment_pairs.append((r, p))
 
         if invalid:
             for r, msg in invalid:
@@ -1639,9 +2370,19 @@ class MainWindow(QMainWindow):
                 self._set_status(f"Fout: {len(invalid)} rijen ongeldig (zie Foutmelding-kolom)")
             return
 
-        if not payment_dicts:
+        if not row_payment_pairs:
             self._set_status("Fout: geen betalingsregels om te exporteren")
             return
+
+        self._suppress_table_item_changed = True
+        for r, p in row_payment_pairs:
+            if self._cell_date_mode(r) != "manual":
+                it = self._table.item(r, PaymentColumn.EXECUTION_DATE)
+                if it:
+                    it.setText(str(p.get("execution_date") or ""))
+        self._suppress_table_item_changed = False
+
+        payment_dicts = [p for _r, p in row_payment_pairs]
 
         duplicates = self._check_duplicate_payments(payment_dicts)
         if duplicates:
@@ -1664,11 +2405,24 @@ class MainWindow(QMainWindow):
                 self._set_status("XML export geannuleerd (dubbele betalingen).")
                 return
 
-        total_amount = sum(p.get("amount", 0) for p in payment_dicts)
+        total_amount = float(sum_decimals([amount_to_decimal(p.get("amount")) for p in payment_dicts]))
+        summary = self._build_export_batch_summary_nl(payment_dicts)
+        weekend_hits: set[str] = set()
+        for p in payment_dicts:
+            exd = parse_iso_date(str(p.get("execution_date") or ""))
+            if exd and is_weekend(exd):
+                weekend_hits.add(str(p.get("execution_date") or ""))
+        if weekend_hits:
+            QMessageBox.warning(
+                self,
+                "Betaaldatum weekend",
+                "Eén of meer betaaldatums vallen in het weekend; de bank kan deze verschuiven.\n\n"
+                + "\n".join(sorted(weekend_hits)),
+            )
         confirm = QMessageBox.question(
             self,
             "Bevestig XML export",
-            f"{len(payment_dicts)} betaling(en), totaal EUR {_format_amount_nl(total_amount)}.\n\nDoorgaan?",
+            f"{summary}\n\nDoorgaan?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.Yes,
         )
@@ -1684,13 +2438,11 @@ class MainWindow(QMainWindow):
         out_dir = self._resolve_export_dir()
         out_dir.mkdir(parents=True, exist_ok=True)
         debtor_for_xml: dict[str, Any] = self.get_debtor_dict_for_xml()
-        execution_date = date.today().isoformat()
 
         try:
             abspath = generate_xml(
                 payment_dicts,
                 debtor_for_xml,
-                execution_date,
                 str(out_dir),
             )
         except ValueError as e:
@@ -1707,14 +2459,12 @@ class MainWindow(QMainWindow):
         )
         self._log_export(abspath, payment_dicts, total_amount)
 
-
 def main() -> None:
     app = QApplication(sys.argv)
     window = MainWindow()
     window.resize(1100, 560)
     window.show()
     sys.exit(app.exec())
-
 
 if __name__ == "__main__":
     main()

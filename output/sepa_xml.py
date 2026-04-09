@@ -5,9 +5,12 @@ from __future__ import annotations
 import logging
 import os
 import re
+from collections import defaultdict
 from datetime import datetime
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal
 from lxml import etree
+
+from logic.payment_amounts import amount_to_decimal, format_eur_xml, sum_decimals
 
 NS = "urn:iso:std:iso:20022:tech:xsd:pain.001.001.09"
 
@@ -19,22 +22,25 @@ def _strip_iban(iban: str) -> str:
     return s.upper()
 
 
-def _money_decimal(amount: float) -> Decimal:
-    d = Decimal(str(amount)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-    return d
-
-
-def _money_str(d: Decimal) -> str:
-    return f"{d:.2f}"
+def _require_execution_date(p: dict, index: int) -> str:
+    raw = p.get("execution_date")
+    if raw is None or not str(raw).strip():
+        raise ValueError(f"payment[{index}] mist execution_date (verplicht voor SEPA-export)")
+    s = str(raw).strip()
+    if len(s) != 10 or s[4] != "-" or s[7] != "-":
+        raise ValueError(f"payment[{index}] execution_date ongeldig (verwacht YYYY-MM-DD): {raw!r}")
+    return s
 
 
 def generate_xml(
     payments: list[dict],
     debtor: dict,
-    execution_date: str,
     output_dir: str = "exports",
 ) -> str:
     """Genereert een pain.001.001.09 XML-bestand voor ING Mijn Zakelijk.
+
+    Elke payment moet ``execution_date`` (ISO ``YYYY-MM-DD``) bevatten.
+    Betalingen met dezelfde uitvoeringsdatum worden in één ``PmtInf`` gegroepeerd.
 
     Returns:
         Absoluut pad van het geschreven XML-bestand.
@@ -43,21 +49,51 @@ def generate_xml(
         logger.error("SEPA XML generatie: 0 transacties (payments leeg) — dit mag niet")
         raise ValueError("payments mag niet leeg zijn voor SEPA batch export")
 
+    dec_by_payment: list[Decimal] = []
+    for i, p in enumerate(payments):
+        _require_execution_date(p, i)
+        dec_by_payment.append(amount_to_decimal(p.get("amount")))
+
+    groups: dict[str, list[tuple[int, dict]]] = defaultdict(list)
+    for i, p in enumerate(payments):
+        ex = _require_execution_date(p, i)
+        groups[ex].append((i, p))
+
+    sorted_dates = sorted(groups.keys())
+    non_empty_dates = [d for d in sorted_dates if groups[d]]
+    if not non_empty_dates:
+        raise ValueError("geen geldige batch om te exporteren")
+
     now = datetime.now()
     timestamp = now.strftime("%Y%m%d%H%M%S")
     ymd = now.strftime("%Y%m%d")
     hms = now.strftime("%H%M%S")
     msg_id = f"MSG-{timestamp}"
-    pmt_inf_id = f"PMT-{timestamp}"
     cre_dt_tm = now.strftime("%Y-%m-%dT%H:%M:%S")
 
-    dec_rows: list[Decimal] = [_money_decimal(float(p["amount"])) for p in payments]
-    n_tx = len(dec_rows)
-    ctrl_sum = sum(dec_rows, start=Decimal("0")).quantize(
-        Decimal("0.01"), rounding=ROUND_HALF_UP
+    n_tx_total = len(dec_by_payment)
+    ctrl_sum_total = sum_decimals(dec_by_payment)
+    ctrl_str_total = format_eur_xml(ctrl_sum_total)
+
+    for batch_idx, ex_dt in enumerate(non_empty_dates):
+        batch_pairs = groups[ex_dt]
+        batch_decs = [dec_by_payment[i] for i, _ in batch_pairs]
+        n_b = len(batch_decs)
+        sum_b = sum_decimals(batch_decs)
+        logger.info(
+            "SEPA batch %d: %s → %d tx → EUR %s",
+            batch_idx + 1,
+            ex_dt,
+            n_b,
+            format_eur_xml(sum_b),
+        )
+
+    logger.info(
+        "SEPA XML: %d batch(es), %d transacties totaal, CtrlSum %s",
+        len(non_empty_dates),
+        n_tx_total,
+        ctrl_str_total,
     )
-    ctrl_str = _money_str(ctrl_sum)
-    logger.info("SEPA XML: %d transacties in PmtInf", n_tx)
 
     root = etree.Element("Document", nsmap={None: NS})
     cci = etree.SubElement(root, "CstmrCdtTrfInitn")
@@ -65,74 +101,84 @@ def generate_xml(
     grp = etree.SubElement(cci, "GrpHdr")
     etree.SubElement(grp, "MsgId").text = msg_id
     etree.SubElement(grp, "CreDtTm").text = cre_dt_tm
-    etree.SubElement(grp, "NbOfTxs").text = str(n_tx)
-    etree.SubElement(grp, "CtrlSum").text = ctrl_str
+    etree.SubElement(grp, "NbOfTxs").text = str(n_tx_total)
+    etree.SubElement(grp, "CtrlSum").text = ctrl_str_total
     initg = etree.SubElement(grp, "InitgPty")
     etree.SubElement(initg, "Nm").text = str(debtor["name"])
 
-    pmt_inf = etree.SubElement(cci, "PmtInf")
-    etree.SubElement(pmt_inf, "PmtInfId").text = pmt_inf_id
-    etree.SubElement(pmt_inf, "PmtMtd").text = "TRF"
-    etree.SubElement(pmt_inf, "BtchBookg").text = "true"
-    etree.SubElement(pmt_inf, "NbOfTxs").text = str(n_tx)
-    etree.SubElement(pmt_inf, "CtrlSum").text = ctrl_str
+    for batch_idx, ex_dt in enumerate(non_empty_dates):
+        batch_pairs = groups[ex_dt]
+        if not batch_pairs:
+            continue
+        batch_decs = [dec_by_payment[i] for i, _ in batch_pairs]
+        n_b = len(batch_decs)
+        sum_b = sum_decimals(batch_decs)
+        ctrl_b = format_eur_xml(sum_b)
 
-    pti = etree.SubElement(pmt_inf, "PmtTpInf")
-    sl = etree.SubElement(pti, "SvcLvl")
-    etree.SubElement(sl, "Cd").text = "SEPA"
+        pmt_inf_id = f"PMT-{timestamp}-{batch_idx:03d}"
+        pmt_inf = etree.SubElement(cci, "PmtInf")
+        etree.SubElement(pmt_inf, "PmtInfId").text = pmt_inf_id
+        etree.SubElement(pmt_inf, "PmtMtd").text = "TRF"
+        etree.SubElement(pmt_inf, "BtchBookg").text = "true"
+        etree.SubElement(pmt_inf, "NbOfTxs").text = str(n_b)
+        etree.SubElement(pmt_inf, "CtrlSum").text = ctrl_b
 
-    reqd_dt = etree.SubElement(pmt_inf, "ReqdExctnDt")
-    etree.SubElement(reqd_dt, "Dt").text = execution_date
+        pti = etree.SubElement(pmt_inf, "PmtTpInf")
+        sl = etree.SubElement(pti, "SvcLvl")
+        etree.SubElement(sl, "Cd").text = "SEPA"
 
-    dbtr = etree.SubElement(pmt_inf, "Dbtr")
-    etree.SubElement(dbtr, "Nm").text = str(debtor["name"])
+        reqd_dt = etree.SubElement(pmt_inf, "ReqdExctnDt")
+        etree.SubElement(reqd_dt, "Dt").text = ex_dt
 
-    dbtr_acct = etree.SubElement(pmt_inf, "DbtrAcct")
-    dbtr_id = etree.SubElement(dbtr_acct, "Id")
-    etree.SubElement(dbtr_id, "IBAN").text = _strip_iban(str(debtor["iban"]))
+        dbtr = etree.SubElement(pmt_inf, "Dbtr")
+        etree.SubElement(dbtr, "Nm").text = str(debtor["name"])
 
-    dbtr_agt = etree.SubElement(pmt_inf, "DbtrAgt")
-    fi = etree.SubElement(dbtr_agt, "FinInstnId")
-    etree.SubElement(fi, "BICFI").text = str(debtor["bic"]).strip().upper()
+        dbtr_acct = etree.SubElement(pmt_inf, "DbtrAcct")
+        dbtr_id = etree.SubElement(dbtr_acct, "Id")
+        etree.SubElement(dbtr_id, "IBAN").text = _strip_iban(str(debtor["iban"]))
 
-    etree.SubElement(pmt_inf, "ChrgBr").text = "SLEV"
+        dbtr_agt = etree.SubElement(pmt_inf, "DbtrAgt")
+        fi = etree.SubElement(dbtr_agt, "FinInstnId")
+        etree.SubElement(fi, "BICFI").text = str(debtor["bic"]).strip().upper()
 
-    for i, p in enumerate(payments):
-        amt_dec = dec_rows[i]
-        amt_txt = _money_str(amt_dec)
-        invoice_number = str(p.get("invoice_number") or "").strip()
-        e2e = (invoice_number or "NOTPROVIDED")[:35]
-        instr_id = e2e
+        etree.SubElement(pmt_inf, "ChrgBr").text = "SLEV"
 
-        desc = str(p.get("description") or "")
-        ustrd = desc.strip()[:140]
+        for row_i, p in batch_pairs:
+            amt_dec = dec_by_payment[row_i]
+            amt_txt = format_eur_xml(amt_dec)
+            invoice_number = str(p.get("invoice_number") or "").strip()
+            e2e = (invoice_number or "NOTPROVIDED")[:35]
+            instr_id = e2e
 
-        tx = etree.SubElement(pmt_inf, "CdtTrfTxInf")
-        pmt_id = etree.SubElement(tx, "PmtId")
-        etree.SubElement(pmt_id, "InstrId").text = instr_id
-        etree.SubElement(pmt_id, "EndToEndId").text = e2e
+            desc = str(p.get("description") or "")
+            ustrd = desc.strip()[:140]
 
-        amt_el = etree.SubElement(tx, "Amt")
-        etree.SubElement(amt_el, "InstdAmt", Ccy="EUR").text = amt_txt
+            tx = etree.SubElement(pmt_inf, "CdtTrfTxInf")
+            pmt_id = etree.SubElement(tx, "PmtId")
+            etree.SubElement(pmt_id, "InstrId").text = instr_id
+            etree.SubElement(pmt_id, "EndToEndId").text = e2e
 
-        bic = (
-            str(p.get("bic") or p.get("cdtr_bic") or p.get("creditor_bic") or "").strip()
-        )
-        if bic:
-            cdtr_agt = etree.SubElement(tx, "CdtrAgt")
-            cdtr_fi = etree.SubElement(cdtr_agt, "FinInstnId")
-            etree.SubElement(cdtr_fi, "BICFI").text = bic.upper()
+            amt_el = etree.SubElement(tx, "Amt")
+            etree.SubElement(amt_el, "InstdAmt", Ccy="EUR").text = amt_txt
 
-        cdtr = etree.SubElement(tx, "Cdtr")
-        supplier_name = str(p.get("supplier_name") or "").strip() or "UNKNOWN"
-        etree.SubElement(cdtr, "Nm").text = supplier_name
+            bic = (
+                str(p.get("bic") or p.get("cdtr_bic") or p.get("creditor_bic") or "").strip()
+            )
+            if bic:
+                cdtr_agt = etree.SubElement(tx, "CdtrAgt")
+                cdtr_fi = etree.SubElement(cdtr_agt, "FinInstnId")
+                etree.SubElement(cdtr_fi, "BICFI").text = bic.upper()
 
-        cdtr_acct = etree.SubElement(tx, "CdtrAcct")
-        cdtr_id = etree.SubElement(cdtr_acct, "Id")
-        etree.SubElement(cdtr_id, "IBAN").text = _strip_iban(str(p.get("iban") or ""))
+            cdtr = etree.SubElement(tx, "Cdtr")
+            supplier_name = str(p.get("supplier_name") or "").strip() or "UNKNOWN"
+            etree.SubElement(cdtr, "Nm").text = supplier_name
 
-        rmt = etree.SubElement(tx, "RmtInf")
-        etree.SubElement(rmt, "Ustrd").text = ustrd
+            cdtr_acct = etree.SubElement(tx, "CdtrAcct")
+            cdtr_id = etree.SubElement(cdtr_acct, "Id")
+            etree.SubElement(cdtr_id, "IBAN").text = _strip_iban(str(p.get("iban") or ""))
+
+            rmt = etree.SubElement(tx, "RmtInf")
+            etree.SubElement(rmt, "Ustrd").text = ustrd
 
     os.makedirs(output_dir, exist_ok=True)
     filename = f"SEPA_{ymd}_{hms}.xml"

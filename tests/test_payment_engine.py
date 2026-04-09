@@ -18,6 +18,10 @@ def _base_invoice(**overrides):
         "type": "invoice",
         "invoice_number": "INV-001",
         "description": "test",
+        "invoice_date": "2025-06-01",
+        "invoice_date_source": "parsed",
+        "supplier_term_trusted": True,
+        "supplier_payment_term_days_raw": 0,
     }
     inv.update(overrides)
     return inv
@@ -28,6 +32,8 @@ class TestNormalPayment:
         payments, errors = calculate_payments([_base_invoice()])
         assert len(payments) == 1
         assert payments[0]["amount"] == 121.0
+        assert payments[0].get("date_mode") == "direct"
+        assert payments[0].get("execution_date")
         assert len(errors) == 0
 
     def test_invoice_with_discount(self):
@@ -101,6 +107,15 @@ class TestIbanValidation:
         inv = _base_invoice(iban_mismatch=True)
         payments, _ = calculate_payments([inv])
         assert "iban_mismatch_supplier" in (payments[0].get("warning") or "")
+
+    def test_supplier_term_not_applied_when_untrusted(self):
+        inv = _base_invoice(
+            supplier_term_trusted=False,
+            supplier_payment_term_days_raw=30,
+        )
+        payments, _ = calculate_payments([inv])
+        assert "supplier_term_not_applied" in (payments[0].get("warning") or "")
+        assert payments[0]["supplier_payment_term_days_effective"] == 0
 
 
 class TestErrorCases:

@@ -134,6 +134,17 @@ class TestUnmatched:
         result = match_suppliers([inv], empty_db)[0]
         assert result["match_status"] == "unmatched"
 
+    def test_empty_database_valid_iban_becomes_new(self, empty_db):
+        inv = {
+            "supplier_hint": "Some Corp",
+            "iban": "NL25CITI0266075452",
+            "customer_number": "123",
+            "source_file": "/tmp/some_invoice.pdf",
+        }
+        result = match_suppliers([inv], empty_db)[0]
+        assert result["match_status"] == "new"
+        assert result["supplier_name"] == "Some Corp"
+
 
 class TestIbanMismatch:
     def test_iban_mismatch_flagged(self, db_with_suppliers):

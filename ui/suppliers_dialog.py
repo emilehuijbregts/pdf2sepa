@@ -64,6 +64,10 @@ class SuppliersDialog(QDialog):
         self._discount_edit = QLineEdit()
         self._discount_edit.setPlaceholderText("0 of 2,5")
         form.addRow(QLabel("Korting %:"), self._discount_edit)
+
+        self._term_edit = QLineEdit()
+        self._term_edit.setPlaceholderText("0, 7, 14, 30 …")
+        form.addRow(QLabel("Betaaltermijn (dagen):"), self._term_edit)
         right.addLayout(form)
 
         right.addWidget(QLabel("Aliassen"))
@@ -150,10 +154,21 @@ class SuppliersDialog(QDialog):
             return 0.0
         return float(s)
 
+    def _parse_term_days(self) -> int:
+        s = (self._term_edit.text() or "").strip().replace(",", ".")
+        if not s:
+            return 0
+        try:
+            v = int(float(s))
+            return max(0, v)
+        except ValueError:
+            raise ValueError("term")
+
     def _clear_form(self) -> None:
         self._name_edit.clear()
         self._iban_edit.clear()
         self._discount_edit.clear()
+        self._term_edit.clear()
         self._alias_list.clear()
         self._customer_code_list.clear()
 
@@ -167,6 +182,10 @@ class SuppliersDialog(QDialog):
                 continue
             self._iban_edit.setText(str(s.get("iban") or ""))
             self._discount_edit.setText(_discount_edit_text(s.get("discount")))
+            try:
+                self._term_edit.setText(str(int(s.get("default_payment_term_days") or 0)))
+            except (TypeError, ValueError):
+                self._term_edit.setText("0")
             aliases = s.get("aliases") or []
             if isinstance(aliases, list):
                 seen: set[str] = set()
@@ -240,13 +259,25 @@ class SuppliersDialog(QDialog):
         except ValueError:
             QMessageBox.warning(self, "Leveranciers", "Ongeldige korting.")
             return
+        try:
+            term_days = self._parse_term_days()
+        except ValueError:
+            QMessageBox.warning(self, "Leveranciers", "Ongeldige betaaltermijn (geheel aantal dagen).")
+            return
 
         aliases = self._current_aliases_list()
         customer_codes = self._current_customer_codes_list()
 
         if self._editing_original_name is None:
             before = len(self._db.get_all())
-            self._db.add_supplier(name, iban, discount, aliases=aliases, customer_codes=customer_codes)
+            self._db.add_supplier(
+                name,
+                iban,
+                discount,
+                aliases=aliases,
+                customer_codes=customer_codes,
+                default_payment_term_days=term_days,
+            )
             after = len(self._db.get_all())
             if after == before:
                 QMessageBox.information(
@@ -264,6 +295,7 @@ class SuppliersDialog(QDialog):
             self._editing_original_name,
             iban=iban,
             discount=discount,
+            default_payment_term_days=term_days,
             aliases=aliases,
             overwrite_aliases=True,
             customer_codes=customer_codes,

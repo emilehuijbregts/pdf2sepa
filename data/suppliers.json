@@ -11,7 +11,10 @@
       ],
       "customer_codes": [
         "1012146"
-      ]
+      ],
+      "vat_numbers": [],
+      "kvk_numbers": [],
+      "email_domains": []
     },
     {
       "name": "SALO B.V.",
@@ -22,7 +25,10 @@
       ],
       "customer_codes": [
         "3503"
-      ]
+      ],
+      "vat_numbers": [],
+      "kvk_numbers": [],
+      "email_domains": []
     },
     {
       "name": "Bosta B.V.",
@@ -33,7 +39,10 @@
       ],
       "customer_codes": [
         "NL01114276"
-      ]
+      ],
+      "vat_numbers": [],
+      "kvk_numbers": [],
+      "email_domains": []
     },
     {
       "name": "Technische Unie B.V.",
@@ -44,7 +53,196 @@
       ],
       "customer_codes": [
         "3903168"
+      ],
+      "vat_numbers": [],
+      "kvk_numbers": [],
+      "email_domains": []
+    },
+    {
+      "name": "2ba",
+      "iban": "NL69INGB0662728483",
+      "discount": 0.0,
+      "aliases": [
+        "2ba"
+      ],
+      "customer_codes": [
+        "113073/17078"
+      ],
+      "default_payment_term_days": 30,
+      "vat_numbers": [],
+      "kvk_numbers": [
+        "17162509"
+      ],
+      "email_domains": [
+        "2ba.nl"
       ]
+    },
+    {
+      "name": "Aco B.V.",
+      "iban": "NL48ABNA0533039819",
+      "discount": 2.0,
+      "aliases": [
+        "Aco B.V."
+      ],
+      "customer_codes": [
+        "D320478"
+      ],
+      "default_payment_term_days": 8,
+      "vat_numbers": [
+        "NL813771213B01"
+      ],
+      "kvk_numbers": [],
+      "email_domains": [
+        "aco.nl"
+      ]
+    },
+    {
+      "name": "Prima! Arbo & Verzuim",
+      "iban": "NL46RABO0168760215",
+      "discount": 0.0,
+      "aliases": [
+        "Prima! Arbo & Verzuim"
+      ],
+      "customer_codes": [
+        "20180168"
+      ],
+      "default_payment_term_days": 14,
+      "vat_numbers": [
+        "NL858817731B01"
+      ],
+      "kvk_numbers": [
+        "71705538"
+      ],
+      "email_domains": [
+        "prima-arboenverzuim.nl"
+      ]
+    },
+    {
+      "name": "Groupe Atlantic (Orcon)",
+      "iban": "NL56BNPA0227745442",
+      "discount": 0.0,
+      "aliases": [
+        "Groupe Atlantic (Orcon)"
+      ],
+      "customer_codes": [
+        "21010030"
+      ],
+      "default_payment_term_days": 30,
+      "vat_numbers": [],
+      "kvk_numbers": [],
+      "email_domains": [
+        "groupe-atlantic.com"
+      ]
+    },
+    {
+      "name": "Besli",
+      "iban": "NL02INGB0684236044",
+      "discount": 2.0,
+      "aliases": [
+        "Besli"
+      ],
+      "customer_codes": [
+        "105447"
+      ],
+      "default_payment_term_days": 8,
+      "vat_numbers": [
+        "NL809336844B01"
+      ],
+      "kvk_numbers": [
+        "09117206"
+      ],
+      "email_domains": [
+        "besli.nl"
+      ]
+    },
+    {
+      "name": "B.J. Autotechniek/Products",
+      "iban": "NL69INGB0009150049",
+      "discount": 0.0,
+      "aliases": [
+        "B.J. Autotechniek/Products"
+      ],
+      "customer_codes": [],
+      "default_payment_term_days": 8,
+      "vat_numbers": [
+        "NL001787042B71"
+      ],
+      "kvk_numbers": [
+        "17139601"
+      ],
+      "email_domains": []
+    },
+    {
+      "name": "Bitasco Trading B.V",
+      "iban": "NL65ABNA0643497390",
+      "discount": 0.0,
+      "aliases": [
+        "Bitasco Trading B.V"
+      ],
+      "customer_codes": [
+        "104031"
+      ],
+      "default_payment_term_days": 30,
+      "vat_numbers": [
+        "NL148005664B01"
+      ],
+      "kvk_numbers": [
+        "62254448"
+      ],
+      "email_domains": [
+        "duister.eu"
+      ]
+    },
+    {
+      "name": "Aluned B.V.",
+      "iban": "NL33INGB0672785412",
+      "discount": 0.0,
+      "aliases": [
+        "Aluned B.V."
+      ],
+      "customer_codes": [
+        "30146"
+      ],
+      "default_payment_term_days": 30,
+      "vat_numbers": [],
+      "kvk_numbers": [],
+      "email_domains": []
+    },
+    {
+      "name": "A.S.F. Fischer B.V.",
+      "iban": "NL16RABO0112554784",
+      "discount": 0.0,
+      "aliases": [
+        "A.S.F. Fischer B.V."
+      ],
+      "customer_codes": [
+        "100460"
+      ],
+      "default_payment_term_days": 30,
+      "vat_numbers": [
+        "NL805549948B01"
+      ],
+      "kvk_numbers": [
+        "39063428"
+      ],
+      "email_domains": [
+        "asf-fischer.nl"
+      ]
+    },
+    {
+      "name": "Bauder B.V.",
+      "iban": "NL52RABO0309319412",
+      "discount": 0.0,
+      "aliases": [
+        "Bauder B.V."
+      ],
+      "customer_codes": [
+        "603540 / 880"
+      ],
+      "default_payment_term_days": 30,
+      "vat_numbers": [],
+      "kvk_numbers": [],
+      "email_domains": []
     }
   ]
 }
