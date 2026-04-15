@@ -156,8 +156,7 @@ def _dbg_a6(*, hypothesis_id: str, location: str, message: str, data: dict[str, 
 # #endregion
 
 # Hard guard for decision-store access discipline.
-# This is intentionally NOT user-toggleable: the Debug Decisions UI toggle must never
-# affect core rendering/decision resolution behavior.
+# Debug UI must never affect core rendering/decision resolution behavior.
 DECISION_STORE_GUARD_ENABLED = True
 
 
@@ -794,14 +793,6 @@ class MainWindow(QMainWindow):
     def _supplier_db_path(self) -> str:
         return str(self._user_data_dir / "suppliers.json")
 
-    def _on_toggle_debug_decisions(self, checked: bool) -> None:
-        # HARD INVARIANT: toggle is overlay-only. It must not trigger any table refresh,
-        # recolor, status recomputation, or decision resolution. Only show/hide inspector.
-        if hasattr(self, "_decision_inspector"):
-            self._decision_inspector.setVisible(bool(checked))
-        # Refresh inspector content for current selection (no table mutations).
-        self._on_table_selection_changed()
-
     def _on_table_selection_changed(self) -> None:
         if not hasattr(self, "_decision_inspector") or not self._decision_inspector.isVisible():
             return
@@ -1040,15 +1031,6 @@ class MainWindow(QMainWindow):
         self._batch_status_label = QLabel("Batch status: VALID")
         row_main.addWidget(self._batch_status_label, alignment=Qt.AlignmentFlag.AlignLeft)
 
-        # Decision debugging UI toggle (kept compact).
-        self._debug_decisions_checkbox = QToolButton()
-        self._debug_decisions_checkbox.setText("Debug beslissingen")
-        self._debug_decisions_checkbox.setCheckable(True)
-        self._debug_decisions_checkbox.setChecked(False)
-        self._debug_decisions_checkbox.setToolTip("Toon/verberg beslissingsdetails (reason/trace/run).")
-        self._debug_decisions_checkbox.toggled.connect(self._on_toggle_debug_decisions)
-        row_main.addWidget(self._debug_decisions_checkbox, alignment=Qt.AlignmentFlag.AlignLeft)
-
         row_main.addSpacing(12)
 
         btn_add_row = QToolButton()
@@ -1169,7 +1151,7 @@ class MainWindow(QMainWindow):
         self._decision_inspector = QTextEdit()
         self._decision_inspector.setReadOnly(True)
         self._decision_inspector.setMinimumWidth(240)
-        self._decision_inspector.setVisible(bool(getattr(self, "_debug_decisions_checkbox", None) and self._debug_decisions_checkbox.isChecked()))
+        self._decision_inspector.setVisible(False)
         self._decision_inspector.setToolTip("Beslissingsinspecteur: selecteer een rij.")
 
         splitter = QSplitter(Qt.Orientation.Horizontal)

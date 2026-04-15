@@ -385,6 +385,28 @@
       "email_domains": [
         "gmail.com"
       ]
+    },
+    {
+      "name": "CEVETECH bv",
+      "iban": "NL48INGB0654030774",
+      "discount": 0.0,
+      "aliases": [
+        "CEVETECH bv"
+      ],
+      "customer_codes": [
+        "10295"
+      ],
+      "default_payment_term_days": 30,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL822167037B01"
+      ],
+      "kvk_numbers": [
+        "24489568"
+      ],
+      "email_domains": [
+        "cevetech.nl"
+      ]
     }
   ]
 }

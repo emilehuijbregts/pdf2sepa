@@ -621,6 +621,19 @@ def _classify_candidate_amount_type(*, classification_line: str, source: str) ->
     if source == "total_label_payable":
         return "incl"
     if source == "total_label_invoice":
+        # Table layouts often render a header row like:
+        # "… BTW % BTW bedrag Factuurbedrag" and the *amount* appears on the next line.
+        # In that case, "BTW" tokens are column headers and should not downgrade "Factuurbedrag".
+        head = _amount_classify_label_head(classification_line)
+        is_tabular_factuurbedrag_header = (
+            ">>" in str(classification_line or "")
+            and re.search(r"(?i)\bfactuurbedrag\b", head) is not None
+            and re.search(r"(?i)\bbtw\b", head) is not None
+            and re.search(r"(?i)\b(?:btw\s*%|btw\s*bedrag|grondslag|netto|goederenbedrag)\b", head) is not None
+            and re.search(r"(?i)\b(?:excl(?:\.|usief)?|exclusief|zonder\s+btw)\b", head) is None
+        )
+        if is_tabular_factuurbedrag_header:
+            return "incl"
         if re.search(r"(?i)\bexcl(?:\.|usief)?\b", low) or "exclusief" in low or "zonder btw" in low:
             return "unknown"
         if re.search(r"(?i)\b(?:btw|vat)\b", low):

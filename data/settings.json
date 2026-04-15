@@ -2,28 +2,30 @@
   "debtor": {
     "name": "Handelsonderneming Duister",
     "iban": "NL31INGB0663727200",
-    "bic": "INGBNL2A"
+    "bic": "INGBNL2A",
+    "kvk": "62254448",
+    "vat": "NL148005664B01"
   },
   "export_dir": "/Users/eh/Documents/Cursor/PDF2SEPA/exports",
-  "last_invoice_dir": "/Users/eh/Downloads/Test facturen/Test facturen 8-4",
-  "window_width": 1100,
+  "last_invoice_dir": "/Users/eh/Downloads/Test facturen/Test facturen 8-4 (2)",
+  "window_width": 1120,
   "window_height": 560,
-  "window_x": 217,
-  "window_y": 336,
+  "window_x": 0,
+  "window_y": 257,
   "column_widths": {
-    "0": 173,
+    "0": 192,
     "1": 159,
-    "2": 67,
-    "3": 95,
-    "4": 169,
-    "5": 428,
+    "2": 63,
+    "3": 85,
+    "4": 198,
+    "5": 479,
     "6": 50,
     "7": 87,
-    "8": 87,
+    "8": 85,
     "9": 192,
     "10": 222,
     "11": 122,
-    "12": 45,
+    "12": 96,
     "13": 79
   }
 }
