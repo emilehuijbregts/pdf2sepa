@@ -8,6 +8,11 @@ from pathlib import Path
 APP_BASE = Path(__file__).resolve().parent
 LOG_DIR = APP_BASE / "logs"
 
+# Make sure local vendored deps are available (for dev runs).
+DEPS = APP_BASE / ".deps"
+if DEPS.exists() and str(DEPS) not in sys.path:
+    sys.path.insert(0, str(DEPS))
+
 
 def _configure_logging() -> None:
     LOG_DIR.mkdir(exist_ok=True)

@@ -1,0 +1,13 @@
+{
+  "source_file": "Aco Sales Invoice - F444643.pdf",
+  "invoice_number": "F444643",
+  "supplier_name": "Aco B.V.",
+  "iban": "NL48ABNA0533039819",
+  "amount": "3808.39",
+  "amount_status": "confirmed",
+  "customer_code": "D320478",
+  "description": "D320478 / F444643",
+  "discount_percentage": "2.00",
+  "invoice_date": "2026-03-25",
+  "payment_terms_days": 8
+}

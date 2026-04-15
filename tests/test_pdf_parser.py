@@ -55,6 +55,14 @@ class TestCustomerNumberExtraction:
         d = extract_invoice_data("Debiteuren nummer : NL01114276")
         assert d["customer_number"] == "NL01114276"
 
+    def test_debnr_colon(self):
+        d = extract_invoice_data("Debnr: 10234")
+        assert d["customer_number"] == "10234"
+
+    def test_deb_nr_dot_spaced(self):
+        d = extract_invoice_data("Deb. nr. 10234")
+        assert d["customer_number"] == "10234"
+
     def test_lidnummer(self):
         d = extract_invoice_data("Lidnummer: 1012146")
         assert d["customer_number"] == "1012146"
@@ -97,6 +105,10 @@ class TestInvoiceNumberExtraction:
     def test_factuurnr_dot(self):
         d = extract_invoice_data("Factuurnr. 7012254003")
         assert d["invoice_number"] == "7012254003"
+
+    def test_fact_nr_abbrev(self):
+        d = extract_invoice_data("Fact. nr. 26012345")
+        assert d["invoice_number"] == "26012345"
 
     def test_invoice_number_english(self):
         d = extract_invoice_data("Invoice number: INV-2025-001")
@@ -223,6 +235,14 @@ class TestAmountExtraction:
         assert d["amount"] == 121.0
         assert d["amount_excl_vat"] == 100.0
 
+    def test_te_betalen_next_line(self):
+        d = extract_invoice_data("Te betalen\n€ 605,92")
+        assert d["amount"] == 605.92
+
+    def test_factuurbedrag_next_line(self):
+        d = extract_invoice_data("Factuurbedrag:\n605,92")
+        assert d["amount"] == 605.92
+
     def test_netto_goederenwaarde(self):
         assert extract_amount_excl_vat("Totaal netto goederenwaarde 9,99") == 9.99
 
@@ -315,6 +335,30 @@ class TestSupplierHint:
     def test_no_hint(self):
         d = extract_invoice_data("Geen bedrijfsnaam hier\nBedrag 100,00")
         assert d["supplier_hint"] is None
+
+
+class TestDebtorKvkVatExclusion:
+    """Eigen KvK/BTW (debiteur) mogen nooit als leveranciervelden landen."""
+
+    def test_picks_next_kvk_when_first_is_debtor(self):
+        text = "KvK 62254448\nLeverancier KvK 24489568\nBTW NL822167037B01"
+        d = extract_invoice_data(
+            text,
+            debtor_kvk="62254448",
+            debtor_vat="NL148005664B01",
+        )
+        assert d["kvk_number"] == "24489568"
+        assert d["vat_number"] == "NL822167037B01"
+
+    def test_no_supplier_kvk_vat_when_only_debtor_numbers(self):
+        text = "Factuur\nKvK 62254448 BTW NL148005664B01\nBedrag 100,00"
+        d = extract_invoice_data(
+            text,
+            debtor_kvk="62254448",
+            debtor_vat="NL148005664B01",
+        )
+        assert d["kvk_number"] is None
+        assert d["vat_number"] is None
 
 
 # ---------------------------------------------------------------------------

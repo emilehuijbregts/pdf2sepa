@@ -1,0 +1,13 @@
+{
+  "source_file": "ASF Fischer 100460 26005032 29-01-2026.pdf",
+  "invoice_number": "26005032",
+  "supplier_name": "A.S.F. Fischer B.V.",
+  "iban": "NL16RABO0112554784",
+  "amount": "184.56",
+  "amount_status": "confirmed",
+  "customer_code": "100460",
+  "description": "100460 / 26005032",
+  "discount_percentage": "0.00",
+  "invoice_date": "2026-01-29",
+  "payment_terms_days": 30
+}

@@ -1,0 +1,13 @@
+{
+  "source_file": "Besli Factuur 30323154.pdf",
+  "invoice_number": "30323154",
+  "supplier_name": "Besli",
+  "iban": "NL02INGB0684236044",
+  "amount": "540.87",
+  "amount_status": "confirmed",
+  "customer_code": "105447",
+  "description": "105447 / 30323154",
+  "discount_percentage": "2.00",
+  "invoice_date": "2026-01-08",
+  "payment_terms_days": 8
+}

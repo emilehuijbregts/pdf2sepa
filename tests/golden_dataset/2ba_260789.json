@@ -1,0 +1,13 @@
+{
+  "source_file": "2ba Fact-2BA-20260114-260789-Duister.pdf",
+  "invoice_number": "260789",
+  "supplier_name": "2ba",
+  "iban": "NL69INGB0662728483",
+  "amount": "1551.22",
+  "amount_status": "confirmed",
+  "customer_code": "113073/17078",
+  "description": "113073/17078 / 260789",
+  "discount_percentage": "0.00",
+  "invoice_date": "2026-01-14",
+  "payment_terms_days": 30
+}

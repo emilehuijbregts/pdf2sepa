@@ -40,9 +40,14 @@
       "customer_codes": [
         "NL01114276"
       ],
-      "vat_numbers": [],
+      "vat_numbers": [
+        "NL148005664B01"
+      ],
       "kvk_numbers": [],
-      "email_domains": []
+      "email_domains": [
+        "nl.bosta.com"
+      ],
+      "default_payment_term_days": 30
     },
     {
       "name": "Technische Unie B.V.",
@@ -183,12 +188,8 @@
         "104031"
       ],
       "default_payment_term_days": 30,
-      "vat_numbers": [
-        "NL148005664B01"
-      ],
-      "kvk_numbers": [
-        "62254448"
-      ],
+      "vat_numbers": [],
+      "kvk_numbers": [],
       "email_domains": [
         "duister.eu"
       ]
@@ -243,6 +244,147 @@
       "vat_numbers": [],
       "kvk_numbers": [],
       "email_domains": []
+    },
+    {
+      "name": "BONFIX B.V",
+      "iban": "NL87RABO0330742493",
+      "discount": 0.0,
+      "aliases": [
+        "BONFIX B.V"
+      ],
+      "customer_codes": [
+        "961708"
+      ],
+      "default_payment_term_days": 30,
+      "vat_numbers": [],
+      "kvk_numbers": [
+        "05054087"
+      ],
+      "email_domains": [
+        "bonfix.eu"
+      ]
+    },
+    {
+      "name": "Brouwers Zink B.V",
+      "iban": "NL45ABNA0869677888",
+      "discount": 0.0,
+      "aliases": [
+        "Brouwers Zink B.V"
+      ],
+      "customer_codes": [
+        "52002"
+      ],
+      "default_payment_term_days": 30,
+      "vat_numbers": [
+        "NL008253845B01"
+      ],
+      "kvk_numbers": [
+        "14624980"
+      ],
+      "email_domains": [
+        "brouwerszink.nl"
+      ]
+    },
+    {
+      "name": "Connect Products (Seal-it)",
+      "iban": "NL42RABO0128479485",
+      "discount": 0.0,
+      "aliases": [
+        "Connect Products (Seal-it)"
+      ],
+      "customer_codes": [
+        "3349"
+      ],
+      "default_payment_term_days": 30,
+      "vat_numbers": [
+        "NL822750545B01"
+      ],
+      "kvk_numbers": [
+        "50455125"
+      ],
+      "email_domains": [
+        "connectproducts.nl"
+      ]
+    },
+    {
+      "name": "De Waal Transport B.V",
+      "iban": "NL06RABO0180558269",
+      "discount": 0.0,
+      "aliases": [
+        "De Waal Transport B.V"
+      ],
+      "customer_codes": [
+        "218"
+      ],
+      "default_payment_term_days": 14,
+      "vat_numbers": [
+        "NL857297120B01"
+      ],
+      "kvk_numbers": [
+        "68090102"
+      ],
+      "email_domains": [
+        "dewaaltransportdiensten.nl"
+      ]
+    },
+    {
+      "name": "Defrancq Nederland B.V",
+      "iban": "NL90KRED0633132586",
+      "discount": 0.0,
+      "aliases": [
+        "Defrancq Nederland B.V"
+      ],
+      "customer_codes": [
+        "K05251"
+      ],
+      "default_payment_term_days": 30,
+      "vat_numbers": [
+        "NL803455434B01"
+      ],
+      "kvk_numbers": [
+        "18040859"
+      ],
+      "email_domains": [
+        "defrancq.nl"
+      ]
+    },
+    {
+      "name": "CALEFFI INTERNATIONAL N.V.",
+      "iban": "NL55BNPA0227691334",
+      "discount": 0.0,
+      "aliases": [
+        "CALEFFI INTERNATIONAL N.V."
+      ],
+      "customer_codes": [
+        "1025995"
+      ],
+      "default_payment_term_days": 8,
+      "vat_numbers": [
+        "NL001740777B35"
+      ],
+      "kvk_numbers": [],
+      "email_domains": [
+        "caleffi.com"
+      ]
+    },
+    {
+      "name": "Price Techniek",
+      "iban": "NL49INGB0793396476",
+      "discount": 0.0,
+      "aliases": [
+        "Price Techniek"
+      ],
+      "customer_codes": [],
+      "default_payment_term_days": 14,
+      "vat_numbers": [
+        "NL004114786B47"
+      ],
+      "kvk_numbers": [
+        "85568805"
+      ],
+      "email_domains": [
+        "gmail.com"
+      ]
     }
   ]
 }

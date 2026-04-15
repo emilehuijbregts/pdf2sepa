@@ -13,42 +13,14 @@ from __future__ import annotations
 import json
 import logging
 import re
-import time
 from difflib import SequenceMatcher
 from pathlib import Path
 
+from logic.payment_amounts import normalize_supplier_vat_rate_pct
 from logic.settings import atomic_write
 from logic.validation import mask_iban_for_log
 
 logger = logging.getLogger(__name__)
-_AGENT_DEBUG_LOG_PATH = Path("/Users/eh/Documents/Cursor/PDF2SEPA/.cursor/debug-791bb6.log")
-_AGENT_DEBUG_SESSION_ID = "791bb6"
-
-
-def _agent_debug_log(
-    location: str,
-    message: str,
-    data: dict,
-    *,
-    hypothesis_id: str,
-    run_id: str = "initial",
-) -> None:
-    # region agent log
-    try:
-        payload = {
-            "sessionId": _AGENT_DEBUG_SESSION_ID,
-            "runId": run_id,
-            "hypothesisId": hypothesis_id,
-            "location": location,
-            "message": message,
-            "data": data,
-            "timestamp": int(time.time() * 1000),
-        }
-        with _AGENT_DEBUG_LOG_PATH.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(payload, ensure_ascii=False) + "\n")
-    except Exception:
-        pass
-    # endregion
 
 
 class SupplierDB:
@@ -446,6 +418,7 @@ class SupplierDB:
         vat_numbers: list | None = None,
         kvk_numbers: list | None = None,
         email_domains: list | None = None,
+        vat_rate: int = 21,
     ):
         """
         Voeg een supplier toe en sla direct op.
@@ -490,21 +463,6 @@ class SupplierDB:
                     break
             if existing:
                 logger.info("Supplier '%s' al aanwezig, skip.", name)
-                # region agent log
-                _agent_debug_log(
-                    "supplier_db.py:add_supplier:duplicate_skip",
-                    "add_supplier geskipt door bestaande supplier",
-                    {
-                        "input_name": name,
-                        "input_iban_present": bool(iban),
-                        "matched_existing_name": str(existing.get("name") or ""),
-                        "matched_existing_iban": str(existing.get("iban") or ""),
-                        "duplicate_mode": "strict_exact_name_or_iban",
-                    },
-                    hypothesis_id="H7",
-                    run_id="post-fix",
-                )
-                # endregion
                 return
 
             # Ensure name in aliases
@@ -532,6 +490,8 @@ class SupplierDB:
             except Exception:
                 term_d = 0
 
+            vat_r = normalize_supplier_vat_rate_pct(vat_rate)
+
             supplier = {
                 "name": name,
                 "iban": self._clean_iban(iban) if iban else "",
@@ -539,6 +499,7 @@ class SupplierDB:
                 "aliases": aliases,
                 "customer_codes": codes,
                 "default_payment_term_days": term_d,
+                "vat_rate": vat_r,
                 "vat_numbers": vats,
                 "kvk_numbers": kvks,
                 "email_domains": doms,
@@ -571,19 +532,6 @@ class SupplierDB:
         try:
             name = str(name or "").strip()
             iban = str(iban or "").strip()
-            # region agent log
-            _agent_debug_log(
-                "supplier_db.py:merge_or_add_supplier:start",
-                "merge_or_add gestart",
-                {
-                    "db_path": str(self.path),
-                    "name": name,
-                    "iban_present": bool(iban),
-                    "customer_code": str(customer_code or "").strip(),
-                },
-                hypothesis_id="H5",
-            )
-            # endregion
             code_raw = str(customer_code or "").strip()
             vat_raw = self._normalize_vat_number(vat_number or "")
             kvk_raw = self._normalize_kvk_number(kvk_number or "")
@@ -592,20 +540,17 @@ class SupplierDB:
                 return False
 
             existing: dict | None = None
-            existing_reason = ""
             ic = self._clean_iban(iban)
             if ic:
                 for s in self.suppliers:
                     if self._clean_iban(s.get("iban") or "") == ic:
                         existing = s
-                        existing_reason = "iban_exact"
                         break
             if existing is None:
                 nc = self._clean_name(name)
                 for s in self.suppliers:
                     if self._clean_name(s.get("name") or "") == nc:
                         existing = s
-                        existing_reason = "name_exact"
                         break
             if existing is None:
                 cand, match_info = self.find_supplier_scored(
@@ -628,41 +573,9 @@ class SupplierDB:
                     )
                     or (match_info.get("vat_match") and match_info.get("kvk_match"))
                 )
-                # region agent log
-                _agent_debug_log(
-                    "supplier_db.py:merge_or_add_supplier:scored_candidate",
-                    "Scored kandidaat voor merge_or_add beoordeeld",
-                    {
-                        "name": name,
-                        "candidate_name": str(cand.get("name") or "") if cand else "",
-                        "strong_identity": bool(strong_identity),
-                        "match_info": match_info,
-                    },
-                    hypothesis_id="H10",
-                    run_id="post-fix",
-                )
-                # endregion
                 if cand is not None and strong_identity:
                     existing = cand
-                    existing_reason = "scored_strong_identity"
             if existing is not None:
-                # region agent log
-                _agent_debug_log(
-                    "supplier_db.py:merge_or_add_supplier:existing_selected",
-                    "Bestaande supplier geselecteerd voor merge",
-                    {
-                        "input_name": name,
-                        "existing_name": str(existing.get("name") or ""),
-                        "reason": existing_reason or "unknown",
-                        "has_customer_code": bool(code_raw),
-                        "has_vat": bool(vat_raw),
-                        "has_kvk": bool(kvk_raw),
-                        "has_domain": bool(dom_raw),
-                    },
-                    hypothesis_id="H14",
-                    run_id="post-fix",
-                )
-                # endregion
                 if code_raw:
                     merged = list(existing.get("customer_codes") or [])
                     if not isinstance(merged, list):
@@ -703,21 +616,6 @@ class SupplierDB:
                 return True
 
             n_before = len(self.suppliers)
-            # region agent log
-            _agent_debug_log(
-                "supplier_db.py:merge_or_add_supplier:add_attempt",
-                "Geen bestaande supplier gekozen; poging nieuwe supplier toevoegen",
-                {
-                    "name": name,
-                    "has_customer_code": bool(code_raw),
-                    "has_vat": bool(vat_raw),
-                    "has_kvk": bool(kvk_raw),
-                    "has_domain": bool(dom_raw),
-                },
-                hypothesis_id="H15",
-                run_id="post-fix",
-            )
-            # endregion
             self.add_supplier(
                 name,
                 iban,
@@ -727,31 +625,11 @@ class SupplierDB:
                 vat_numbers=[vat_raw] if vat_raw else [],
                 kvk_numbers=[kvk_raw] if kvk_raw else [],
                 email_domains=[dom_raw] if dom_raw else [],
+                vat_rate=21,
             )
             added = len(self.suppliers) > n_before
-            # region agent log
-            _agent_debug_log(
-                "supplier_db.py:merge_or_add_supplier:add_result",
-                "Resultaat nieuwe supplier toevoegen",
-                {"name": name, "added": bool(added)},
-                hypothesis_id="H15",
-                run_id="post-fix",
-            )
-            # endregion
             return added
-        except Exception as e:
-            # region agent log
-            _agent_debug_log(
-                "supplier_db.py:merge_or_add_supplier:exception",
-                "merge_or_add exceptie",
-                {
-                    "db_path": str(self.path),
-                    "name": str(name if "name" in locals() else ""),
-                    "error": repr(e),
-                },
-                hypothesis_id="H5",
-            )
-            # endregion
+        except Exception:
             return False
 
     def update_supplier(self, name: str, **kwargs) -> bool:
@@ -781,18 +659,6 @@ class SupplierDB:
                     break
 
             if supplier is None:
-                # region agent log
-                _agent_debug_log(
-                    "supplier_db.py:update_supplier:not_found",
-                    "update_supplier leverancier niet gevonden",
-                    {
-                        "db_path": str(self.path),
-                        "name": str(name),
-                        "target_clean": target_clean,
-                    },
-                    hypothesis_id="H6",
-                )
-                # endregion
                 return False
 
             # IBAN overwrite
@@ -823,6 +689,9 @@ class SupplierDB:
                     supplier["default_payment_term_days"] = max(0, td)
                 except Exception:
                     pass
+
+            if "vat_rate" in kwargs:
+                supplier["vat_rate"] = normalize_supplier_vat_rate_pct(kwargs.get("vat_rate"))
 
             # Aliases update
             if "aliases" in kwargs:

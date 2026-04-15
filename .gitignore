@@ -27,3 +27,7 @@ build/
 # Local logs/artifacts
 logs/*
 !logs/.gitkeep
+
+# Local deps / backups
+.deps/
+*.bak

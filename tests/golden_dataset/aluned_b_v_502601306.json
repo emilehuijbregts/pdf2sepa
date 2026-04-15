@@ -1,0 +1,13 @@
+{
+  "source_file": "Aluned 502601306.pdf",
+  "invoice_number": "502601306",
+  "supplier_name": "Aluned B.V.",
+  "iban": "NL33INGB0672785412",
+  "amount": "1930.71",
+  "amount_status": "confirmed",
+  "customer_code": "30146",
+  "description": "30146 / 502601306",
+  "discount_percentage": "0.00",
+  "invoice_date": "2026-03-16",
+  "payment_terms_days": 30
+}

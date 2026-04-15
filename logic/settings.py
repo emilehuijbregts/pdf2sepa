@@ -26,6 +26,9 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "name": "",
         "iban": "",
         "bic": "",
+        # Eigen onderneming (debiteur); nooit gebruiken als leverancier-KvK/BTW bij parsing/match
+        "kvk": "",
+        "vat": "",
     },
     "export_dir": "exports",
     "last_invoice_dir": "",

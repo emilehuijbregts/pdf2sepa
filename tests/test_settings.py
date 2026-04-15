@@ -43,27 +43,36 @@ class TestLoadSettings:
 class TestSaveSettings:
     def test_save_and_reload(self, tmp_path):
         p = tmp_path / "settings.json"
-        data = {"debtor": {"name": "Test", "iban": "", "bic": ""}, "export_dir": "exports", "last_invoice_dir": ""}
+        data = {
+            "debtor": {"name": "Test", "iban": "", "bic": "", "kvk": "", "vat": ""},
+            "export_dir": "exports",
+            "last_invoice_dir": "",
+        }
         assert save_settings(data, str(p))
         loaded = json.loads(p.read_text(encoding="utf-8"))
         assert loaded["debtor"]["name"] == "Test"
 
     def test_save_creates_parent_dirs(self, tmp_path):
         p = tmp_path / "sub" / "dir" / "settings.json"
-        assert save_settings({"debtor": {"name": "", "iban": "", "bic": ""}}, str(p))
+        assert save_settings(
+            {"debtor": {"name": "", "iban": "", "bic": "", "kvk": "", "vat": ""}},
+            str(p),
+        )
         assert p.exists()
 
 
 class TestMergeDebtor:
     def test_none_input(self):
         d = merge_debtor_with_defaults(None)
-        assert d == {"name": "", "iban": "", "bic": ""}
+        assert d == {"name": "", "iban": "", "bic": "", "kvk": "", "vat": ""}
 
     def test_partial_input(self):
         d = merge_debtor_with_defaults({"name": "Test"})
         assert d["name"] == "Test"
         assert d["iban"] == ""
         assert d["bic"] == ""
+        assert d["kvk"] == ""
+        assert d["vat"] == ""
 
 
 class TestValidateDebtor:

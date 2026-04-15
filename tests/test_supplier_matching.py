@@ -167,11 +167,49 @@ class TestMatchInfo:
         assert info["customer_code_match"] is True
 
 
+class TestSupplierVatRateOnInvoice:
+    def test_matched_invoice_gets_supplier_vat_rate_default_21(self, db_with_suppliers):
+        inv = {"supplier_hint": None, "iban": "NL25CITI0266075452", "customer_number": "1012146"}
+        result = match_suppliers([inv], db_with_suppliers)[0]
+        assert result.get("supplier_vat_rate") == 21
+
+    def test_matched_invoice_gets_db_vat_rate_zero(self, tmp_path):
+        data = {
+            "suppliers": [
+                {
+                    "name": "DE GmbH",
+                    "iban": "DE89370400440532013000",
+                    "discount": 0.0,
+                    "vat_rate": 0,
+                    "aliases": ["DE GmbH"],
+                    "customer_codes": [],
+                },
+            ]
+        }
+        p = tmp_path / "suppliers.json"
+        p.write_text(json.dumps(data), encoding="utf-8")
+        db = SupplierDB(path=str(p))
+        inv = {
+            "supplier_hint": "DE GmbH",
+            "iban": "DE89370400440532013000",
+            "customer_number": None,
+        }
+        result = match_suppliers([inv], db)[0]
+        assert result.get("supplier_vat_rate") == 0
+
+    def test_unmatched_defaults_vat_rate_21(self, db_with_suppliers):
+        inv = {"supplier_hint": "Unknown Corp", "iban": "NL00XXXX9999999999", "customer_number": "999"}
+        result = match_suppliers([inv], db_with_suppliers)[0]
+        assert result.get("supplier_vat_rate") == 21
+
+
 class TestSupplierDB:
     def test_add_supplier(self, empty_db):
         empty_db.add_supplier("Test BV", "NL00TEST1234567890", 1.5, aliases=["Test"], customer_codes=["111"])
         assert len(empty_db.get_all()) == 1
-        assert empty_db.get_all()[0]["name"] == "Test BV"
+        row = empty_db.get_all()[0]
+        assert row["name"] == "Test BV"
+        assert row.get("vat_rate") == 21
 
     def test_delete_supplier(self, db_with_suppliers):
         assert db_with_suppliers.delete_supplier("SALO B.V.")
@@ -182,6 +220,12 @@ class TestSupplierDB:
         for s in db_with_suppliers.get_all():
             if s["name"] == "SALO B.V.":
                 assert s["discount"] == 5.0
+
+    def test_update_supplier_vat_rate(self, db_with_suppliers):
+        assert db_with_suppliers.update_supplier("SALO B.V.", vat_rate=0)
+        for s in db_with_suppliers.get_all():
+            if s["name"] == "SALO B.V.":
+                assert s.get("vat_rate") == 0
 
     def test_corrupt_json_creates_empty(self, tmp_path):
         p = tmp_path / "bad.json"
@@ -209,3 +253,4 @@ class TestLoadFailedShortcut:
         assert out[0]["match_status"] == "load_failed"
         assert out[0]["supplier_name"] == "broken.pdf"
         assert out[0]["load_error"] == "no_text"
+        assert out[0].get("supplier_vat_rate") == 21

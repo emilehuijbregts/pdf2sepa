@@ -49,7 +49,7 @@ def test_load_error_when_extract_invoice_data_raises(
     def ok_text(_path: str) -> str:
         return "some text"
 
-    def boom(_text: str, debtor_iban: str | None = None):
+    def boom(_text: str, debtor_iban: str | None = None, debtor_kvk: str | None = None, debtor_vat: str | None = None):
         raise ValueError("parse boom")
 
     monkeypatch.setattr(

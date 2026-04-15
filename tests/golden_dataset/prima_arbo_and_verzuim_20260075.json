@@ -1,0 +1,13 @@
+{
+  "source_file": "Arbo&verzuim Factuur-20260075.pdf",
+  "invoice_number": "20260075",
+  "supplier_name": "Prima! Arbo & Verzuim",
+  "iban": "NL46RABO0168760215",
+  "amount": "143.80",
+  "amount_status": "confirmed",
+  "customer_code": "20180168",
+  "description": "20180168 / 20260075",
+  "discount_percentage": "0.00",
+  "invoice_date": "2026-01-09",
+  "payment_terms_days": 14
+}

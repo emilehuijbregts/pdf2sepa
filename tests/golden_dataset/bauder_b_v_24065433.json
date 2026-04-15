@@ -1,0 +1,13 @@
+{
+  "source_file": "Bauder 24065433.pdf",
+  "invoice_number": "24065433",
+  "supplier_name": "Bauder B.V.",
+  "iban": "NL52RABO0309319412",
+  "amount": "1261.45",
+  "amount_status": "confirmed",
+  "customer_code": "603540 / 880",
+  "description": "603540 / 880 / 24065433",
+  "discount_percentage": "0.00",
+  "invoice_date": "2026-02-04",
+  "payment_terms_days": 30
+}

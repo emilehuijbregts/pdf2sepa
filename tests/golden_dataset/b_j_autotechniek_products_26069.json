@@ -1,0 +1,13 @@
+{
+  "source_file": "BJ autotechniek 26069 duister wouter.pdf",
+  "invoice_number": "26069",
+  "supplier_name": "B.J. Autotechniek/Products",
+  "iban": "NL69INGB0009150049",
+  "amount": "153.06",
+  "amount_status": "confirmed",
+  "customer_code": "",
+  "description": "",
+  "discount_percentage": "0.00",
+  "invoice_date": "2026-02-10",
+  "payment_terms_days": 8
+}

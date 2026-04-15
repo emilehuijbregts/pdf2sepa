@@ -1,0 +1,13 @@
+{
+  "source_file": "Bitasco VerkoopFactuur SI26-007024.pdf",
+  "invoice_number": "SI26-007024",
+  "supplier_name": "Bitasco Trading B.V",
+  "iban": "NL65ABNA0643497390",
+  "amount": "4287.89",
+  "amount_status": "confirmed",
+  "customer_code": "104031",
+  "description": "104031 / SI26-007024",
+  "discount_percentage": "0.00",
+  "invoice_date": "2026-03-23",
+  "payment_terms_days": 30
+}

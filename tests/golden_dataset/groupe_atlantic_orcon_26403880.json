@@ -1,0 +1,13 @@
+{
+  "source_file": "Atlantic Factuur van Groupe Atlantic Nederland  - Fact. 26403880.pdf",
+  "invoice_number": "26403880",
+  "supplier_name": "Groupe Atlantic (Orcon)",
+  "iban": "NL56BNPA0227745442",
+  "amount": "10052.41",
+  "amount_status": "confirmed",
+  "customer_code": "21010030",
+  "description": "21010030 / 26403880",
+  "discount_percentage": "0.00",
+  "invoice_date": "2026-03-19",
+  "payment_terms_days": 30
+}
