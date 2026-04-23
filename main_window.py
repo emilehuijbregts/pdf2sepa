@@ -402,6 +402,7 @@ _ROW_AMOUNT_RESULT_ROLE = Qt.ItemDataRole.UserRole + 12
 _ROW_DECISION_ROLE = Qt.ItemDataRole.UserRole + 13
 _ROW_ROW_ID_ROLE = Qt.ItemDataRole.UserRole + 14
 _ROW_RENDER_HASH_ROLE = Qt.ItemDataRole.UserRole + 15
+_ROW_SUPPLIER_ORIGINAL_ROLE = Qt.ItemDataRole.UserRole + 16
 
 _READ_ONLY_FLAGS = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
 
@@ -1350,7 +1351,10 @@ class MainWindow(QMainWindow):
             if st == DECISION_INCLUDED:
                 color = self._COLOR_CONFIRMED
             elif st == DECISION_NEEDS_REVIEW:
-                color = self._COLOR_NEEDS_REVIEW
+                # Engine-driven UX nuance: unknown supplier (but otherwise parse OK)
+                # should stand out separately from other review reasons.
+                rc = str(dec.get("reason_code") or "")
+                color = self._COLOR_AMOUNT_TENTATIVE if rc == "unmatched_supplier" else self._COLOR_NEEDS_REVIEW
             elif st == DECISION_EXCLUDED:
                 color = self._COLOR_ERROR
             else:
@@ -1893,6 +1897,13 @@ class MainWindow(QMainWindow):
             _ROW_ROW_ID_ROLE,
             row_id or f"{supplier}|{invoice_number_meta}|{pdf_name}",
         )
+        # Keep original supplier name for safe rename during "Voeg toe / update".
+        # This prevents update_supplier() from failing when the user corrected the name in the table.
+        try:
+            if supplier.strip():
+                sup_item.setData(_ROW_SUPPLIER_ORIGINAL_ROLE, supplier.strip())
+        except Exception:
+            pass
         self._table.setItem(r, PaymentColumn.SUPPLIER, sup_item)
         self._table.setItem(r, PaymentColumn.IBAN, self._item_editable(iban))
         amt_item = self._item_amount(amount_display)
@@ -2623,12 +2634,22 @@ class MainWindow(QMainWindow):
             term_raw = self._cell_text(r, PaymentColumn.TERM_HINT)
             status_raw = self._cell_text(r, PaymentColumn.STATUS)
             sup_it = self._table.item(r, PaymentColumn.SUPPLIER)
+            original_name = (
+                str(sup_it.data(_ROW_SUPPLIER_ORIGINAL_ROLE) or "").strip() if sup_it else ""
+            )
             email_dom = str(sup_it.data(_ROW_EMAIL_DOMAIN_ROLE) or "").strip() if sup_it else ""
             kvk_no = str(sup_it.data(_ROW_KVK_NUMBER_ROLE) or "").strip() if sup_it else ""
             vat_no = str(sup_it.data(_ROW_VAT_NUMBER_ROLE) or "").strip() if sup_it else ""
             if not name or not iban:
                 failed += 1
                 continue
+
+            # If the supplier name was corrected in the table, rename the supplier record first.
+            if original_name and original_name.strip() != name.strip():
+                renamed = db.rename_supplier(original_name, name, keep_old_as_alias=True)
+                if renamed and sup_it:
+                    sup_it.setData(_ROW_SUPPLIER_ORIGINAL_ROLE, name.strip())
+
             term_days = _parse_term_days_from_text(term_raw)
             # TERM_HINT is a human-facing label and may not contain a number (e.g. "—" or
             # "Termijn niet toegepast ..."). Missing/unknown term must never block syncing.
@@ -3319,6 +3340,15 @@ class MainWindow(QMainWindow):
         elif col == PaymentColumn.IBAN:
             self._mark_row_pending_engine_update(row, "iban_changed")
         elif col == PaymentColumn.SUPPLIER:
+            # Capture original supplier name once for rows created/edited manually.
+            # Used by "Voeg toe / update" to rename suppliers in suppliers.json.
+            try:
+                orig = str(item.data(_ROW_SUPPLIER_ORIGINAL_ROLE) or "").strip()
+                now = (item.text() or "").strip()
+                if not orig and now:
+                    item.setData(_ROW_SUPPLIER_ORIGINAL_ROLE, now)
+            except Exception:
+                pass
             self._mark_row_pending_engine_update(row, "supplier_changed")
         elif col == PaymentColumn.CUSTOMER_CODE:
             self._mark_row_pending_engine_update(row, "customer_code_changed")
