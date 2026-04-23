@@ -1,0 +1,13 @@
+{
+  "source_file": "Cevetech Factuur_verkooporders__01_2602561_2026-02-11_07-43-32_.PDF",
+  "invoice_number": "2602561",
+  "supplier_name": "CEVETECH bv",
+  "iban": "NL48INGB0654030774",
+  "amount": "605.92",
+  "amount_status": "confirmed",
+  "customer_code": "10295",
+  "description": "10295 / 2602561",
+  "discount_percentage": "0.00",
+  "invoice_date": "2026-02-11",
+  "payment_terms_days": 30
+}

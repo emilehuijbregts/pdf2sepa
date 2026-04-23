@@ -1,215 +1,247 @@
-# PDF2SEPA — ontwikkelregels (hard rules)
+1. CORE PRINCIPLE (HARD RULE)
+De engine (DecisionStore + engine output) is de enige bron van waarheid.
+Alles in de UI is pure weergave (render-only) van engine data.
+De UI mag nooit beslissingen maken, aanvullen of interpreteren.
+2. ALLOWED ENGINE OUTPUT (STRICT CONTRACT)
 
-Deze app verwerkt **financiële data**: PDF-facturen → interne factuurdicts → betalingsregels → **SEPA XML (pain.001.001.09)**. Fouten mogen **nooit** leiden tot een plausibel ogende maar **verkeerde betaling**.
+Elke row decision uit de engine mag alleen bevatten:
 
-Deze regels zijn **normatief**: bij twijfel tussen “ship snel” en “veilig falen” wint **veilig falen**.
+status ∈ {included, needs_review, excluded}
+reason_code (string, verplicht)
+reason_detail (string, optioneel)
+row_id
 
----
+❌ Geen extra states toegestaan zoals:
 
-## Golden Dataset Regression Safety (VERPLICHT)
+missing
+omitted
+not_evaluated
+pending
+grey
+unknown
+3. MISSING DATA RULE (IMPORTANT)
 
-Dit systeem gebruikt een golden dataset als absolute waarheid voor correcte business output per invoice.
+Als een row geen decision heeft in DecisionStore:
 
-Deze golden dataset wordt automatisch getest via:
-tests/test_golden_dataset.py
+UI behandelt dit als:
+status = needs_review
+reason_code = missing_decision_in_store
+reason_detail = ""
 
-### DOEL
-Voorkomen dat bestaande correcte functionaliteit (parsing, matching, engine) onbedoeld wordt gebroken.
+👉 Dit is geen extra engine state, maar een vaste mappingregel.
 
----
+4. UI RENDER RULE (NO LOGIC IN UI)
 
-## VERPLICHTE WERKWIJZE BIJ ELKE CODEWIJZIGING
+UI mag alleen:
 
-Na ELKE wijziging in de codebase (ongeacht scope: parser, engine, UI, matching, etc.) moet:
+kleuren tonen op basis van status
+tekst tonen op basis van reason_code + reason_detail
+NL vertaling tonen via static lookup
 
-1. Altijd de volledige test suite worden gedraaid:
+❌ UI mag NIET:
 
-   python3 -m pytest
+statuses afleiden
+presence interpreteren
+fallback states genereren
+decisions “reconstrueren” uit table data
+UI-tekst gebruiken als input voor logic
+5. COLOR RULE (ABSOLUTE)
+included → groen
+needs_review → geel
+excluded → rood
 
-2. De uitkomst moet worden geanalyseerd:
+❌ Geen grijs, geen fallback kleuren, geen unknown state
 
-### CASE 1 — Alle tests slagen
-→ De wijziging is veilig  
-→ Doorgaan toegestaan
+6. REASON COLUMN RULE (2 REGELS EXACT)
 
-### CASE 2 — Golden dataset test faalt (tests/test_golden_dataset.py)
+Elke rij toont exact:
 
-Dit betekent:  
-→ De business output is veranderd  
-→ Dit is een REGRESSIE (tenzij expliciet anders bedoeld)
+Line 1 (RAW)
+exact: reason_code + reason_detail (engine output onveranderd)
+Line 2 (NL)
+statische mapping:
+reason_code → human readable string
+geen AI
+geen heuristiek
+geen extra interpretatie
+7. DEBUG RULE (READ-ONLY)
 
-VERPLICHT:
+Debug UI (inspector, overlays, traces):
 
-- Analyseer exact welke velden verschillen:
-  - amount
-  - supplier_name
-  - iban
-  - customer_code
-  - description
-  - discount_percentage
-  - invoice_date
-  - payment_terms_days
+mag engine data tonen
+mag provenance tonen
+mag decision trace tonen
 
-- Leg kort uit:
-  - wat er veranderd is
-  - waarom dit gebeurt
+❌ mag nooit:
 
-- Daarna:
+UI beïnvloeden
+rendering beïnvloeden
+decisions wijzigen
+kleuren beïnvloeden
+8. UPDATE / USER ACTION RULE
 
-  OF:
-  - draai de wijziging terug
+Alle user acties:
 
-  OF:
-  - pas de implementatie aan zodat:
-    - de nieuwe functionaliteit werkt
-    - EN de bestaande golden dataset output identiek blijft
+veranderen nooit direct de UI state
+sturen alleen requests naar engine/store
+engine commit is enige moment van waarheid
+UI rerender gebeurt uitsluitend vanuit DecisionStore
+9. UI STATE VERBOD (CRITICAL)
 
----
+Volgende concepten zijn verboden in rendering logic:
 
-## BELANGRIJKE REGELS
+DecisionPresence
+UIStatus
+grey/omitted/not_evaluated logic
+fallback UI decisions
+UI-derived status
+legacy status parsing uit table cells
+10. SINGLE SOURCE OF TRUTH ENFORCEMENT
 
-- De golden dataset is de waarheid (ground truth)
-- De golden dataset mag NIET aangepast worden zonder expliciete toestemming
-- Geen silent regressies
-- Geen “lijkt correct” aannames
-- Geen wijzigingen die bestaande correcte output breken
+De enige toegestane dataflow:
 
----
+Engine → DecisionStore → Resolver → UI Render
 
-## UITZONDERING
 
-Alleen als expliciet wordt aangegeven:
+❌ Niet toegestaan:
 
-"Dit is een bewuste wijziging van business logic"
+UI → logic → UI
+UI → decision inference
+UI cell data → engine logic
+debug state → rendering
+11. TABLE RENDER RULE
 
-→ Dan mag de golden dataset worden geüpdatet via:
+Elke row render gebruikt uitsluitend:
 
-python3 scripts/save_current_batch_as_golden.py
+DecisionStore.committed_decision_map(row_id)
+fallback mapping (alleen needs_review + missing_decision_in_store)
 
----
+Geen andere bron toegestaan.
 
-## SAMENVATTING
+12. GOLDEN DATASET IS REGRESSION GATE (HARD)
 
-- Elke wijziging → pytest draaien
-- Golden dataset faalt → fix of rollback
-- Golden dataset blijft leidend
+De golden dataset is de enige bron van waarheid voor engine-output correctheid.
 
----
+Elke wijziging buiten de UI-laag MOET gevalideerd worden tegen de golden dataset.
 
-## 1. Bedragen: alleen `Decimal`, geen gokken
+13. VERPLICHTE TEST TRIGGER (HARD)
 
-1. **Bron van waarheid voor geld** is `decimal.Decimal` met **exact twee decimalen** na afronding (bankiersafronding / `ROUND_HALF_UP`, consistent met [logic/payment_amounts.py](logic/payment_amounts.py)).
+Na ELKE wijziging in één van deze gebieden:
 
-2. **`float` is verboden** voor bedragen die:
-   - uit een factuur komen,
-   - in betalingsdicts zitten die naar SEPA gaan,
-   - of in sommen/kortingen/creditnota-logica gebruikt worden.  
-   Uitzondering: **uitsluitend** voor niet-financiële UI-hulp (bijv. sorteerkeys), en dan nooit als bron voor XML.
+logic/ (engine, matching, decision building)
+output/ (SEPA XML, export logic)
+scripts/ (batch/golden save flows)
+dependency loading / OCR / parsing pipeline
+data extraction / invoice parsing
 
-3. **Nooit “best guess” bedrag accepteren** zonder expliciete, reproduceerbare regel:
-   - Geen stille keuze tussen twee totaalregels zonder **confidence + blokkeerpad**.
-   - Geen “binnen X cent” toleranties als **enige** criterium voor acceptatie van een bedrag; tolerantie mag alleen na **deterministische** normalisatie en **documentatie in tests**.
+MOET direct worden uitgevoerd:
 
-4. **Parser-output** moet bedragen als **string of Decimal** doorgeven, of een veld **`amount: None`** + **`amount_confidence`** / foutreden. Een parser die “iets” teruggeeft terwijl het PDF-bedrag niet hard te verifiëren is, **schendt** deze regels.
+python3 -m pytest
 
-5. **`amount_to_decimal` mag nooit stil naar `0.00` voor ongeldige input** tenzij het contract van de functie expliciet “default zero” is **en** alle call sites aantonen dat `0` onmogelijk als echte betaling kan worden geëxporteerd. Voor SEPA-paden: **ongeldig bedrag = fout, geen export**.
 
-6. **Afronding gebeurt op vaste momenten**: normaliseer naar 2 decimalen vóór sommatie waar de business dat voorschrijft; documenteer één keten (parser → engine → XML).
+OF minimaal:
 
----
+golden dataset test suite
 
-## 2. Parsing: generiek, niet per leverancier-PDF
+14. NO TEST = INVALID CHANGE (HARD BLOCK)
 
-1. **Verboden patroon**: `if supplier == "X" or "bedrijf Y" in text` in productiecode om één factuur te “fixen”. Zulke uitzonderingen horen in **testdata + regressietests**, niet in stille branches.
+Als de golden dataset tests niet zijn gedraaid:
 
-2. **Toegestaan**: nieuwe **generieke** heuristieken (labels, layout-patronen, EU-notaties) die voor **meerdere** facturen gelden, plus **minimaal één test** (unit of golden sample) die het gedrag vastlegt.
+❌ wijziging is ongeldig
+❌ code mag niet als “werkend” beschouwd worden
+❌ geen verdere development toegestaan
 
-3. **Wijzigingen aan regex / label-prioriteit** in [parser/pdf_parser.py](parser/pdf_parser.py) vereisen:
-   - welke **velden** geraakt worden (bedrag, datum, IBAN, …),
-   - welk **risico** op false positives (verkeerd totaal, verkeerde datum),
-   - en een **test** die faalt als de regressie terugkomt.
+15. GOLDEN DATASET MISMATCH = STOP (HARD)
 
-4. **Twee lagen tekst** (tekstlaag vs OCR): als OCR een veld vult dat de tekstlaag niet heeft, moet dat **zichtbaar** zijn in metadata (bijv. `iban_source`) of als review-flag — geen stille overschrijving zonder trace.
+Als golden dataset output verandert:
 
----
+aantal payments ≠ expected
+status verandert (included ↔ needs_review ↔ excluded)
+reason_code verandert
+export set verandert
 
-## 3. Data-integriteit: één waarheid, XML matcht de bedoeling
+Dan:
 
-1. **SEPA XML** ([output/sepa_xml.py](output/sepa_xml.py)) moet kunnen worden afgeleid uit:
-   - de **zelfde** `Decimal`-waarden als in de UI/engine,
-   - met **dezelfde** grouping (batches per `execution_date`),
-   - en `CtrlSum` / batch-`CtrlSum` = som van `InstdAmt` (modulo expliciet gedocumenteerde, geteste afrondingsregels).
+❌ ALTIJD STOPPEN
+❌ NOOIT “even doorwerken”
+❌ NOOIT negeren
 
-2. **Geen deserialisatie-truc**: als betalingsdicts `float` bevatten, is dat een **technische schuld** richting XML — nieuwe code voegt **geen** extra float-stappen toe; refactors moeten richting **Decimal end-to-end** tot aan serialisatie.
+16. MISMATCH MOET EXPLICIET VERKLAARD WORDEN
 
-3. **IBAN / BIC / debtorvelden**: ontbrekend of ongeldig ⇒ **geen** batch-export die die regel “wegmoffelt”. Valideren vóór schrijven van XML.
+Bij elke golden mismatch moet exact één van deze waar zijn:
 
-4. **Creditnota-koppeling** en saldo’s: elke wijziging in matchlogica moet **invarianten** beschrijven (bijv. “som credits ≤ factuurbedrag”) en tests hebben die bij schending falen.
+A. Intentional change
+business logic is bewust aangepast
+golden dataset wordt geüpdatet
+reden wordt gedocumenteerd
+B. Bug
+gedrag is onbedoeld veranderd
+code moet worden teruggedraaid of gefixt
 
----
+👉 “We zien wel” is NIET toegestaan
 
-## 4. Fail-fast: liever fout dan verkeerde betaling
+17. UI IS GEEN VALIDATIE (CRUCIAAL)
 
-1. **Fout zichtbaar maken**: `load_error`, `match_status`, `errors`-lijst van [logic/payment_engine.py](logic/payment_engine.py), UI-waarschuwingen — geen “lege string terug” waar een gebruiker denkt dat er geparset is.
+UI mag NOOIT gebruikt worden om correctheid te bepalen.
 
-2. **Verboden**: brede `except Exception: pass` of `return ""` / `return None` op paden waar **geld** of **export** afhangt, **tenzij** het resultaat expliciet als **niet-vertrouwd** wordt gemarkeerd en downstream **geblokkeerd** wordt.
+Dus:
 
-3. **PDF-tekst**: het verschil tussen `extract_text_strict` en een wrapper die fouten slikt moet **helder** zijn: productiepaden die tot betaling leiden gebruiken **strict + expliciete foutstatus**, geen stille lege tekst.
+❌ “het ziet er goed uit in de UI” = irrelevant
+✅ alleen golden dataset bepaalt correctheid
 
-4. **Debug logging** mag **nooit** de enige plek zijn waar een financiële afwijking zichtbaar is; geen hardcoded paden naar ontwikkelaarsmachines in productielogica.
+18. HEADLESS = UI PARITY (HARD)
 
----
+Golden dataset tests moeten draaien in dezelfde condities als productie:
 
-## 5. Wijzigingsdiscipline
+zelfde dependencies (./.deps)
+zelfde OCR availability
+zelfde config
 
-1. Elke PR/commit die gedrag raakt dat **bedragen**, **datums**, **IBAN**, **SEPA-export** of **matching** beïnvloedt, bevat:
-   - **Wat** er verandert (1–3 zinnen),
-   - **Waarom** (business/regel),
-   - **Risico** (wat kan nu misgaan),
-   - **Test** (bestaand uitgebreid of nieuw).
+Als UI en headless verschillen:
 
-2. Geen merge van parserwijzigingen **zonder** minstens één **regressietest** op representatieve PDF-tekst of golden fixture.
+❌ test is ongeldig
+❌ eerst environment fixen
 
-3. Instellingen/data in [data/](data/) die export beïnvloeden: wijzigingen zijn **reviewbaar** (geen “even handmatig in productie JSON” zonder versie/trace).
+19. PRE-COMMIT CHECK (STERK AANRADER)
 
----
+Voor elke commit:
 
-## 6. Architectuur: altijd de pipeline
+python3 -m pytest
 
-Denk in deze volgorde; wijzigingen **kleven** aan de stap waar de data ontstaat of gevalideerd wordt:
 
-```mermaid
-flowchart LR
-  pdf[PDF_files]
-  load[invoice_folder_loader]
-  parse[pdf_parser]
-  match[supplier_matcher_db]
-  engine[payment_engine]
-  ui[main_window]
-  xml[sepa_xml]
-  pdf --> load --> parse --> match --> ui
-  match --> engine --> xml
-  ui --> engine
-```
+Als tests falen:
 
-1. **Parser** levert **observaties** (waarden + confidence/bron), geen definitieve “business truth” zonder door de engine/settings te gaan.
+❌ commit verboden
 
-2. **Engine** is de plek voor **consolidatie** (groepering per leverancier, credits, korting, termijnen) en **harde gates** (geen betaling zonder IBAN, negatief bedrag, etc.).
+20. POST-FIX VERIFICATIE (VERPLICHT)
 
-3. **UI** toont en bewerkt; het **normaliseert** niet op manieren die de engine/XML omzeilen. Export leest dezelfde canonieke velden als de engine.
+Na elke bugfix:
 
-4. **Geen losse patches** die alleen de UI fixen terwijl de engine hetzelfde foute dict zou accepteren — fix **contract + validatie** op de juiste laag.
+Run golden tests
+Check:
+aantal invoices
+aantal payments
+aantal errors
+Moet identiek zijn aan expected
+21. NO SILENT REGRESSIONS
 
----
+Het is verboden dat:
 
-## 7. Checklist vóór merge (financiële wijziging)
+aantal payments stil verandert (10 → 8)
+status stil verandert (included → needs_review)
+OCR stil uitvalt
+dependencies ontbreken zonder foutmelding
 
-- Geen nieuwe `float`-financiële paden.
-- Geen stille default-bedragen op exportpad.
-- Fouten worden **geclassificeerd** (bucket/reden), niet weggegeten.
-- Tests of fixtures bijgewerkt.
-- Beschrijving in commit/PR volgens sectie 5.
+Elke afwijking moet:
 
----
+zichtbaar zijn
+of tests moeten falen
 
-*Laatste herziening: door team / Cursor-basisregels — bij conflict met product owner: expliciet besluit vastleggen.*
+Het systeem is correct als:
+
+Elke row heeft exact 1 van 3 kleuren
+Geen grijs in UI bestaat
+UI kan engine decisions niet beïnvloeden
+Reason altijd 2 regels bevat (RAW + NL)
+Missing data is altijd zichtbaar als needs_review
+Golden dataset tests slagen volledig

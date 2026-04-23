@@ -1,0 +1,13 @@
+{
+  "source_file": "Bonfix Factuur Handelsonderneming Duister _ 2610903.pdf",
+  "invoice_number": "2610903",
+  "supplier_name": "BONFIX B.V",
+  "iban": "NL87RABO0330742493",
+  "amount": "1037.51",
+  "amount_status": "confirmed",
+  "customer_code": "961708",
+  "description": "961708 / 2610903",
+  "discount_percentage": "0.00",
+  "invoice_date": "2026-03-13",
+  "payment_terms_days": 30
+}

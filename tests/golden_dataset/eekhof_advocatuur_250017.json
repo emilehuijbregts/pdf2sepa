@@ -1,0 +1,13 @@
+{
+  "source_file": "eekhof 251231 factuur 250017 Handelsonderneming Duister (Bouwbedrijf Van der Donk).pdf",
+  "invoice_number": "250017",
+  "supplier_name": "Eekhof Advocatuur",
+  "iban": "NL38KNAB0777015781",
+  "amount": "108.90",
+  "amount_status": "confirmed",
+  "customer_code": "",
+  "description": "",
+  "discount_percentage": "0.00",
+  "invoice_date": "2025-12-31",
+  "payment_terms_days": 0
+}

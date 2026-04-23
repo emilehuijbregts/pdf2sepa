@@ -1,0 +1,13 @@
+{
+  "source_file": "David Price 2026-009.pdf",
+  "invoice_number": "2026-009",
+  "supplier_name": "Price Techniek",
+  "iban": "NL49INGB0793396476",
+  "amount": "121.00",
+  "amount_status": "confirmed",
+  "customer_code": "",
+  "description": "",
+  "discount_percentage": "0.00",
+  "invoice_date": "2026-01-30",
+  "payment_terms_days": 14
+}

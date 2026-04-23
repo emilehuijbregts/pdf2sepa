@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
     QDialogButtonBox,
-    QFormLayout,
+    QGridLayout,
     QHBoxLayout,
     QInputDialog,
     QLabel,
@@ -21,7 +21,6 @@ from PySide6.QtWidgets import (
 
 from logic.payment_amounts import normalize_supplier_vat_rate_pct
 from parser.supplier_db import SupplierDB
-
 
 def _discount_edit_text(discount_val: object) -> str:
     try:
@@ -81,32 +80,95 @@ class SuppliersDialog(QDialog):
         root.addLayout(left, stretch=1)
 
         right = QVBoxLayout()
-        form = QFormLayout()
-        form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
-        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+        right.setSpacing(10)
+
+        basis = QWidget()
+        basis_grid = QGridLayout(basis)
+        basis_grid.setContentsMargins(0, 0, 0, 0)
+        basis_grid.setHorizontalSpacing(13)
+        basis_grid.setVerticalSpacing(4)
+
+        _fm = self.fontMetrics()
+        _titles = (
+            "Naam:",
+            "IBAN:",
+            "Korting %:",
+            "Betaaltermijn (dagen):",
+            "BTW-tarief (korting):",
+        )
+        _label_col_w = max(int(_fm.horizontalAdvance(t)) for t in _titles) + 14
+
         self._name_edit = QLineEdit()
         self._name_edit.setPlaceholderText("Officiële naam")
-        self._name_edit.setMinimumWidth(280)
-        form.addRow(QLabel("Naam:"), self._name_edit)
+        self._name_edit.setFixedWidth(420)
 
         self._iban_edit = QLineEdit()
         self._iban_edit.setPlaceholderText("NL…")
-        self._iban_edit.setMinimumWidth(360)
-        form.addRow(QLabel("IBAN:"), self._iban_edit)
+        self._iban_edit.setFixedWidth(420)
 
         self._discount_edit = QLineEdit()
         self._discount_edit.setPlaceholderText("0 of 2,5")
-        form.addRow(QLabel("Korting %:"), self._discount_edit)
+        self._discount_edit.setFixedWidth(120)
 
         self._term_edit = QLineEdit()
         self._term_edit.setPlaceholderText("0, 7, 14, 30 …")
-        form.addRow(QLabel("Betaaltermijn (dagen):"), self._term_edit)
+        self._term_edit.setFixedWidth(170)
 
         self._vat_rate_combo = QComboBox()
         self._vat_rate_combo.addItem("21% (standaard)", 21)
         self._vat_rate_combo.addItem("0%", 0)
-        form.addRow(QLabel("BTW-tarief (korting):"), self._vat_rate_combo)
-        right.addLayout(form)
+        self._vat_rate_combo.setFixedWidth(240)
+
+        _basis_fields: list[QWidget] = [
+            self._name_edit,
+            self._iban_edit,
+            self._discount_edit,
+            self._term_edit,
+            self._vat_rate_combo,
+        ]
+        _row_h = max(24, int(_fm.height()) + 8)
+        for w in _basis_fields:
+            w.setFixedHeight(_row_h)
+
+        _rows: list[tuple[str, QWidget]] = [
+            ("Naam:", self._name_edit),
+            ("IBAN:", self._iban_edit),
+            ("Korting %:", self._discount_edit),
+            ("Betaaltermijn (dagen):", self._term_edit),
+            ("BTW-tarief (korting):", self._vat_rate_combo),
+        ]
+        for row, (title, field) in enumerate(_rows):
+            label = QLabel(title)
+            label.setWordWrap(False)
+            label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            label.setFixedWidth(_label_col_w)
+            label.setFixedHeight(_row_h)
+            basis_grid.addWidget(
+                label,
+                row,
+                0,
+                alignment=Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+            )
+            basis_grid.addWidget(
+                field,
+                row,
+                1,
+                alignment=Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+            )
+
+        # Ensure the basis block always has enough vertical room for all 5 rows.
+        _m = basis_grid.contentsMargins()
+        _basis_expected_h = (
+            len(_rows) * _row_h
+            + (len(_rows) - 1) * basis_grid.verticalSpacing()
+            + int(_m.top())
+            + int(_m.bottom())
+        )
+        basis.setFixedHeight(int(_basis_expected_h))
+        basis_grid.setColumnStretch(1, 1)
+        right.addWidget(basis, alignment=Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+        # Ruimte tussen basisvelden en de lijsten eronder
+        right.addSpacing(46)
 
         alias_lo, self._alias_list = _list_widget_with_buttons(
             title="Aliassen",
@@ -238,7 +300,9 @@ class SuppliersDialog(QDialog):
         self._clear_form()
         self._editing_original_name = name_key
         self._name_edit.setText(name_key)
-        self._name_edit.setReadOnly(True)
+        # Allow correcting supplier names (rename). We keep the original name key
+        # in `_editing_original_name` and handle rename safely on save.
+        self._name_edit.setReadOnly(False)
         for s in self._db.get_all():
             if str(s.get("name") or "").strip() != name_key.strip():
                 continue
@@ -379,6 +443,18 @@ class SuppliersDialog(QDialog):
             self._load_supplier_into_form(name)
             QMessageBox.information(self, "Leveranciers", f"Leverancier '{name}' toegevoegd.")
             return
+
+        original = self._editing_original_name
+        if original.strip() != name.strip():
+            renamed = self._db.rename_supplier(original, name, keep_old_as_alias=True)
+            if not renamed:
+                QMessageBox.warning(
+                    self,
+                    "Leveranciers",
+                    "Naam wijzigen mislukt. Bestaat er al een leverancier met deze naam?",
+                )
+                return
+            self._editing_original_name = name
 
         self._db.update_supplier(
             self._editing_original_name,

@@ -1,0 +1,13 @@
+{
+  "source_file": "Caleffi Invoice Caleffi NV N° 1210001330  of 24.03.2026. pdf.pdf",
+  "invoice_number": "1210001330",
+  "supplier_name": "CALEFFI INTERNATIONAL N.V.",
+  "iban": "NL55BNPA0227691334",
+  "amount": "797.35",
+  "amount_status": "confirmed",
+  "customer_code": "1025995",
+  "description": "1025995 / 1210001330",
+  "discount_percentage": "0.00",
+  "invoice_date": "2026-03-24",
+  "payment_terms_days": 8
+}

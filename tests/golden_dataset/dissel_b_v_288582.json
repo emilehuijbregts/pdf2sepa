@@ -1,0 +1,13 @@
+{
+  "source_file": "Dissel 288582.PDF",
+  "invoice_number": "288582",
+  "supplier_name": "Dissel B.V.",
+  "iban": "NL62RABO0151082162",
+  "amount": "3620.93",
+  "amount_status": "confirmed",
+  "customer_code": "103305",
+  "description": "103305 / 288582",
+  "discount_percentage": "0.00",
+  "invoice_date": "2026-03-13",
+  "payment_terms_days": 0
+}

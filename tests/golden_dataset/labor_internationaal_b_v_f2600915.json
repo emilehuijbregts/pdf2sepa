@@ -1,0 +1,13 @@
+{
+  "source_file": "Labor Factuur_verkooporders__01_F2600915_2026-01-12_11-39-22_.PDF",
+  "invoice_number": "F2600915",
+  "supplier_name": "Labor Internationaal B.V.",
+  "iban": "NL21RABO0108195902",
+  "amount": "39.66",
+  "amount_status": "confirmed",
+  "customer_code": "LA004717",
+  "description": "LA004717 / F2600915",
+  "discount_percentage": "0.00",
+  "invoice_date": "2026-01-09",
+  "payment_terms_days": 0
+}

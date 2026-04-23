@@ -1,0 +1,13 @@
+{
+  "source_file": "Emgas Uitgaande factuur_1425948_20260115_112738.pdf",
+  "invoice_number": "F1425948",
+  "supplier_name": "Emgas B.V.",
+  "iban": "NL84RABO0111617316",
+  "amount": "208.00",
+  "amount_status": "confirmed",
+  "customer_code": "K3307",
+  "description": "K3307 / F1425948",
+  "discount_percentage": "0.00",
+  "invoice_date": "2026-01-15",
+  "payment_terms_days": 0
+}

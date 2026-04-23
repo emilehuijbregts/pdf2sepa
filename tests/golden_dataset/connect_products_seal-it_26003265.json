@@ -1,0 +1,13 @@
+{
+  "source_file": "Connect products 26003265.pdf",
+  "invoice_number": "26003265",
+  "supplier_name": "Connect Products (Seal-it)",
+  "iban": "NL42RABO0128479485",
+  "amount": "804.41",
+  "amount_status": "confirmed",
+  "customer_code": "3349",
+  "description": "3349 / 26003265",
+  "discount_percentage": "0.00",
+  "invoice_date": "2026-03-25",
+  "payment_terms_days": 30
+}

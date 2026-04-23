@@ -375,6 +375,11 @@ class SupplierDB:
                     info["kvk_match"],
                     info["email_domain_match"],
                 ])
+                # Safety: ignore tax-only single hits (VAT-only or KvK-only).
+                # These identifiers can be extracted from unrelated sections (or debtor details),
+                # and are not strong enough alone to propose a supplier.
+                if n == 1 and (info["vat_match"] or info["kvk_match"]):
+                    continue
                 if n > 0:
                     scored.append((s, info, n))
 
@@ -778,6 +783,63 @@ class SupplierDB:
                         existing_dom = []
                     merged_dom = [*existing_dom, *clean_dom]
                 supplier["email_domains"] = self._dedup_preserve_order(merged_dom)
+
+            self._refresh_supplier_cache(supplier)
+            self.save()
+            return True
+        except Exception:
+            return False
+
+    def rename_supplier(self, old_name: str, new_name: str, *, keep_old_as_alias: bool = True) -> bool:
+        """
+        Hernoem een leverancier (canonieke naam) en sla direct op.
+
+        Veiligheidsregels:
+        - match oude leverancier via `_clean_name`
+        - voorkom dat we per ongeluk twee leveranciers samenvoegen: als `new_name`
+          al bestaat (op cleaned name) en het is niet dezelfde record → fail (False)
+        - zorg dat de nieuwe naam in `aliases` zit; optioneel ook de oude naam
+
+        Retourneert ``True`` als rename is uitgevoerd en opgeslagen.
+        """
+
+        try:
+            old_name_s = str(old_name or "").strip()
+            new_name_s = str(new_name or "").strip()
+            if not old_name_s or not new_name_s:
+                return False
+
+            old_clean = self._clean_name(old_name_s)
+            new_clean = self._clean_name(new_name_s)
+            if not old_clean or not new_clean:
+                return False
+
+            supplier: dict | None = None
+            for s in self.suppliers:
+                if self._clean_name(s.get("name") or "") == old_clean:
+                    supplier = s
+                    break
+            if supplier is None:
+                return False
+
+            # Collision check: if new_name matches another supplier (cleaned), do not merge silently.
+            for s in self.suppliers:
+                if s is supplier:
+                    continue
+                if self._clean_name(s.get("name") or "") == new_clean:
+                    return False
+
+            prev_name = str(supplier.get("name") or "").strip()
+            supplier["name"] = new_name_s
+
+            aliases = supplier.get("aliases") or []
+            if not isinstance(aliases, list):
+                aliases = []
+            aliases_clean = [str(a).strip() for a in aliases if str(a or "").strip()]
+            if keep_old_as_alias and prev_name:
+                aliases_clean.append(prev_name)
+            aliases_clean.append(new_name_s)
+            supplier["aliases"] = self._dedup_preserve_order([a for a in aliases_clean if a])
 
             self._refresh_supplier_cache(supplier)
             self.save()

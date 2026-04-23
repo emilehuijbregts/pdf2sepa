@@ -188,7 +188,7 @@ class TestErrorCases:
         assert len(payments) == 0
         assert any(e["reason"] == "unmatched_supplier" for e in errors)
         err_inv = errors[0]["invoices"][0]
-        assert err_inv["decision"]["status"] == "excluded"
+        assert err_inv["decision"]["status"] == "needs_review"
 
     def test_no_supplier_hint(self):
         inv = _base_invoice(match_status="no_hint")

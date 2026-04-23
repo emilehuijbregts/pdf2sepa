@@ -472,10 +472,12 @@ def calculate_payments(
             [
                 _invoice_with_decision(
                     inv,
-                    status=DECISION_NEEDS_REVIEW if reason == "needs_review" else DECISION_EXCLUDED,
+                    status=DECISION_NEEDS_REVIEW
+                    if reason in ("needs_review", "unmatched_supplier")
+                    else DECISION_EXCLUDED,
                     reason_code=reason,
                     reason_detail=reason_detail,
-                    requires_rerun=reason == "needs_review",
+                    requires_rerun=reason in ("needs_review", "unmatched_supplier"),
                 )
             ],
         )

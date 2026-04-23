@@ -407,6 +407,217 @@
       "email_domains": [
         "cevetech.nl"
       ]
+    },
+    {
+      "name": "Eekhof Advocatuur",
+      "iban": "NL38KNAB0777015781",
+      "discount": 0.0,
+      "aliases": [
+        "Eekhoof Advocatuur",
+        "Eekhof Advocatuur"
+      ],
+      "customer_codes": [],
+      "default_payment_term_days": 0,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL005350752B22"
+      ],
+      "kvk_numbers": [],
+      "email_domains": [
+        "eekhofadvocatuur.nl"
+      ]
+    },
+    {
+      "name": "Felison Assuradeuren B.V.",
+      "iban": "NL05ABNA0413390705",
+      "discount": 0.0,
+      "aliases": [
+        "Felison Assuradeuren B.V."
+      ],
+      "customer_codes": [],
+      "default_payment_term_days": 0,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL805301021B01"
+      ],
+      "kvk_numbers": [
+        "34095053"
+      ],
+      "email_domains": [
+        "felison.nl"
+      ]
+    },
+    {
+      "name": "Dissel B.V.",
+      "iban": "NL62RABO0151082162",
+      "discount": 0.0,
+      "aliases": [
+        "Dissel B.V."
+      ],
+      "customer_codes": [
+        "103305"
+      ],
+      "default_payment_term_days": 0,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL821256889B01"
+      ],
+      "kvk_numbers": [
+        "30269929"
+      ],
+      "email_domains": [
+        "disselbv.nl"
+      ]
+    },
+    {
+      "name": "Emgas B.V.",
+      "iban": "NL84RABO0111617316",
+      "discount": 0.0,
+      "aliases": [
+        "Emgas B.V."
+      ],
+      "customer_codes": [
+        "K3307"
+      ],
+      "default_payment_term_days": 0,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL005849524B01"
+      ],
+      "kvk_numbers": [],
+      "email_domains": [
+        "emgas.nl"
+      ]
+    },
+    {
+      "name": "Eplucon",
+      "iban": "NL80INGB0676080626",
+      "discount": 0.0,
+      "aliases": [
+        "Eplucon"
+      ],
+      "customer_codes": [
+        "030084"
+      ],
+      "default_payment_term_days": 0,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL815938664B01"
+      ],
+      "kvk_numbers": [
+        "08145841"
+      ],
+      "email_domains": [
+        "eplucon.nl"
+      ]
+    },
+    {
+      "name": "Feyts Born B.V.",
+      "iban": "NL38INGB0005608846",
+      "discount": 0.0,
+      "aliases": [
+        "Feyts Born B.V."
+      ],
+      "customer_codes": [
+        "20418"
+      ],
+      "default_payment_term_days": 0,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL008438602B01"
+      ],
+      "kvk_numbers": [
+        "14039954"
+      ],
+      "email_domains": [
+        "feytsborn.nl"
+      ]
+    },
+    {
+      "name": "Labor Internationaal B.V.",
+      "iban": "NL21RABO0108195902",
+      "discount": 0.0,
+      "aliases": [
+        "Labor Internationaal B.V."
+      ],
+      "customer_codes": [
+        "LA004717"
+      ],
+      "default_payment_term_days": 0,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL009038899B01"
+      ],
+      "kvk_numbers": [
+        "09061484"
+      ],
+      "email_domains": [
+        "labor-tools.nl"
+      ]
+    },
+    {
+      "name": "DTC Elektro",
+      "iban": "NL63RABO0157650111",
+      "discount": 0.0,
+      "aliases": [
+        "DTC Elektro"
+      ],
+      "customer_codes": [
+        "500127"
+      ],
+      "default_payment_term_days": 0,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL005977915B01"
+      ],
+      "kvk_numbers": [
+        "09051635"
+      ],
+      "email_domains": [
+        "dtcelektro.nl"
+      ]
+    },
+    {
+      "name": "Korver Holland B.V.",
+      "iban": "NL94INGB0793999782",
+      "discount": 0.0,
+      "aliases": [
+        "Korver Holland B.V."
+      ],
+      "customer_codes": [
+        "D3269"
+      ],
+      "default_payment_term_days": 0,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL813771213B01"
+      ],
+      "kvk_numbers": [],
+      "email_domains": [
+        "korverholland.com"
+      ]
+    },
+    {
+      "name": "Frige elektro groothandel",
+      "iban": "NL20RABO0337693749",
+      "discount": 0.0,
+      "aliases": [
+        "Frige elektro groothandel"
+      ],
+      "customer_codes": [
+        "11537"
+      ],
+      "default_payment_term_days": 0,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL862990452B01"
+      ],
+      "kvk_numbers": [
+        "83790101"
+      ],
+      "email_domains": [
+        "frige.nl"
+      ]
     }
   ]
 }

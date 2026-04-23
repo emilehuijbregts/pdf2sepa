@@ -1,0 +1,13 @@
+{
+  "source_file": "DTC 500127_26000078.pdf",
+  "invoice_number": "26000078",
+  "supplier_name": "DTC Elektro",
+  "iban": "NL63RABO0157650111",
+  "amount": "1875.16",
+  "amount_status": "confirmed",
+  "customer_code": "500127",
+  "description": "500127 / 26000078",
+  "discount_percentage": "0.00",
+  "invoice_date": "2026-01-06",
+  "payment_terms_days": 0
+}

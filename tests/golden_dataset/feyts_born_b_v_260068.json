@@ -1,0 +1,13 @@
+{
+  "source_file": "Feyts 260068.pdf",
+  "invoice_number": "260068",
+  "supplier_name": "Feyts Born B.V.",
+  "iban": "NL38INGB0005608846",
+  "amount": "977.41",
+  "amount_status": "confirmed",
+  "customer_code": "20418",
+  "description": "20418 / 260068",
+  "discount_percentage": "0.00",
+  "invoice_date": "2026-01-26",
+  "payment_terms_days": 0
+}

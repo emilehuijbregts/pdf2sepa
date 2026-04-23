@@ -1,0 +1,13 @@
+{
+  "source_file": "Eplucon Factuur 260312.pdf",
+  "invoice_number": "260312",
+  "supplier_name": "Eplucon",
+  "iban": "NL80INGB0676080626",
+  "amount": "2864.89",
+  "amount_status": "confirmed",
+  "customer_code": "030084",
+  "description": "030084 / 260312",
+  "discount_percentage": "0.00",
+  "invoice_date": "2026-01-22",
+  "payment_terms_days": 0
+}

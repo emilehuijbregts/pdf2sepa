@@ -1,0 +1,13 @@
+{
+  "source_file": "Brouwers zink 382005.pdf",
+  "invoice_number": "382005",
+  "supplier_name": "Brouwers Zink B.V",
+  "iban": "NL45ABNA0869677888",
+  "amount": "6080.25",
+  "amount_status": "confirmed",
+  "customer_code": "52002",
+  "description": "52002 / 382005",
+  "discount_percentage": "0.00",
+  "invoice_date": "2026-02-05",
+  "payment_terms_days": 30
+}

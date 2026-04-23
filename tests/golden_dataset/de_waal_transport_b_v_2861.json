@@ -1,0 +1,13 @@
+{
+  "source_file": "De waal Factuur 2861.pdf",
+  "invoice_number": "2861",
+  "supplier_name": "De Waal Transport B.V",
+  "iban": "NL06RABO0180558269",
+  "amount": "86.39",
+  "amount_status": "confirmed",
+  "customer_code": "218",
+  "description": "218 / 2861",
+  "discount_percentage": "0.00",
+  "invoice_date": "2026-03-25",
+  "payment_terms_days": 14
+}

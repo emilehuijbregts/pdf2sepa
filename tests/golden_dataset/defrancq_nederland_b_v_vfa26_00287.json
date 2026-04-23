@@ -1,0 +1,13 @@
+{
+  "source_file": "Defrancq Verkoop Factuur VFA2600287.pdf",
+  "invoice_number": "VFA26/00287",
+  "supplier_name": "Defrancq Nederland B.V",
+  "iban": "NL90KRED0633132586",
+  "amount": "121.97",
+  "amount_status": "confirmed",
+  "customer_code": "K05251",
+  "description": "K05251 / VFA26/00287",
+  "discount_percentage": "0.00",
+  "invoice_date": "2026-01-14",
+  "payment_terms_days": 30
+}

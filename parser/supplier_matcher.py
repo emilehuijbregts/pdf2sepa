@@ -12,6 +12,29 @@ from parser.supplier_db import SupplierDB
 
 logger = logging.getLogger(__name__)
 
+# region agent log (debug mode - session 935dd7)
+_DEBUG_935_PATH = "/Users/eh/Documents/Cursor/PDF2SEPA/.cursor/debug-935dd7.log"
+_DEBUG_935_SESSION = "935dd7"
+
+
+def _dbg_935(hypothesis_id: str, location: str, message: str, data: dict, run_id: str = "pre-fix") -> None:
+    try:
+        payload = {
+            "sessionId": _DEBUG_935_SESSION,
+            "hypothesisId": hypothesis_id,
+            "location": location,
+            "message": message,
+            "data": data,
+            "timestamp": int(time.time() * 1000),
+            "runId": run_id,
+        }
+        with open(_DEBUG_935_PATH, "a", encoding="utf-8") as f:
+            f.write(json.dumps(payload, ensure_ascii=False) + "\n")
+    except Exception:
+        return
+
+# endregion
+
 # region agent log (debug mode - session a6a30a)
 _DEBUG_A6_PATH = "/Users/eh/Documents/Cursor/PDF2SEPA/.cursor/debug-a6a30a.log"
 _DEBUG_A6_SESSION = "a6a30a"
@@ -225,6 +248,42 @@ def match_suppliers(invoices: list[dict], db: SupplierDB) -> list[dict]:
         )
 
         if supplier:
+            try:
+                src = str(invoice.get("source_file") or "")
+                pdf = Path(src).name if src else ""
+            except Exception:
+                pdf = ""
+            _dbg_935(
+                "H6",
+                "parser/supplier_matcher.py:match_suppliers",
+                "db.find_supplier_scored returned supplier",
+                {
+                    "pdf": pdf,
+                    "supplier_db_name": str(supplier.get("name") or ""),
+                    "invoice_signals": invoice_copy.get("match_signals") or [],
+                    "match_info_flags": {
+                        k: bool(match_info.get(k))
+                        for k in (
+                            "iban_match",
+                            "customer_code_match",
+                            "alias_match",
+                            "fuzzy_match",
+                            "kvk_match",
+                            "vat_match",
+                            "email_domain_match",
+                            "ocr_confirmed",
+                        )
+                    },
+                    "fuzzy_score": float(match_info.get("fuzzy_score") or 0.0),
+                    "iban_masked": mask_iban_for_log(str(invoice.get("iban") or "").strip())
+                    if str(invoice.get("iban") or "").strip()
+                    else None,
+                    "has_vat": bool(str(invoice.get("vat_number") or "").strip()),
+                    "has_kvk": bool(str(invoice.get("kvk_number") or "").strip()),
+                    "email_domain": str(invoice.get("email_domain") or "").strip(),
+                },
+                run_id="pre-fix",
+            )
             invoice_copy["supplier_match_source"] = "db_match"
             invoice_copy["match_info"] = match_info
             core_matches = _db_core_matches(match_info)

@@ -1,0 +1,13 @@
+{
+  "source_file": "Bosta Factuur NL01D00074953_2.pdf",
+  "invoice_number": "NL01D00074953",
+  "supplier_name": "Bosta B.V.",
+  "iban": "NL58INGB0006364795",
+  "amount": "193.98",
+  "amount_status": "confirmed",
+  "customer_code": "NL01114276",
+  "description": "NL01114276 / NL01D00074953",
+  "discount_percentage": "0.00",
+  "invoice_date": "2026-02-12",
+  "payment_terms_days": 30
+}
