@@ -1,0 +1,13 @@
+{
+  "source_file": "Installatiebalie Verkoopfactuur VF26-05543.pdf",
+  "invoice_number": "VF26-05543",
+  "supplier_name": "Installatie",
+  "iban": "NL86INGB0008220774",
+  "amount": "817.29",
+  "amount_status": "confirmed",
+  "customer_code": "K12493",
+  "description": "K12493 / VF26-05543",
+  "discount_percentage": "0.00",
+  "invoice_date": "2026-01-29",
+  "payment_terms_days": 0
+}

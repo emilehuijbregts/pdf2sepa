@@ -1,0 +1,13 @@
+{
+  "source_file": "Louwman 0071640028_PVF74-1308422_2060342.PDF",
+  "invoice_number": "PVF74-1308422",
+  "supplier_name": "Louwman MB B.V.",
+  "iban": "NL54ABNA0464699622",
+  "amount": "2.65",
+  "amount_status": "confirmed",
+  "customer_code": "2060342",
+  "description": "2060342 / PVF74-1308422",
+  "discount_percentage": "0.00",
+  "invoice_date": "2025-12-04",
+  "payment_terms_days": 0
+}

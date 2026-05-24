@@ -1584,6 +1584,7 @@ class MainWindow(QMainWindow):
             )
             self._resolve_iban_mismatches(matched, db)
             payments, errors = calculate_payments(matched, session_date=self._session_date)
+
             self._enrich_payments_with_source_files(payments, matched)
             n_err_rows = self._populate_table_from_load(payments, errors, matched)
             _dbg_log(
@@ -2221,6 +2222,7 @@ class MainWindow(QMainWindow):
         self._apply_row_colors()
         self._apply_filter_to_table(self._filter_edit.text())
         self._refresh_export_batch_status_label()
+
         return error_row_count
 
     def _on_reread_pdfs(self) -> None:

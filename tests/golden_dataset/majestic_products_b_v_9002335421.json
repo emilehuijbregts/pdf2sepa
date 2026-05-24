@@ -1,0 +1,13 @@
+{
+  "source_file": "Majestic Factuur Majestic Products nr 9002335421.pdf",
+  "invoice_number": "9002335421",
+  "supplier_name": "Majestic Products B.V.",
+  "iban": "NL65INGB0669776963",
+  "amount": "200.88",
+  "amount_status": "confirmed",
+  "customer_code": "29459",
+  "description": "29459 / 9002335421",
+  "discount_percentage": "0.00",
+  "invoice_date": "2026-02-05",
+  "payment_terms_days": 0
+}

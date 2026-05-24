@@ -1,0 +1,13 @@
+{
+  "source_file": "Miko PDF-INV-9926106153-MKS.pdf",
+  "invoice_number": "9926106153",
+  "supplier_name": "Miko Koffie Service BV",
+  "iban": "NL69ABNA0244641854",
+  "amount": "360.55",
+  "amount_status": "confirmed",
+  "customer_code": "143934",
+  "description": "143934 / 9926106153",
+  "discount_percentage": "0.00",
+  "invoice_date": "2026-03-03",
+  "payment_terms_days": 0
+}

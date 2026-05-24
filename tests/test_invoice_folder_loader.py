@@ -69,7 +69,7 @@ def test_load_error_when_extract_invoice_data_raises(
 
 def test_successful_load_parses(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     sample = (
-        "IBAN: NL91INGB0001234567\n"
+        "IBAN: NL25CITI0266075452\n"
         "Totaal te betalen EUR 10,00\n"
         "Factuur nr. INV-99\n"
     )
@@ -86,5 +86,31 @@ def test_successful_load_parses(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     out = load_invoices_from_folder(tmp_path)
     assert len(out) == 1
     assert out[0].get("load_error") is None
-    assert out[0].get("iban") == "NL91INGB0001234567"
+    assert out[0].get("iban") == "NL25CITI0266075452"
     assert out[0]["source_file"] == str(pdf.resolve())
+
+
+def test_skips_hidden_appledouble_pdfs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    sample = (
+        "IBAN: NL25CITI0266075452\n"
+        "Totaal te betalen EUR 10,00\n"
+        "Factuur nr. INV-99\n"
+    )
+
+    def fake_strict(_path: str) -> str:
+        return sample
+
+    monkeypatch.setattr(
+        "logic.invoice_folder_loader.extract_text_strict",
+        fake_strict,
+    )
+
+    # Real invoice + macOS metadata sidecar (must be ignored).
+    real_pdf = tmp_path / "Omniplast 3245984_0.pdf"
+    sidecar_pdf = tmp_path / "._Omniplast 3245984_0.pdf"
+    real_pdf.write_bytes(b"x")
+    sidecar_pdf.write_bytes(b"x")
+
+    out = load_invoices_from_folder(tmp_path)
+    assert len(out) == 1
+    assert Path(str(out[0].get("source_file") or "")).name == "Omniplast 3245984_0.pdf"

@@ -83,6 +83,31 @@ class TestCustomerNumberExtraction:
         d = extract_invoice_data("Klantcode: ABC-123")
         assert d["customer_number"] == "ABC-123"
 
+    def test_deb_nummer_variant(self):
+        d = extract_invoice_data("Factuurnummer 26402381 Deb. nummer 700269")
+        assert d["customer_number"] == "700269"
+
+    def test_customer_nr_prefix_stripped(self):
+        d = extract_invoice_data("Klantnummer nr143934")
+        assert d["customer_number"] == "143934"
+
+    def test_customer_klant_nr_prefers_numeric_over_postcode(self):
+        d = extract_invoice_data("Klant Nr : 0956 5216jw den bosch")
+        assert d["customer_number"] == "0956"
+
+    def test_customer_klantnummer_prefers_5digit_over_postcode_digit(self):
+        d = extract_invoice_data("Jan Campertlaan 6 IBAN:NL65 INGB 0669 7769 63 Klantnummer\n3201 ZZ 29459")
+        assert d["customer_number"] == "29459"
+
+    def test_customer_klantnummer_after_long_address_line(self):
+        text = (
+            "Majestic Products B.V.\n"
+            "Jan Campertlaan 6 IBAN:NL65 INGB 0669 7769 63 Klantnummer\n"
+            "3201 AX Spijkenisse BIC CODE: INGBNL2A 29459\n"
+        )
+        d = extract_invoice_data(text)
+        assert d["customer_number"] == "29459"
+
 
 # ---------------------------------------------------------------------------
 # Regression: invoice number extraction
@@ -114,6 +139,18 @@ class TestInvoiceNumberExtraction:
         d = extract_invoice_data("Invoice number: INV-2025-001")
         assert d["invoice_number"] == "INV-2025-001"
 
+    def test_documentnr_label(self):
+        d = extract_invoice_data("Documentnr: 99887766")
+        assert d["invoice_number"] == "99887766"
+
+    def test_factuur_plain_fallback(self):
+        d = extract_invoice_data("Debiteurnummer: 13395\nFactuur 41107739")
+        assert d["invoice_number"] == "41107739"
+
+    def test_nummer_datum_table_invoice(self):
+        d = extract_invoice_data("Nummer/Datum 9926106153 / 03.03.2026")
+        assert d["invoice_number"] == "9926106153"
+
     def test_ref_no_longer_matches_broadly(self):
         """'Ref: KVK12345' earlier in text must NOT override 'Factuurnummer: INV-001'."""
         text = "Ref: KVK12345\nSome other text\nFactuurnummer: INV-001"
@@ -126,6 +163,18 @@ class TestInvoiceNumberExtraction:
         d = extract_invoice_data(text)
         assert d["invoice_number"] != "Datum"
         assert d["invoice_number"] == "12345"
+
+    def test_tabular_klantnr_factuurnr_not_swapped(self):
+        text = "Klantnr Factuurnr\nK12493 VF26-05543"
+        d = extract_invoice_data(text)
+        assert d["customer_number"] == "K12493"
+        assert d["invoice_number"] == "VF26-05543"
+
+    def test_tabular_deb_fact_with_leading_order_token(self):
+        text = "Ordernummer Deb. nr. Fact. nr. Datum\n2603296 10295 2602561 11-02-2026"
+        d = extract_invoice_data(text)
+        assert d["customer_number"] == "10295"
+        assert d["invoice_number"] == "2602561"
 
 
 # ---------------------------------------------------------------------------
@@ -201,8 +250,9 @@ class TestFallbackRestriction:
 
 class TestIbanExtraction:
     def test_nl_iban(self):
-        d = extract_invoice_data("IBAN: NL91INGB0001234567")
-        assert d["iban"] == "NL91INGB0001234567"
+        # NL91… is géén geldige mod‑97 testcase; echte parity vereist valide checksum.
+        d = extract_invoice_data("IBAN: NL25CITI0266075452")
+        assert d["iban"] == "NL25CITI0266075452"
 
     def test_no_iban(self):
         d = extract_invoice_data("Geen bankgegevens hier")
@@ -248,6 +298,20 @@ class TestAmountExtraction:
 
     def test_netto_goederenbedrag(self):
         assert extract_amount_excl_vat("Netto goederenbedrag: 252,72") == 252.72
+
+    def test_totaal_eur_preferred_over_vat_basis_totaal(self):
+        text = "BTW 21,00 % Totaal\nBasisbedrag 2,19 2,19\nTotaal EUR 2,65"
+        d = extract_invoice_data(text)
+        assert d["amount"] == 2.65
+
+    def test_te_betalen_table_header_not_used_as_payable(self):
+        text = (
+            "Omschrijving Bedrag BTW % Basis Bedrag Te betalen\n"
+            "VI 9,00 330,78 29,77\n"
+            "Totaal 330,78 29,77 360,55 EUR"
+        )
+        d = extract_invoice_data(text)
+        assert d["amount"] == 360.55
 
 
 # ---------------------------------------------------------------------------
@@ -380,3 +444,80 @@ class TestEdgeCases:
     def test_only_whitespace(self):
         d = extract_invoice_data("   \n\n  ")
         assert d["amount"] is None
+
+
+# ---------------------------------------------------------------------------
+# Batch 5 style regressions (internationale IBAN's, hyphen labels, insurers)
+# ---------------------------------------------------------------------------
+
+class TestBatchFiveInvoicePatterns:
+    def test_scan_sepa_iban_be(self):
+        d = extract_invoice_data("IBAN: BE68 5390 0754 7034\nTotaal EUR 50,00")
+        assert d["iban"] == "BE68539007547034"
+
+    def test_scan_sepa_iban_de_with_spacing(self):
+        d = extract_invoice_data(
+            "Deutsche Bank AG IBAN: DE89 3704 0044 0532 0130 00\nTotaal EUR 500,01"
+        )
+        assert d["iban"] == "DE89370400440532013000"
+
+    def test_klant_nr_hyphen_customer(self):
+        d = extract_invoice_data(
+            "Klant-nr.: 85763\nFactuur HA 13451308\nTotaal te betalen EUR 100,05"
+        )
+        assert d["customer_number"] == "85763"
+        assert d["invoice_number"] == "HA13451308"
+
+    def test_factuur_prefixed_ha_digits(self):
+        d = extract_invoice_data("Leverancier Z\nFactuur HA 13451308\nEUR 88,08")
+        assert d["invoice_number"] == "HA13451308"
+
+    def test_belgian_year_slash_invoice_number(self):
+        d = extract_invoice_data(
+            "Referentie 26/1800001827\nIBAN BE50 4459 6389 4118\nTotaal EUR 120,44"
+        )
+        assert d["invoice_number"] == "26/1800001827"
+        assert d["iban"].startswith("BE")
+
+    def test_pm_coded_spaced_factuurslash_after_label(self):
+        d = extract_invoice_data(
+            "Factuurnummer: 2026 / 15\nTotaal EUR 222,02"
+        )
+        assert d["invoice_number"] == "2026/15"
+
+    def test_uw_klant_k_prefix_customer(self):
+        d = extract_invoice_data("Uw Klant K014135\nTotaal te betalen 11,05")
+        assert d["customer_number"] == "K014135"
+
+    def test_delivery_block_six_digit_customer(self):
+        t = (
+            "Verkoopfactuur 9\nAfleveradres\nFirma bv\nStraatnaam 88\n475700\nFactuurdatum 08-03-2026"
+        )
+        d = extract_invoice_data(t + "\nTe betalen 50,06")
+        assert d["customer_number"] == "475700"
+
+    def test_customer_prefers_k_prefixed_over_standalone_calendar_year_token(self):
+        d = extract_invoice_data(
+            "Debiteuren\nKlantnummer nr K1628\n2026\nTotaal EUR 99,91"
+        )
+        assert d["customer_number"] == "K1628"
+
+    def test_insurance_difficulte_premium_line_totals_amount(self):
+        d = extract_invoice_data(
+            "Polaris Nederland\nVerschuldigde premie EUR 4.947,17\n"
+        )
+        assert d["amount"] == pytest.approx(4947.17)
+
+    def test_polyglass_style_klantcode_and_invoice_amount(self):
+        t = (
+            "Leverancier\nKlantcode 04816069\nFactuur 26FC000498\n"
+            "Totaal te betalen EUR 1287,29"
+        )
+        d = extract_invoice_data(t)
+        assert d["customer_number"] == "04816069"
+        assert d["invoice_number"] == "26FC000498"
+        assert d["amount"] == pytest.approx(1287.29)
+
+    def test_klantcode_fused_word(self):
+        d = extract_invoice_data("Klantcode: 09998877\nBedrag EUR 44,03")
+        assert d["customer_number"] == "09998877"

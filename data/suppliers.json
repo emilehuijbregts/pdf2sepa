@@ -618,6 +618,212 @@
       "email_domains": [
         "frige.nl"
       ]
+    },
+    {
+      "name": "Dre Duister Beton",
+      "iban": "NL09INGB0006517288",
+      "discount": 0.0,
+      "aliases": [
+        "Dre Duister Beton"
+      ],
+      "customer_codes": [
+        "270093"
+      ],
+      "default_payment_term_days": 0,
+      "vat_rate": 21,
+      "vat_numbers": [],
+      "kvk_numbers": [
+        "60734973"
+      ],
+      "email_domains": [
+        "dreduisterbeton.nl"
+      ]
+    },
+    {
+      "name": "Gévier B.V.",
+      "iban": "NL97RABO0161034896",
+      "discount": 0.0,
+      "aliases": [
+        "Gévier B.V."
+      ],
+      "customer_codes": [
+        "917310"
+      ],
+      "default_payment_term_days": 0,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL854976504B01"
+      ],
+      "kvk_numbers": [
+        "62834525"
+      ],
+      "email_domains": [
+        "gevier.nl"
+      ]
+    },
+    {
+      "name": "Dyka B.V.",
+      "iban": "NL37INGB0657933864",
+      "discount": 0.0,
+      "aliases": [
+        "Dyka B.V."
+      ],
+      "customer_codes": [
+        "52972"
+      ],
+      "default_payment_term_days": 0,
+      "vat_rate": 21,
+      "vat_numbers": [],
+      "kvk_numbers": [
+        "05027284"
+      ],
+      "email_domains": []
+    },
+    {
+      "name": "Lewo B.V.",
+      "iban": "NL45RABO0372422888",
+      "discount": 0.0,
+      "aliases": [
+        "Lewo B.V."
+      ],
+      "customer_codes": [
+        "700269"
+      ],
+      "default_payment_term_days": 0,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL005678791B01"
+      ],
+      "kvk_numbers": [],
+      "email_domains": [
+        "ihs-group.com"
+      ]
+    },
+    {
+      "name": "Installatie",
+      "iban": "NL86INGB0008220774",
+      "discount": 0.0,
+      "aliases": [
+        "Installatie"
+      ],
+      "customer_codes": [
+        "K12493"
+      ],
+      "default_payment_term_days": 0,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL820865126B01"
+      ],
+      "kvk_numbers": [
+        "27280918"
+      ],
+      "email_domains": [
+        "installatiebalie.nl"
+      ]
+    },
+    {
+      "name": "Lammers",
+      "iban": "NL47RABO0168052873",
+      "discount": 0.0,
+      "aliases": [
+        "Lammers"
+      ],
+      "customer_codes": [
+        "0956"
+      ],
+      "default_payment_term_days": 0,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL868781861B01"
+      ],
+      "kvk_numbers": [
+        "99074427"
+      ],
+      "email_domains": []
+    },
+    {
+      "name": "Louwman MB B.V.",
+      "iban": "NL54ABNA0464699622",
+      "discount": 0.0,
+      "aliases": [
+        "Louwman MB B.V."
+      ],
+      "customer_codes": [
+        "2060342"
+      ],
+      "default_payment_term_days": 0,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL004947502B01"
+      ],
+      "kvk_numbers": [
+        "20038966"
+      ],
+      "email_domains": [
+        "louwman.nl"
+      ]
+    },
+    {
+      "name": "Majestic Products B.V.",
+      "iban": "NL65INGB0669776963",
+      "discount": 0.0,
+      "aliases": [
+        "Majestic Products B.V."
+      ],
+      "customer_codes": [
+        "29459"
+      ],
+      "default_payment_term_days": 0,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL802825655B01"
+      ],
+      "kvk_numbers": [],
+      "email_domains": [
+        "majestic.nl"
+      ]
+    },
+    {
+      "name": "MANA Bedrijfswagens B.V.",
+      "iban": "NL29VOWA0475278003",
+      "discount": 0.0,
+      "aliases": [
+        "MANA Bedrijfswagens B.V."
+      ],
+      "customer_codes": [
+        "13395"
+      ],
+      "default_payment_term_days": 0,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL007844219B01"
+      ],
+      "kvk_numbers": [
+        "20054631"
+      ],
+      "email_domains": [
+        "mana-bedrijfswagens.nl"
+      ]
+    },
+    {
+      "name": "Miko Koffie Service BV",
+      "iban": "NL69ABNA0244641854",
+      "discount": 0.0,
+      "aliases": [
+        "Miko Koffie Service BV"
+      ],
+      "customer_codes": [
+        "143934"
+      ],
+      "default_payment_term_days": 0,
+      "vat_rate": 21,
+      "vat_numbers": [],
+      "kvk_numbers": [
+        "17046880"
+      ],
+      "email_domains": [
+        "mikocoffee.com"
+      ]
     }
   ]
 }

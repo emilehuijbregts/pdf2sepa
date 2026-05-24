@@ -1,0 +1,13 @@
+{
+  "source_file": "Gevier 917310_26031451.pdf",
+  "invoice_number": "26031451",
+  "supplier_name": "Gévier B.V.",
+  "iban": "NL97RABO0161034896",
+  "amount": "285.75",
+  "amount_status": "confirmed",
+  "customer_code": "917310",
+  "description": "917310 / 26031451",
+  "discount_percentage": "0.00",
+  "invoice_date": "2026-03-11",
+  "payment_terms_days": 0
+}

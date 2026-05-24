@@ -66,6 +66,34 @@ def _agent_log(hypothesis_id: str, location: str, message: str, data: dict) -> N
         pass
 # endregion
 
+# region agent log (debug session 10a5df)
+def _dbg_10a5df(
+    hypothesis_id: str, location: str, message: str, data: dict, run_id: str = "extract"
+) -> None:
+    try:
+        import json, time  # noqa: E401
+
+        payload = {
+            "sessionId": "10a5df",
+            "runId": run_id,
+            "hypothesisId": hypothesis_id,
+            "location": location,
+            "message": message,
+            "data": data,
+            "timestamp": int(time.time() * 1000),
+        }
+        with open(
+            "/Users/eh/Documents/Cursor/PDF2SEPA/.cursor/debug-10a5df.log",
+            "a",
+            encoding="utf-8",
+        ) as f:
+            f.write(json.dumps(payload, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+
+
+# endregion
+
 # ---------------------------------------------------------------------------
 # Amount candidate model
 # ---------------------------------------------------------------------------
@@ -159,6 +187,119 @@ def _normalize_kvk_digits(kvk: str | None) -> str:
 def _normalize_vat_compact(vat: str | None) -> str:
     return re.sub(r"\s+", "", str(vat or "")).upper()
 
+
+# ISO 13616 nationale IBAN-lengtes (compact = deze lengte). Onbekende → trim + mod‑97‑probe.
+_IBAN_ISO_LENGTH_BY_CC: dict[str, int] = {
+    "NL": 18,
+    "BE": 16,
+    "DE": 22,
+    "FR": 27,
+    "AT": 20,
+    "CH": 21,
+    "LI": 21,
+    "GB": 22,
+    "IE": 22,
+    "LU": 20,
+    "ES": 24,
+    "IT": 27,
+    "PT": 25,
+    "FI": 18,
+    "DK": 18,
+    "SE": 24,
+    "NO": 15,
+    "PL": 28,
+    "CZ": 24,
+    "SK": 24,
+    "HU": 28,
+    "RO": 24,
+    "BG": 22,
+    "HR": 21,
+    "SI": 19,
+    "EE": 20,
+    "LV": 21,
+    "LT": 20,
+    "MT": 31,
+    "CY": 28,
+    "GR": 27,
+    "IS": 26,
+    "MC": 27,
+    "SM": 27,
+    "AD": 24,
+}
+
+
+def _finalize_iban_from_scan_parts(cc: str, check: str, body_merged_upper: str) -> str | None:
+    tgt = _IBAN_ISO_LENGTH_BY_CC.get(cc.upper())
+    need_body = tgt - 4 if tgt else None
+    if need_body is not None:
+        if len(body_merged_upper) < need_body:
+            return None
+        cand = f"{cc}{check}{body_merged_upper[:need_body]}"
+        return cand if _iban_mod97_valid(cand) else None
+    full = (f"{cc}{check}" + body_merged_upper).upper()
+    full = full[:34]
+    while len(full) >= 15:
+        if (
+            full.isalnum()
+            and re.fullmatch(r"[A-Z]{2}[0-9]{2}[A-Z0-9]{11,}", full)
+            and _iban_mod97_valid(full)
+        ):
+            return full
+        full = full[:-1]
+    return None
+
+
+def _scan_sepa_ibans_in_text(text: str) -> list[str]:
+    """Vind geldige SEPA IBAN’s (compact) in tekst/OCR; gebruikt nationale lengtes + mod‑97."""
+    raw = text or ""
+    slen = len(raw)
+    out: list[str] = []
+    seen: set[str] = set()
+
+    sep_chars = frozenset(" \t\n\r._-:")
+    i = 0
+    while i < slen - 5:
+        if i > 0 and raw[i - 1].isalnum():
+            i += 1
+            continue
+        if not raw[i].isalpha() or not raw[i + 1].isalpha():
+            i += 1
+            continue
+        cc_candidate = raw[i : i + 2]
+        if not cc_candidate.isascii():
+            i += 1
+            continue
+        cc = cc_candidate.upper()
+        if not (raw[i + 2].isdigit() and raw[i + 3].isdigit()):
+            i += 1
+            continue
+        check_d = raw[i + 2 : i + 4]
+        body_chars: list[str] = []
+        j = i + 4
+        max_take = (_IBAN_ISO_LENGTH_BY_CC.get(cc, 34) - 4) + 12
+        max_take = min(max_take, 32)
+        while j < slen:
+            if len(body_chars) >= max_take:
+                break
+            c = raw[j]
+            if c.isdigit():
+                body_chars.append(c)
+            elif c.isalpha() and c.isascii():
+                body_chars.append(c.upper())
+            elif c in sep_chars:
+                pass
+            else:
+                break
+            j += 1
+        merged = "".join(body_chars)
+        finalized = _finalize_iban_from_scan_parts(cc, check_d, merged)
+        if finalized and finalized not in seen:
+            seen.add(finalized)
+            out.append(finalized)
+        i += 1
+    return out
+
+
 def extract_text_strict(file_path: str) -> str:
     """Lees alle tekst uit een PDF. Gooit bij open/read-fouten (voor per-bestand afhandeling)."""
     pages_text: list[str] = []
@@ -205,15 +346,16 @@ _EXCL_VAT_LABEL_RE = re.compile(
 
 _INVOICE_LABEL_RE = re.compile(
     r"(?:Factuurnummer|Factuurnr\.?|Factuur(?:\s*nummer|\s*nr\.?)|Fact\.?\s*nr\.?|"
+    r"Document\s*nr\.?|Documentnr\.?|"
     r"Invoice\s*(?:number|no\.?|nr\.?)|"
     r"Nota(?:\s*nummer|\s*nr\.?))",
     flags=re.IGNORECASE,
 )
 
 _CUSTOMER_LABEL_RE = re.compile(
-    r"(?:Klant(?:en)?(?:\s*nummer|\s*nr\.?|\s*code)|Klantnr\.?|"
+    r"(?:\bKlantcode\b|Klant(?:en)?(?:\s*nummer|\s*nr\.?|-nr\.?|\s*code)|Klantnr\.?|"
     r"Debiteur(?:en)?(?:\s*nummer|\s*nr\.?)|"
-    r"Deb\.?\s*nr\.?|Debnr\.?|"
+    r"Deb\.?\s*(?:nr\.?|nummer)|Debnr\.?|"
     r"Debiteur|"
     r"Lid(?:\s*nummer|\s*nr\.?)|"
     r"Relatie(?:\s*nummer|\s*nr\.?)|"
@@ -333,6 +475,44 @@ def _is_noise_value(val: str) -> bool:
 def _looks_like_date_token(val: str) -> bool:
     v = str(val or "").strip()
     return bool(_DD_MM_YYYY_RE.fullmatch(v) or _ISO_DATE_RE.fullmatch(v))
+
+
+def _score_customer_candidate_token(tok: str) -> tuple[int, int, int, int]:
+    """Sort key: hogere waarde = méér waarschijnlijk klantcode (ook op vervolgregels)."""
+    t = str(tok or "").strip()
+    digits = re.sub(r"\D", "", t)
+    dlen = len(digits)
+    alnum = bool(re.search(r"[A-Za-z]", t) and re.search(r"\d", t))
+    pure_digits = bool(re.fullmatch(r"\d{4,10}", t))
+    postcode_like = bool(re.fullmatch(r"\d{4}[A-Za-z]{2}", t))
+    calendar_year_penalty = -120 if re.fullmatch(r"20\d{2}", t) else 0
+    band = 2 if 4 <= dlen <= 8 else (1 if alnum else 0)
+    long_penalty = -1 if dlen >= 9 else 0
+    digit_shape = 0
+    if pure_digits:
+        if 5 <= dlen <= 7:
+            digit_shape = 3
+        elif dlen == 8:
+            digit_shape = 2
+        elif dlen == 4:
+            digit_shape = 1
+    return (
+        band + long_penalty + calendar_year_penalty,
+        digit_shape,
+        -1 if postcode_like else 0,
+        -dlen,
+    )
+
+
+def _sanitize_customer_number(value: str | None) -> str | None:
+    v = str(value or "").strip()
+    if not v:
+        return None
+    # OCR/label bleed: "nr143934" should be "143934".
+    m = re.fullmatch(r"(?i)(?:nr|no)\W*(\d{3,})", v)
+    if m:
+        return m.group(1)
+    return v
 
 def _normalize_two_digit_year(y: int) -> int:
     if y >= 100:
@@ -686,6 +866,15 @@ def _extract_labeled_field(
             if has_multi_labels or next_is_labelish:
                 after_stripped = ""
 
+        # PM coded-style invoice ids with a spaced slash: ``2026 / 15``.
+        if label_re is _INVOICE_LABEL_RE and (after_stripped or "").strip():
+            m_yrslash = re.match(
+                r"(?i)^(\d{4})\s*/\s*(\d{1,6})\b(?!\s*/\s*\d)",
+                after_stripped.strip(),
+            )
+            if m_yrslash:
+                return f"{m_yrslash.group(1)}/{m_yrslash.group(2)}"
+
         # Preserve split customer code forms like "603540 / 880".
         if label_re is _CUSTOMER_LABEL_RE:
             slash_same = re.match(
@@ -699,19 +888,9 @@ def _extract_labeled_field(
         # Customer codes are often shorter than invoice numbers on the same line.
         # When multiple plausible tokens exist on the same line/next line, score them.
         if label_re is _CUSTOMER_LABEL_RE:
-            def _score_customer(tok: str) -> tuple[int, int, int]:
-                t = str(tok or "").strip()
-                digits = re.sub(r"\D", "", t)
-                dlen = len(digits)
-                alnum = bool(re.search(r"[A-Za-z]", t) and re.search(r"\d", t))
-                # Prefer 4–8 digits (typical klant/debiteur codes), then alphanumeric IDs, avoid very long numbers.
-                band = 2 if 4 <= dlen <= 8 else (1 if alnum else 0)
-                long_penalty = -1 if dlen >= 9 else 0
-                return (band + long_penalty, -dlen, len(t))
-
             candidates_same: list[str] = []
             rem = after_stripped
-            for _ in range(6):
+            while rem:
                 vm = _FIELD_VALUE_RE.match(rem)
                 if not vm:
                     break
@@ -729,7 +908,7 @@ def _extract_labeled_field(
             if i + 1 < len(lines):
                 nxt = lines[i + 1].strip()
                 rem2 = nxt
-                for _ in range(6):
+                while rem2:
                     vm = _FIELD_VALUE_RE.match(rem2)
                     if not vm:
                         break
@@ -744,7 +923,8 @@ def _extract_labeled_field(
                     rem2 = rem2[vm.end():]
                     rem2 = re.sub(r"^[\s:\.\[\]]+", "", rem2)
             if candidates_same:
-                best = sorted(candidates_same, key=_score_customer, reverse=True)[0]
+                best = sorted(candidates_same, key=_score_customer_candidate_token, reverse=True)[0]
+                best = re.sub(r"(?i)^(?:nr|no)\W*(\d{3,})$", r"\1", str(best or "").strip())
                 return best
 
         # Skip Dutch postcode false positives (e.g. "1185 XE" from merged columns)
@@ -783,6 +963,7 @@ def _extract_labeled_field(
                     return picked
             remainder = next_line
             picked_candidates: list[str] = []
+            cust_next_tokens: list[str] = []
             for _ in range(5):
                 vm = _FIELD_VALUE_RE.match(remainder)
                 if not vm:
@@ -796,10 +977,16 @@ def _extract_labeled_field(
                 ):
                     if label_re is _INVOICE_LABEL_RE:
                         picked_candidates.append(val)
+                    elif label_re is _CUSTOMER_LABEL_RE:
+                        cust_next_tokens.append(val)
                     else:
                         return val
                 remainder = remainder[vm.end():]
                 remainder = re.sub(r"^[\s:\.\[\]]+", "", remainder)
+            if label_re is _CUSTOMER_LABEL_RE and cust_next_tokens:
+                cbest = sorted(cust_next_tokens, key=_score_customer_candidate_token, reverse=True)[0]
+                cbest = re.sub(r"(?i)^(?:nr|no)\W*(\d{3,})$", r"\1", str(cbest or "").strip())
+                return cbest
             if label_re is _INVOICE_LABEL_RE and picked_candidates:
                 # Prefer invoice-like tokens in multi-column value rows (e.g. "VF-1094659")
                 def _score_inv(tok: str) -> tuple[int, int]:
@@ -823,7 +1010,7 @@ def _extract_amounts_from_total_lines(text: str) -> list[Decimal]:
             continue
         if _TOTAL_LINE_EXCLUDE_RE.search(line):
             continue
-        for tok in re.findall(_AMOUNT_TOKEN, line):
+        for tok in _iter_amount_tokens_excluding_percent(line):
             v = normalize_amount_decimal(tok)
             if v is not None and v > 0 and v not in seen:
                 seen.add(v)
@@ -902,6 +1089,8 @@ def _classify_candidate_amount_type(*, classification_line: str, source: str) ->
     low = re.sub(r"\s+", " ", (classification_line or "").strip().lower())
     if source == "total_label_excl":
         return "excl"
+    if source in ("total_label_insurance", "total_label_btw_inclusive"):
+        return "incl"
     if source == "total_label_payable":
         return "incl"
     if source == "total_label_invoice":
@@ -1012,6 +1201,29 @@ _STRICT_SUM_EXCL_HEAD_KW_RE = re.compile(
 )
 
 _TOTAL_LABEL_PRIORITY: tuple[tuple[int, str, re.Pattern], ...] = (
+    # Verzekerings-/premiefacturen (Polaris e.d.): geen klassiek “factuurbedrag”.
+    (
+        93,
+        "total_label_insurance",
+        re.compile(
+            r"(?i)\b(?:"
+            r"opensta(?:and|ande)\s+premie|"
+            r"verschuldigde\s+(?:premie|premies|bedrag)|"
+            r"premie\s+verschuldigd(?:e)?"
+            r")\b"
+        ),
+    ),
+    # Tabellen met “btw & … incl.” (Pearlpaint-achtige layout).
+    (
+        78,
+        "total_label_btw_inclusive",
+        re.compile(
+            r"(?i)\b(?:"
+            r"btw\s*&\s*bedrag\s*inclusief\s*(?:btw|vat)|"
+            r"bedrag\s*inclusief\s*(?:btw|vat)"
+            r")\b"
+        ),
+    ),
     # High confidence: explicit payable/amount-due labels.
     (
         100,
@@ -1262,6 +1474,14 @@ def _extract_amount_candidates(text: str) -> list[AmountCandidate]:
                 matched_prio = p
                 matched_source = src_tag
                 break
+        if matched_source == "total_label_generic":
+            # "Totaal: € 201,85" / "Totaal EUR 2,65" are usually payable totals.
+            if (
+                re.search(rf"(?i)\btotaal\b\s*:?\s*(?:eur|€)\s*{_AMOUNT_TOKEN}\b", ln)
+                and re.search(r"(?i)\b(?:netto|bruto|btw|vat|basis|grondslag)\b", ln) is None
+            ):
+                matched_prio = 85
+                matched_source = "total_label_sum"
         # Table header: amount may be on the next line under "Totaal incl. BTW".
         # Must run even when generic "totaal" patterns are excluded as table noise.
         if _TABLE_TOTAL_INCL_HDR_RE.search(ln) and i + 1 < len(lines):
@@ -1284,6 +1504,15 @@ def _extract_amount_candidates(text: str) -> list[AmountCandidate]:
                     )
 
         if matched_prio is None or matched_source is None:
+            continue
+
+        if (
+            matched_source == "total_label_payable"
+            and re.search(r"(?i)\bte\s+betalen\b", ln)
+            and re.search(r"(?i)\b(?:btw|vat)\b", ln)
+            and re.search(r"(?i)\b(?:basis|grondslag)\b", ln)
+        ):
+            # Header-like VAT tables (e.g. "Bedrag BTW % Basis Bedrag Te betalen") are not payable values.
             continue
 
         # Upgrade weak single-line ``Totaal``/``Total`` hit when ``bedrag`` continues on the next line.
@@ -1915,35 +2144,11 @@ def extract_invoice_data(
     debtor_kvk_norm = _normalize_kvk_digits(debtor_kvk) if debtor_kvk else ""
     debtor_vat_norm = _normalize_vat_compact(debtor_vat) if debtor_vat else ""
 
-    # IBAN — find NL IBANs in strict and formatted notation, then filter debtor IBAN
+    # IBAN — alle SEPA-landcodes (NL/BE/DE/…) via mod-97; daarna debtor IBAN gefilterd
+    debtor_filtered = 0
+    candidates_clean: list[str] = []
     try:
-        found = re.findall(r"\bNL\d{2}[A-Z]{4}\d{10}\b", text, flags=re.IGNORECASE)
-        found_spaced_raw = re.findall(
-            # Also accept PDFs that emit "N L 12 R A B O 0 1 2 3 4 5 6 7 8 9"
-            r"\bN\s*L\s*\d{2}\s*(?:[A-Z]\s*){4}(?:[\s.\-]*\d){10}\b",
-            text,
-            flags=re.IGNORECASE,
-        )
-        # Extra diagnostics: dotted/grouped styles like "NL62.RABO.0150.1234.56"
-        found_grouped_raw = re.findall(
-            r"\bN[\s.\-]*L[\s.\-]*\d{2}[\s.\-]*[A-Z]{4}(?:[\s.\-]*\d){10}\b",
-            text,
-            flags=re.IGNORECASE,
-        )
-        candidates_raw = [*found, *found_spaced_raw]
-        if found_grouped_raw:
-            candidates_raw.extend(found_grouped_raw)
-        candidates_clean: list[str] = []
-        seen_candidates: set[str] = set()
-        for raw in candidates_raw:
-            c = re.sub(r"[^0-9A-Za-z]", "", raw).upper()
-            if c in seen_candidates:
-                continue
-            if not re.fullmatch(r"NL\d{2}[A-Z]{4}\d{10}", c):
-                continue
-            seen_candidates.add(c)
-            candidates_clean.append(c)
-        debtor_filtered = 0
+        candidates_clean = _scan_sepa_ibans_in_text(text)
         for candidate in candidates_clean:
             if debtor_clean and candidate.upper() == debtor_clean:
                 debtor_filtered += 1
@@ -1967,12 +2172,10 @@ def extract_invoice_data(
         "parser/pdf_parser.py:extract_invoice_data",
         "iban regex diagnostics",
         {
-            "found_strict_count": int(len(found)) if "found" in locals() else None,
-            "found_spaced_count": int(len(found_spaced_raw)) if "found_spaced_raw" in locals() else None,
-            "found_grouped_count": int(len(found_grouped_raw)) if "found_grouped_raw" in locals() else None,
-            "candidates_clean_count": int(len(candidates_clean)) if "candidates_clean" in locals() else None,
+            "sepa_scan_raw_count": int(len(candidates_clean)),
             "all_ibans_count": int(len(all_ibans)),
             "chosen_iban_masked": mask_iban_for_log(iban) if iban else None,
+            "debtor_filtered_count": int(debtor_filtered),
         },
         run_id="pre-fix",
     )
@@ -1983,8 +2186,8 @@ def extract_invoice_data(
         "iban extraction summary",
         {
             "debtor_clean_present": bool(debtor_clean),
-            "debtor_filtered": int(debtor_filtered) if "debtor_filtered" in locals() else None,
-            "candidates_clean_count": int(len(candidates_clean)) if "candidates_clean" in locals() else None,
+            "debtor_filtered": int(debtor_filtered),
+            "candidates_clean_count": int(len(candidates_clean)),
             "all_ibans_count": int(len(all_ibans)),
             "chosen_iban_masked": mask_iban_for_log(iban) if iban else None,
         },
@@ -2176,7 +2379,7 @@ def extract_invoice_data(
                 )
                 has_cust = bool(
                     re.search(
-                        r"(?i)\b(?:klant\s*nr\.?|klantnr\.?|deb\.?\s*nr\.?|debnr\.?|debiteur)\b",
+                        r"(?i)\b(?:klant\s*-?\s*nr\.?|klantnr\.?|deb\.?\s*nr\.?|debnr\.?|debiteur)\b",
                         hdr,
                     )
                 )
@@ -2212,13 +2415,17 @@ def extract_invoice_data(
                 idx_inv = hdr.lower().find("fakt") if "fakt" in hdr.lower() else hdr.lower().find("fact")
                 idx_klant = hdr.lower().find("klant")
                 idx_deb = hdr.lower().find("deb")
-                if idx_klant != -1 and idx_inv != -1 and idx_inv < idx_klant:
-                    return vals[0], vals[-1]
-                if idx_deb != -1 and "fact" in hdr.lower():
-                    # Customer (deb) before invoice (fact): value row often contains extra numbers,
-                    # but the invoice number tends to be the last column.
+                idx_cust = idx_klant if idx_klant != -1 else idx_deb
+                if idx_inv != -1 and idx_deb != -1 and idx_deb < idx_inv and len(vals) >= 3:
+                    # Rows can have leading order/reference columns before Deb/Fact values.
                     return vals[-1], vals[-2]
-                return vals[-2], vals[-1]
+                # Two-column headers: map value order to header order.
+                if idx_inv != -1 and idx_cust != -1:
+                    if idx_inv < idx_cust:
+                        return vals[0], vals[1]
+                    return vals[1], vals[0]
+                # Fallback for noisy rows with extra tokens: invoice tends to be the last of the two.
+                return vals[-1], vals[-2]
             return None, None
 
         lines = text.split("\n")
@@ -2259,6 +2466,36 @@ def extract_invoice_data(
             if m_fact:
                 invoice_number = m_fact.group(1).strip()
                 invoice_number_source = "factuur_colon"
+        if invoice_number is None:
+            # Fallback for layouts like "Factuur 41107739".
+            m_fact_plain = re.search(
+                r"(?im)^\s*Factuur\b\s+([A-Za-z0-9][A-Za-z0-9\-\/]{5,})\s*$",
+                text,
+            )
+            if m_fact_plain and re.search(r"\d", m_fact_plain.group(1) or ""):
+                invoice_number = m_fact_plain.group(1).strip()
+                invoice_number_source = "factuur_plain"
+        if invoice_number is None:
+            # OEG-like: ``Factuur HA 13451308`` op één regel.
+            m_pref = re.search(r"(?i)\bFactuur\s+([A-Za-z]{1,8})\s+(\d{6,})\b", text)
+            if m_pref:
+                invoice_number = f"{str(m_pref.group(1)).upper()}{m_pref.group(2)}"
+                invoice_number_source = "factuur_prefixed_digits"
+        if invoice_number is None:
+            # Belgische referenties: ``26/1800001827`` (2 cijfers + lange serie).
+            m_yrslash = re.search(r"(?<![A-Za-z0-9./])(\d{2}/\d{7,})(?!\d)", text)
+            if m_yrslash:
+                invoice_number = m_yrslash.group(1).strip()
+                invoice_number_source = "year_slash_ref"
+        if invoice_number is None:
+            # Miko-style table: "Nummer/Datum" + next row "9926106153 / 03.03.2026".
+            m_nummer_datum = re.search(
+                r"(?is)\bNummer\s*/\s*Datum\b[\s:]*([A-Za-z0-9][A-Za-z0-9\-\/]{4,})\s*/\s*\d{1,2}[\./-]\d{1,2}[\./-]\d{2,4}\b",
+                text,
+            )
+            if m_nummer_datum:
+                invoice_number = m_nummer_datum.group(1).strip()
+                invoice_number_source = "nummer_datum_table"
         if invoice_number:
             logger.debug("Factuurnummer gevonden: %s", invoice_number)
         else:
@@ -2284,6 +2521,31 @@ def extract_invoice_data(
         logger.debug("Klantnummer niet gevonden", exc_info=True)
         customer_number = None
         customer_number_source = "exception"
+
+    customer_number = _sanitize_customer_number(customer_number)
+
+    if customer_number is None:
+        try:
+            m_kw = re.search(r"(?i)\bUw\s+(?:Klant\s*[:]?\s*)?(K\d{3,12})\b", text)
+            if m_kw:
+                customer_number = m_kw.group(1).strip()
+                customer_number_source = "uw_klant_k_prefix"
+            if customer_number is None:
+                mc = re.search(r"(?i)\bKlant[^\n]{0,48}\s*[:]?\s*(K\d{3,12})\b", text)
+                if mc:
+                    customer_number = mc.group(1).strip()
+                    customer_number_source = "klant_line_k_prefix"
+            if customer_number is None:
+                # Pipelife-achtig: eerste 6-cijferige ref vlak onder afleveradres-regelblok.
+                md = re.search(
+                    r"(?is)\bAfleveradres\b[^\n]{0,88}(?:\n[^\n]*){1,10}?\s*(\d{6})(?!\d)",
+                    text,
+                )
+                if md:
+                    customer_number = md.group(1).strip()
+                    customer_number_source = "delivery_block_six_digit"
+        except Exception:
+            pass
 
     if invoice_number and customer_number and str(invoice_number).strip() == str(customer_number).strip():
         # Suspicious: often caused by merged columns or label mis-detection.
@@ -2341,10 +2603,10 @@ def extract_invoice_data(
         },
     )
 
-    # Restricted fallback: only substantial digit/digit reference patterns (min 5/4 digits)
+    # Restricted fallback: ``12345/9876`` betaal-/relatiereferenties (NIET het ``26/long`` PGB‑patroon).
     try:
         if customer_number is None or invoice_number is None:
-            m_ref = re.search(r"(\d{5,})\s*/\s*(\d{4,})", text)
+            m_ref = re.search(r"\b(?!\d{2}/\d{7})(\d{5,})\s*/\s*(\d{4,})\b", text)
             if m_ref:
                 if invoice_number is None:
                     invoice_number = m_ref.group(1).strip()
@@ -2432,6 +2694,22 @@ def extract_invoice_data(
             logger.debug("Gemiste velden: %s", ", ".join(missing))
     except Exception:
         pass
+
+    _dbg_10a5df(
+        "SUM",
+        "parser/pdf_parser.py:extract_invoice_data",
+        "parse_field_summary",
+        {
+            "has_iban": bool(iban),
+            "iban_masked": mask_iban_for_log(iban),
+            "all_ibans_n": len(all_ibans),
+            "amount_status": getattr(amount_result, "status", None),
+            "amount_src": getattr(amount_result, "source", None),
+            "inv_src": invoice_number_source,
+            "cust_src": customer_number_source,
+        },
+        run_id="extract",
+    )
 
     return {
         "iban": iban,
@@ -2813,20 +3091,10 @@ def extract_text_force_raster_ocr(file_path: str, *, max_pages: int = 1) -> str:
         return ""
 
 def extract_ibans_from_images(file_path: str) -> list[str]:
-    """Extract validated NL IBANs from embedded images via OCR.
-
-    Thin wrapper around extract_text_from_images for backward compatibility.
-    """
+    """Extract validated SEPA IBANs from embedded images via OCR (NL/BE/DE/…)."""
     ocr_text = extract_text_from_images(file_path)
     if not ocr_text:
         return []
 
-    ibans: list[str] = []
-    seen: set[str] = set()
-    for m in re.finditer(r"\bNL\d{2}\s*[A-Z]{4}\s*\d{4}\s*\d{4}\s*\d{2}\b", ocr_text):
-        candidate = re.sub(r"\s+", "", m.group(0))
-        if candidate not in seen and _iban_mod97_valid(candidate):
-            ibans.append(candidate)
-            seen.add(candidate)
-    return ibans
+    return _scan_sepa_ibans_in_text(ocr_text)
 

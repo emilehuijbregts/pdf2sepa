@@ -1,0 +1,13 @@
+{
+  "source_file": "Duister Beton BV Factuur 260035.pdf",
+  "invoice_number": "260035",
+  "supplier_name": "Dre Duister Beton",
+  "iban": "NL09INGB0006517288",
+  "amount": "76.33",
+  "amount_status": "confirmed",
+  "customer_code": "270093",
+  "description": "270093 / 260035",
+  "discount_percentage": "0.00",
+  "invoice_date": "2026-02-03",
+  "payment_terms_days": 0
+}

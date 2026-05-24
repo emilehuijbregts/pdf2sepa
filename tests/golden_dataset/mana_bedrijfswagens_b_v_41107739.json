@@ -1,0 +1,13 @@
+{
+  "source_file": "Mana bedrijfswagens Werkplaatsfactuur41107739.pdf",
+  "invoice_number": "41107739",
+  "supplier_name": "MANA Bedrijfswagens B.V.",
+  "iban": "NL29VOWA0475278003",
+  "amount": "555.38",
+  "amount_status": "confirmed",
+  "customer_code": "13395",
+  "description": "13395 / 41107739",
+  "discount_percentage": "0.00",
+  "invoice_date": "2026-01-13",
+  "payment_terms_days": 0
+}

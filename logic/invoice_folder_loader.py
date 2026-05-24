@@ -67,6 +67,30 @@ _SUPPLIER_HINT_NOISE = frozenset({
     "factuur", "invoice", "debiteur", "iban", "btw", "kvk", "adres", "afleveradres",
 })
 
+# #region agent log (debug mode - session 10a5df)
+_DEBUG_10A5DF_PATH = "/Users/eh/Documents/Cursor/PDF2SEPA/.cursor/debug-10a5df.log"
+_DEBUG_10A5DF_SESSION = "10a5df"
+
+
+def _dbg_10a5df(hypothesis_id: str, location: str, message: str, data: dict, run_id: str = "repro") -> None:
+    try:
+        payload = {
+            "sessionId": _DEBUG_10A5DF_SESSION,
+            "hypothesisId": hypothesis_id,
+            "location": location,
+            "message": message,
+            "data": data,
+            "timestamp": int(time.time() * 1000),
+            "runId": run_id,
+        }
+        with open(_DEBUG_10A5DF_PATH, "a", encoding="utf-8") as f:
+            f.write(json.dumps(payload, ensure_ascii=False) + "\n")
+    except Exception:
+        return
+
+
+# #endregion
+
 def _supplier_hint_from_ocr_text(text: str) -> str | None:
     tokens = re.findall(r"[A-Za-z][A-Za-z&\-]{2,}", text or "")
     for tok in tokens:
@@ -133,6 +157,9 @@ def load_invoices_from_folder(
     for path in sorted(folder.iterdir()):
         if not path.is_file() or path.suffix.lower() != ".pdf":
             continue
+        # macOS AppleDouble/resource-fork files (e.g. "._Invoice.pdf") are metadata, not invoices.
+        if path.name.startswith("."):
+            continue
         run_id = "loader-run"
         try:
             text = extract_text_strict(str(path))
@@ -177,6 +204,43 @@ def load_invoices_from_folder(
             },
             run_id,
         )
+        # #region agent log (debug mode - session 10a5df)
+        try:
+            ar = data.get("amount_result") if isinstance(data.get("amount_result"), dict) else {}
+            _dbg_10a5df(
+                "R1",
+                "logic/invoice_folder_loader.py:load_invoices_from_folder",
+                "per_pdf_parse_and_ocr_summary",
+                {
+                    "pdf": path.name,
+                    "iban_present": bool(str(data.get("iban") or "").strip()),
+                    "iban_masked": mask_iban_for_log(str(data.get("iban") or "").strip())
+                    if str(data.get("iban") or "").strip()
+                    else None,
+                    "all_ibans_count": int(len(data.get("all_ibans") or [])),
+                    "ocr_iban_attempted": bool(data.get("ocr_iban_attempted")),
+                    "ocr_iban_error": str(data.get("ocr_iban_error") or ""),
+                    "invoice_number": str(data.get("invoice_number") or ""),
+                    "customer_number": str(data.get("customer_number") or ""),
+                    "amount_status": str(ar.get("status") or ""),
+                    "amount_source": str(ar.get("source") or ""),
+                    "amount_candidates_count": int(len(ar.get("candidates") or [])),
+                    "amount_candidates_brief": [
+                        {
+                            "v": str(c.get("value") or ""),
+                            "src": str(c.get("source") or ""),
+                            "cf": int(c.get("confidence") or 0),
+                            "ty": str(c.get("type") or ""),
+                        }
+                        for c in (ar.get("candidates") or [])[:6]
+                        if isinstance(c, dict)
+                    ],
+                },
+                run_id="repro",
+            )
+        except Exception:
+            pass
+        # #endregion
 
         try:
             pdf = path.name
@@ -428,4 +492,5 @@ def load_invoices_from_folder(
         except Exception:
             pass
         out.append(data)
+
     return out

@@ -1,0 +1,13 @@
+{
+  "source_file": "Lammers F4368916_factuur_duister_handelsonderneming__01-04-2026.pdf",
+  "invoice_number": "F4368916",
+  "supplier_name": "Lammers",
+  "iban": "NL47RABO0168052873",
+  "amount": "201.85",
+  "amount_status": "confirmed",
+  "customer_code": "0956",
+  "description": "0956 / F4368916",
+  "discount_percentage": "0.00",
+  "invoice_date": "2026-04-01",
+  "payment_terms_days": 0
+}
