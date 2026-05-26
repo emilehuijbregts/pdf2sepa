@@ -46,9 +46,19 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from logic.invoice_folder_loader import load_invoices_from_folder
+from logic.invoice_folder_loader import load_invoices_from_folder, strip_raw_text_from_invoices
 from logic.decision_store import DecisionStore
 from logic.decision_store import UserApprovalStore
+from logic.diagnostics import build_diagnostics, build_invoice_diagnostics_snapshot
+from logic.profile_learning import (
+    can_offer_profile_learning,
+    confirm_invoice_fields,
+    confirmed_amount_xml,
+    profile_field_keys_missing,
+    profile_learning_block_reason,
+)
+from ui.diagnostics_dialog import DiagnosticsDialog
+from ui.profile_confirm_dialog import ProfileConfirmDialog
 from logic.payment_decisions import (
     DECISION_EXCLUDED,
     DECISION_INCLUDED,
@@ -102,7 +112,7 @@ from output.sepa_xml import (
     generate_xml,
     validate_export_batch,
 )
-from parser.pdf_parser import format_remittance_text
+from parser.pdf_parser import extract_text_strict, format_remittance_text
 from parser.supplier_db import SupplierDB
 from parser.supplier_matcher import match_suppliers
 from ui.suppliers_dialog import SuppliersDialog
@@ -126,6 +136,36 @@ def _dbg_log(*, hypothesis_id: str, location: str, message: str, data: dict[str,
             "runId": run_id,
         }
         with open(_DEBUG_LOG_PATH, "a", encoding="utf-8") as f:
+            f.write(json.dumps(payload, ensure_ascii=False) + "\n")
+    except Exception:
+        return
+
+# #endregion
+
+# #region agent log (debug mode - session 8539bd)
+_DEBUG_8539_PATH = "/Users/eh/Documents/Cursor/PDF2SEPA/.cursor/debug-8539bd.log"
+_DEBUG_8539_SESSION = "8539bd"
+
+
+def _dbg8539(
+    *,
+    hypothesis_id: str,
+    location: str,
+    message: str,
+    data: dict[str, Any] | None = None,
+    run_id: str = "pre-fix",
+) -> None:
+    try:
+        payload = {
+            "sessionId": _DEBUG_8539_SESSION,
+            "hypothesisId": hypothesis_id,
+            "location": location,
+            "message": message,
+            "data": data or {},
+            "timestamp": int(time.time() * 1000),
+            "runId": run_id,
+        }
+        with open(_DEBUG_8539_PATH, "a", encoding="utf-8") as f:
             f.write(json.dumps(payload, ensure_ascii=False) + "\n")
     except Exception:
         return
@@ -296,12 +336,21 @@ def _core_matches_text(inv: dict[str, Any]) -> str:
     source = str(inv.get("supplier_match_source") or "").strip()
     core = inv.get("db_core_matches") or []
     core_clean = [str(x).strip() for x in core if str(x).strip()]
+    mi = inv.get("match_info") if isinstance(inv.get("match_info"), dict) else {}
+    alias_note = " · naam herkend (geen kernkenmerk)" if mi.get("alias_match") else ""
+
+    db_only = inv.get("supplier_db_traits_not_on_invoice") or []
+    db_only_clean = [str(x).strip() for x in db_only if str(x).strip()]
+    db_note = ""
+    if db_only_clean and len(core_clean) < 2:
+        db_note = f" · in DB: {', '.join(db_only_clean)} (niet op factuur)"
+
     if source == "db_match":
         if len(core_clean) >= 2:
-            return f"2/2 bevestigd ({', '.join(core_clean[:2])})"
+            return f"2/2 kernkenmerken ({', '.join(core_clean[:2])})"
         if core_clean:
-            return f"1/2 bevestigd ({core_clean[0]})"
-        return "0/2 bevestigd"
+            return f"1/2 kernkenmerken ({core_clean[0]}) · 2e kenmerk mist op factuur{db_note}{alias_note}"
+        return f"0/2 kernkenmerken{db_note}{alias_note}"
 
     # Voor nieuwe leveranciers: sterke fallback-signalen als voorlopige kernmatch.
     signals = inv.get("match_signals") or []
@@ -339,6 +388,38 @@ def _error_row_supplier(inv: dict[str, Any]) -> str:
     if hint and str(hint).strip():
         return str(hint).strip()
     return ""
+
+def _diagnostics_snapshot_from_invoice(inv: dict) -> dict:
+    return build_invoice_diagnostics_snapshot(inv if isinstance(inv, dict) else {})
+
+
+def _ident_field_display_from_inv(inv: dict[str, Any], field: str) -> str:
+    """Celweergave; ``?`` als parser twijfelt en er kandidaten zijn."""
+    legacy = str(inv.get(field) or "").strip()
+    res = inv.get(f"{field}_result")
+    if not isinstance(res, dict):
+        return legacy
+    val = str(res.get("value") or legacy).strip()
+    st = str(res.get("status") or "").lower()
+    cands = res.get("candidates")
+    n_cands = len(cands) if isinstance(cands, list) else 0
+    if val:
+        return val
+    if n_cands and st in ("ambiguous", "tentative", "failed"):
+        if st == "ambiguous" or n_cands >= 2:
+            return "?"
+    return legacy
+
+
+def _remittance_display_from_inv(inv: dict[str, Any]) -> str:
+    cust = _ident_field_display_from_inv(inv, "customer_number")
+    inv_no = _ident_field_display_from_inv(inv, "invoice_number")
+    return format_remittance_text(
+        None if cust in ("", "?") else cust,
+        None if inv_no in ("", "?") else inv_no,
+        inv.get("description"),
+    )
+
 
 def _discount_str_from_inv(inv: dict[str, Any]) -> str:
     d = inv.get("discount")
@@ -383,6 +464,7 @@ class PaymentColumn(IntEnum):
     MATCH_COMPLETE = 11
     STATUS = 12
     ERROR = 13
+    INFO = 14
 
 # Factuurnummer voor SEPA EndToEndId; opgeslagen op leveranciercel (UserRole).
 _ROW_INVOICE_META_ROLE = Qt.ItemDataRole.UserRole
@@ -403,6 +485,9 @@ _ROW_DECISION_ROLE = Qt.ItemDataRole.UserRole + 13
 _ROW_ROW_ID_ROLE = Qt.ItemDataRole.UserRole + 14
 _ROW_RENDER_HASH_ROLE = Qt.ItemDataRole.UserRole + 15
 _ROW_SUPPLIER_ORIGINAL_ROLE = Qt.ItemDataRole.UserRole + 16
+_ROW_INVOICE_DIAGNOSTICS_ROLE = Qt.ItemDataRole.UserRole + 17
+_ROW_INVOICE_NUMBER_RESULT_ROLE = Qt.ItemDataRole.UserRole + 18
+_ROW_CUSTOMER_NUMBER_RESULT_ROLE = Qt.ItemDataRole.UserRole + 19
 
 _READ_ONLY_FLAGS = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
 
@@ -795,6 +880,7 @@ class MainWindow(QMainWindow):
         return str(self._user_data_dir / "suppliers.json")
 
     def _on_table_selection_changed(self) -> None:
+        self._refresh_profile_button_state()
         if not hasattr(self, "_decision_inspector") or not self._decision_inspector.isVisible():
             return
         rows = self._selected_table_rows()
@@ -1059,6 +1145,15 @@ class MainWindow(QMainWindow):
         )
         btn_sync_suppliers.clicked.connect(self._on_sync_selected_to_suppliers)
         row_main.addWidget(btn_sync_suppliers, alignment=Qt.AlignmentFlag.AlignRight)
+        self._btn_create_profile = QPushButton("Profiel aanmaken")
+        self._btn_create_profile.setToolTip(
+            "Stap 1: Voeg toe / update (leverancier in database).\n"
+            "Stap 2: Kies het juiste bedrag (klik op ? of Diagnostics).\n"
+            "Stap 3: Bevestig factuurnummer/klantnummer en leer extractieprofiel."
+        )
+        self._btn_create_profile.clicked.connect(self._on_create_profile_for_selection)
+        self._btn_create_profile.setEnabled(False)
+        row_main.addWidget(self._btn_create_profile, alignment=Qt.AlignmentFlag.AlignRight)
         btn_settings = QPushButton()
         btn_settings.setToolTip(_UW_GEGEVENS_XML_HINT)
         btn_settings.setAccessibleName("Instellingen")
@@ -1096,6 +1191,7 @@ class MainWindow(QMainWindow):
             "Matches compleet",
             "Status",
             "Foutmelding",
+            "Info",
         ]
         self._table = QTableWidget(0, len(headers))
         self._table.setHorizontalHeaderLabels(headers)
@@ -1131,6 +1227,7 @@ class MainWindow(QMainWindow):
             PaymentColumn.MATCH_COMPLETE: 220,
             PaymentColumn.STATUS: 80,
             PaymentColumn.ERROR: 420,
+            PaymentColumn.INFO: 44,
         }
         for col in range(len(headers)):
             hdr.setSectionResizeMode(col, QHeaderView.ResizeMode.Interactive)
@@ -1562,6 +1659,7 @@ class MainWindow(QMainWindow):
 
             db = SupplierDB(path=self._supplier_db_path())
             matched = match_suppliers(all_raw, db)
+            strip_raw_text_from_invoices(matched)
             _agent_log(
                 "H1",
                 "main_window.py:_load_payments_from_sources",
@@ -1823,6 +1921,575 @@ class MainWindow(QMainWindow):
         v = it.data(_ROW_INVOICE_META_ROLE)
         return str(v).strip() if v is not None else ""
 
+    @staticmethod
+    def _row_ident_fields_from_inv(inv: dict | None) -> tuple[str, str, str, dict[str, Any] | None, dict[str, Any] | None]:
+        """(klantcel, factuur-meta, omschrijving, invoice_result, customer_result)."""
+        base = inv if isinstance(inv, dict) else {}
+        cust = _ident_field_display_from_inv(base, "customer_number")
+        inv_disp = _ident_field_display_from_inv(base, "invoice_number")
+        meta = "" if inv_disp == "?" else inv_disp
+        desc = _remittance_display_from_inv(base)
+        ir = base.get("invoice_number_result")
+        cr = base.get("customer_number_result")
+        return (
+            cust,
+            meta,
+            desc,
+            ir if isinstance(ir, dict) else None,
+            cr if isinstance(cr, dict) else None,
+        )
+
+    def _ident_field_result_snapshot_for_row(self, row: int, field: str) -> dict[str, Any] | None:
+        if field == "invoice_number":
+            it = self._table.item(row, PaymentColumn.SUPPLIER)
+            role = _ROW_INVOICE_NUMBER_RESULT_ROLE
+        elif field == "customer_number":
+            it = self._table.item(row, PaymentColumn.CUSTOMER_CODE)
+            role = _ROW_CUSTOMER_NUMBER_RESULT_ROLE
+        else:
+            return None
+        if not it:
+            return None
+        raw = it.data(role)
+        return deepcopy(raw) if isinstance(raw, dict) else None
+
+    @staticmethod
+    def _ident_field_picker_eligible(snap: dict[str, Any] | None) -> bool:
+        if not isinstance(snap, dict):
+            return False
+        cands = snap.get("candidates")
+        if not isinstance(cands, list) or not cands:
+            return False
+        st = str(snap.get("status") or "").lower()
+        if st == "ambiguous":
+            return True
+        if st in ("tentative", "failed") and len(cands) >= 2:
+            return True
+        return len(cands) >= 2
+
+    def _show_ident_field_candidate_menu(self, row: int, field: str) -> None:
+        snap = self._ident_field_result_snapshot_for_row(row, field)
+        if not self._ident_field_picker_eligible(snap):
+            title = "Factuur-/polisnummer" if field == "invoice_number" else "Klantnummer"
+            QMessageBox.information(
+                self,
+                title,
+                "Geen meerdere parser-kandidaten om uit te kiezen.",
+            )
+            return
+        cands = [c for c in (snap or {}).get("candidates") or [] if isinstance(c, dict)]
+        menu = QMenu(self)
+        for cand in cands:
+            val = str(cand.get("value") or "").strip()
+            if not val:
+                continue
+            label = str(cand.get("label") or cand.get("source") or "kandidaat").strip()
+            conf = cand.get("confidence")
+            text = f"{val} — {label}"
+            if conf is not None:
+                text += f" ({int(conf)}%)"
+            ctx = str(cand.get("context") or "")
+            act = menu.addAction(text)
+            if ctx:
+                act.setToolTip(ctx[:200])
+            act.triggered.connect(
+                lambda checked=False, r=row, f=field, c=cand: self._apply_ident_field_pick_to_row(r, f, c)
+            )
+        if menu.isEmpty():
+            return
+        menu.exec(QCursor.pos())
+
+    def _apply_ident_field_pick_to_row(
+        self,
+        row: int,
+        field: str,
+        cand: dict[str, Any],
+    ) -> None:
+        val = str(cand.get("value") or "").strip()
+        if not val:
+            return
+        snap = self._ident_field_result_snapshot_for_row(row, field) or {}
+        snap = deepcopy(snap)
+        snap["value"] = val
+        snap["status"] = "confirmed"
+        snap["user_selected"] = True
+        snap["confidence"] = int(cand.get("confidence") or snap.get("confidence") or 95)
+        snap["source"] = str(cand.get("source") or "USER_PICKED")
+        self._suppress_table_item_changed = True
+        try:
+            if field == "customer_number":
+                it = self._table.item(row, PaymentColumn.CUSTOMER_CODE)
+                if it:
+                    it.setText(val)
+                    it.setData(_ROW_CUSTOMER_NUMBER_RESULT_ROLE, snap)
+                cust_for_desc = val
+                inv_for_desc = self._get_row_invoice_number(row)
+            else:
+                sup_it = self._table.item(row, PaymentColumn.SUPPLIER)
+                if sup_it:
+                    sup_it.setData(_ROW_INVOICE_META_ROLE, val)
+                    sup_it.setData(_ROW_INVOICE_NUMBER_RESULT_ROLE, snap)
+                cust_for_desc = self._cell_text(row, PaymentColumn.CUSTOMER_CODE).strip()
+                if cust_for_desc == "?":
+                    cust_for_desc = ""
+                inv_for_desc = val
+            desc_it = self._table.item(row, PaymentColumn.DESCRIPTION)
+            if desc_it:
+                desc_it.setText(
+                    format_remittance_text(
+                        cust_for_desc or None,
+                        inv_for_desc or None,
+                        None,
+                    )
+                )
+            diag_it = self._table.item(row, PaymentColumn.SUPPLIER)
+            if diag_it:
+                diag = diag_it.data(_ROW_INVOICE_DIAGNOSTICS_ROLE)
+                if isinstance(diag, dict):
+                    patched = dict(diag)
+                    patched[field] = val
+                    patched[f"{field}_result"] = snap
+                    diag_it.setData(_ROW_INVOICE_DIAGNOSTICS_ROLE, patched)
+        finally:
+            self._suppress_table_item_changed = False
+        self._mark_row_pending_engine_update(row, f"{field}_picked")
+        self._refresh_profile_button_state()
+
+    def _get_row_invoice_diagnostics_snapshot(self, row: int) -> dict | None:
+        it = self._table.item(row, PaymentColumn.SUPPLIER)
+        if not it:
+            return None
+        v = it.data(_ROW_INVOICE_DIAGNOSTICS_ROLE)
+        return v if isinstance(v, dict) else None
+
+    def _resolve_row_source_file(self, row: int) -> str | None:
+        """Absoluut PDF-pad: eerst geselecteerde factuurmap + PDF-kolom, dan snapshot-pad."""
+        pdf_name = self._cell_text(row, PaymentColumn.PDF).strip()
+        if pdf_name and pdf_name != "—" and self._selected_folder:
+            candidate = self._selected_folder / Path(pdf_name).name
+            if candidate.is_file():
+                return str(candidate.resolve())
+        snap = self._get_row_invoice_diagnostics_snapshot(row)
+        if isinstance(snap, dict):
+            sf = str(snap.get("source_file") or "").strip()
+            if sf:
+                p = Path(sf)
+                if p.is_file():
+                    return str(p.resolve())
+                if self._selected_folder and not p.is_absolute():
+                    alt = self._selected_folder / p.name
+                    if alt.is_file():
+                        return str(alt.resolve())
+        return None
+
+    def _match_status_for_profile_gate(self, row: int, snap: dict) -> str:
+        ms = str(snap.get("match_status") or "").strip()
+        if ms:
+            return ms
+        err_it = self._table.item(row, PaymentColumn.ERROR)
+        trace = err_it.data(_ROW_DECISION_TRACE_ROLE) if err_it else None
+        if isinstance(trace, dict):
+            return str(trace.get("supplier_match_status") or "").strip()
+        return ""
+
+    _PROFILE_BLOCK_TOOLTIPS: dict[str, str] = {
+        "no_snapshot": "Geen factuurgegevens op deze rij — herlaad de batch.",
+        "match_not_eligible": "Leverancier eerst bevestigen: Voeg toe / update en PDF's opnieuw inlezen.",
+        "amount_unresolved": "Kies eerst het juiste bedrag (klik op ? in kolom Bedrag).",
+        "already_profile": "Extractieprofiel is al compleet voor deze leverancier.",
+        "no_source_file": "PDF-pad ontbreekt — selecteer de factuurmap.",
+        "pdf_not_found": "PDF-bestand niet gevonden in de geselecteerde map.",
+    }
+
+    def _row_amount_resolved(self, row: int) -> bool:
+        """True als de rij een parseerbaar bedrag heeft (geen '?')."""
+        txt = self._cell_text(row, PaymentColumn.AMOUNT).strip()
+        if not txt or txt == "?":
+            ar = self._amount_result_snapshot_for_row(row)
+            if isinstance(ar, dict):
+                st = str(ar.get("status") or ar.get("amount_status") or "").strip().lower()
+                if st in ("confirmed", "tentative"):
+                    raw_v = ar.get("value") or ar.get("selected_amount")
+                    if raw_v is not None:
+                        try:
+                            amount_to_decimal(str(raw_v))
+                            return True
+                        except (TypeError, ValueError):
+                            pass
+            return False
+        try:
+            amount_to_decimal(txt)
+            return True
+        except (TypeError, ValueError):
+            return False
+
+    def _stored_profile_for_row(self, row: int) -> dict | None:
+        supplier = self._cell_text(row, PaymentColumn.SUPPLIER).strip()
+        if not supplier:
+            return None
+        try:
+            db = SupplierDB(path=self._supplier_db_path())
+            ep = db.get_extraction_profile(supplier)
+            return ep if isinstance(ep, dict) else None
+        except Exception:
+            return None
+
+    def _row_profile_block_reason(self, row: int) -> str | None:
+        snap = self._get_row_invoice_diagnostics_snapshot(row)
+        if not isinstance(snap, dict):
+            snap = self._minimal_diagnostics_snapshot_from_row(row)
+        gate_snap = dict(snap)
+        ms = self._match_status_for_profile_gate(row, snap)
+        if ms:
+            gate_snap["match_status"] = ms
+        return profile_learning_block_reason(
+            gate_snap,
+            source_file=self._resolve_row_source_file(row),
+            amount_resolved=self._row_amount_resolved(row),
+            stored_profile=self._stored_profile_for_row(row),
+        )
+
+    def _row_can_profile_confirm(self, row: int) -> bool:
+        return self._row_profile_block_reason(row) is None
+
+    def _refresh_profile_button_state(self) -> None:
+        btn = getattr(self, "_btn_create_profile", None)
+        if btn is None:
+            return
+        rows = self._selected_table_rows()
+        if len(rows) != 1:
+            btn.setEnabled(False)
+            btn.setToolTip(
+                "Selecteer precies één rij.\n"
+                "Stap 1: Voeg toe / update → Stap 2: bedrag kiezen → Stap 3: profiel aanmaken."
+            )
+            return
+        row = rows[0]
+        reason = self._row_profile_block_reason(row)
+        snap = self._get_row_invoice_diagnostics_snapshot(row)
+        if not isinstance(snap, dict):
+            snap = self._minimal_diagnostics_snapshot_from_row(row)
+        # #region agent log
+        _dbg8539(
+            hypothesis_id="H1-H5",
+            location="main_window.py:_refresh_profile_button_state",
+            message="profile_button_state",
+            data={
+                "row": row,
+                "reason": reason,
+                "enabled": reason is None,
+                "amount_resolved": self._row_amount_resolved(row),
+                "match_status": self._match_status_for_profile_gate(row, snap),
+                "extraction_source": str(snap.get("extraction_source") or ""),
+                "source_file_resolved": bool(self._resolve_row_source_file(row)),
+                "pdf_cell": self._cell_text(row, PaymentColumn.PDF).strip()[:80],
+            },
+            run_id="post-fix",
+        )
+        # #endregion
+        if reason is None:
+            btn.setEnabled(True)
+            stored = self._stored_profile_for_row(row)
+            missing = profile_field_keys_missing(stored)
+            tip_parts = [
+                "Bevestig bedrag, factuurnummer en klantnummer; sla extractieprofiel op.",
+            ]
+            if not self._row_amount_resolved(row):
+                tip_parts.insert(
+                    0,
+                    "Tip: kies eerst het juiste bedrag (klik op ?) of vul het in de dialog.",
+                )
+            if missing:
+                btn.setText("Profiel aanvullen")
+                tip_parts.append("Ontbrekend in profiel: " + ", ".join(missing) + ".")
+            else:
+                btn.setText("Profiel aanmaken")
+            btn.setToolTip("\n".join(tip_parts))
+            return
+        btn.setEnabled(False)
+        extra = self._PROFILE_BLOCK_TOOLTIPS.get(reason, reason)
+        btn.setToolTip(f"Profiel aanmaken (nog niet mogelijk): {extra}")
+
+    def _on_create_profile_for_selection(self) -> None:
+        rows = self._selected_table_rows()
+        if not rows:
+            QMessageBox.information(
+                self,
+                "Profiel aanmaken",
+                "Selecteer eerst één rij in de tabel.",
+            )
+            return
+        if len(rows) > 1:
+            QMessageBox.information(
+                self,
+                "Profiel aanmaken",
+                "Selecteer precies één rij.",
+            )
+            return
+        row = rows[0]
+        reason = self._row_profile_block_reason(row)
+        if reason is not None:
+            QMessageBox.warning(
+                self,
+                "Profiel aanmaken",
+                self._PROFILE_BLOCK_TOOLTIPS.get(reason, reason),
+            )
+            return
+        self._on_profile_confirm_row(row)
+
+    def _profile_confirm_placeholders(self, row: int, snap: dict) -> dict[str, str]:
+        amount_ph = ""
+        ar = snap.get("amount_result") if isinstance(snap.get("amount_result"), dict) else None
+        if isinstance(ar, dict):
+            raw_v = ar.get("value") or ar.get("selected_amount")
+            if raw_v is not None:
+                try:
+                    amount_ph = _format_amount_nl(amount_to_decimal(str(raw_v)))
+                except (TypeError, ValueError):
+                    amount_ph = str(raw_v)
+        if not amount_ph:
+            cell_amt = self._cell_text(row, PaymentColumn.AMOUNT).strip()
+            if cell_amt:
+                amount_ph = cell_amt
+        inv_ph = str(snap.get("invoice_number") or "").strip()
+        if not inv_ph:
+            inv_ph = self._get_row_invoice_number(row)
+        cust_ph = str(snap.get("customer_number") or "").strip()
+        if not cust_ph:
+            cust_ph = str(snap.get("pdf_customer_number") or "").strip()
+        if not cust_ph:
+            cust_ph = self._cell_text(row, PaymentColumn.CUSTOMER_CODE).strip()
+        return {
+            "amount": amount_ph,
+            "invoice": inv_ph,
+            "customer": cust_ph,
+        }
+
+    def _apply_profile_confirm_to_row(
+        self,
+        row: int,
+        result_confirmed: dict[str, Any],
+        *,
+        profile_saved: bool,
+        learned_profile: dict[str, Any] | None,
+    ) -> None:
+        """Werk tabelcellen bij na bevestiging (geen engine-commit)."""
+        self._suppress_table_item_changed = True
+        try:
+            amt_xml = confirmed_amount_xml(result_confirmed)
+            if amt_xml:
+                try:
+                    dec = amount_to_decimal(amt_xml)
+                    self._sync_amount_result_and_row_ui(
+                        row,
+                        dec,
+                        from_manual_typing=False,
+                        picked_candidate=None,
+                        amount_source="profile",
+                    )
+                except (TypeError, ValueError):
+                    pass
+
+            cust = str(result_confirmed.get("customer_number") or "").strip()
+            if cust:
+                cust_it = self._table.item(row, PaymentColumn.CUSTOMER_CODE)
+                if cust_it:
+                    cust_it.setText(cust)
+
+            inv_no = str(result_confirmed.get("invoice_number") or "").strip()
+            if inv_no:
+                sup_it = self._table.item(row, PaymentColumn.SUPPLIER)
+                if sup_it:
+                    sup_it.setData(_ROW_INVOICE_META_ROLE, inv_no)
+
+            desc = format_remittance_text(
+                cust or None,
+                inv_no or None,
+                None,
+            )
+            if desc:
+                desc_it = self._table.item(row, PaymentColumn.DESCRIPTION)
+                if desc_it:
+                    desc_it.setText(desc)
+
+            if profile_saved and learned_profile is not None:
+                snap = self._get_row_invoice_diagnostics_snapshot(row)
+                if isinstance(snap, dict):
+                    patched = deepcopy(snap)
+                    patched["extraction_source"] = "profile"
+                    field_keys = [
+                        k
+                        for k in ("amount", "invoice_number", "customer_number")
+                        if k in learned_profile
+                    ]
+                    patched["profile_fields"] = field_keys
+                    if inv_no:
+                        patched["invoice_number"] = inv_no
+                        patched["invoice_number_result"] = {
+                            "status": "confirmed",
+                            "value": inv_no,
+                            "confidence": 95,
+                            "source": "profile",
+                            "candidates": [],
+                        }
+                        inv_it = self._table.item(row, PaymentColumn.SUPPLIER)
+                        if inv_it:
+                            inv_it.setData(
+                                _ROW_INVOICE_NUMBER_RESULT_ROLE,
+                                deepcopy(patched["invoice_number_result"]),
+                            )
+                    if cust:
+                        patched["customer_number"] = cust
+                        patched["customer_number_result"] = {
+                            "status": "confirmed",
+                            "value": cust,
+                            "confidence": 95,
+                            "source": "profile",
+                            "candidates": [],
+                        }
+                    sup_it = self._table.item(row, PaymentColumn.SUPPLIER)
+                    if sup_it:
+                        sup_it.setData(_ROW_INVOICE_DIAGNOSTICS_ROLE, patched)
+        finally:
+            self._suppress_table_item_changed = False
+
+    def _on_profile_confirm_row(self, row: int) -> None:
+        if row < 0 or row >= self._table.rowCount() or self._is_row_blank(row):
+            return
+        if not self._row_can_profile_confirm(row):
+            reason = self._row_profile_block_reason(row)
+            QMessageBox.warning(
+                self,
+                "Factuurgegevens bevestigen",
+                self._PROFILE_BLOCK_TOOLTIPS.get(reason or "", reason or "Niet beschikbaar voor deze rij."),
+            )
+            return
+        source_file = self._resolve_row_source_file(row)
+        if not source_file:
+            QMessageBox.warning(
+                self,
+                "Factuurgegevens bevestigen",
+                "PDF-bestand niet gevonden. Selecteer de factuurmap opnieuw of herlaad de batch.",
+            )
+            return
+        snap = self._get_row_invoice_diagnostics_snapshot(row)
+        if not isinstance(snap, dict):
+            snap = self._minimal_diagnostics_snapshot_from_row(row)
+        placeholders = self._profile_confirm_placeholders(row, snap)
+        supplier = self._cell_text(row, PaymentColumn.SUPPLIER).strip()
+        amt_initial = placeholders["amount"]
+        dlg = ProfileConfirmDialog(
+            supplier_name=supplier,
+            amount_initial=amt_initial,
+            amount_placeholder=placeholders["amount"],
+            invoice_initial=placeholders["invoice"],
+            invoice_placeholder=placeholders["invoice"],
+            customer_initial=placeholders["customer"],
+            customer_placeholder=placeholders["customer"],
+            parent=self,
+        )
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        try:
+            raw_text = extract_text_strict(source_file)
+        except Exception as exc:
+            QMessageBox.warning(
+                self,
+                "Factuurgegevens bevestigen",
+                f"PDF kon niet worden gelezen:\n{exc}",
+            )
+            return
+        db = SupplierDB(path=self._supplier_db_path())
+        amt_snap = self._amount_result_snapshot_for_row(row)
+        inv_snap = self._ident_field_result_snapshot_for_row(row, "invoice_number")
+        cust_snap = self._ident_field_result_snapshot_for_row(row, "customer_number")
+        result = confirm_invoice_fields(
+            raw_text=raw_text,
+            source_file=source_file,
+            supplier_name=supplier,
+            confirmed=dlg.get_confirmed(),
+            db=db,
+            save_profile=dlg.save_profile,
+            iban=self._cell_text(row, PaymentColumn.IBAN).strip() or None,
+            amount_result=amt_snap if isinstance(amt_snap, dict) else None,
+            invoice_number_result=inv_snap if isinstance(inv_snap, dict) else None,
+            customer_number_result=cust_snap if isinstance(cust_snap, dict) else None,
+        )
+        self._apply_profile_confirm_to_row(
+            row,
+            result.confirmed,
+            profile_saved=result.saved,
+            learned_profile=result.profile,
+        )
+        self._mark_row_pending_engine_update(row, "profile_confirmed")
+        self._refresh_export_batch_status_label()
+        QMessageBox.information(self, "Factuurgegevens bevestigen", result.message)
+
+    def _minimal_diagnostics_snapshot_from_row(self, row: int) -> dict:
+        snap: dict[str, Any] = {}
+        pdf = self._cell_text(row, PaymentColumn.PDF).strip()
+        if pdf and pdf != "—":
+            snap["source_file"] = pdf
+        supplier = self._cell_text(row, PaymentColumn.SUPPLIER).strip()
+        if supplier:
+            snap["supplier_name"] = supplier
+        iban = self._cell_text(row, PaymentColumn.IBAN).strip()
+        if iban:
+            snap["iban"] = iban
+        cust = self._cell_text(row, PaymentColumn.CUSTOMER_CODE).strip()
+        if cust:
+            snap["customer_number"] = cust
+        inv_no = self._get_row_invoice_number(row)
+        if inv_no:
+            snap["invoice_number"] = inv_no
+        ar = self._amount_result_snapshot_for_row(row)
+        if isinstance(ar, dict):
+            snap["amount_result"] = ar
+        return snap
+
+    def _amount_result_snapshot_for_row(self, row: int) -> dict[str, Any] | None:
+        """Parser-snapshot: bedragcel, anders invoice-diagnostics op leverancierscel."""
+        amt_it = self._table.item(row, PaymentColumn.AMOUNT)
+        if amt_it:
+            raw = amt_it.data(_ROW_AMOUNT_RESULT_ROLE)
+            if isinstance(raw, dict):
+                return deepcopy(raw)
+        snap = self._get_row_invoice_diagnostics_snapshot(row)
+        if isinstance(snap, dict):
+            ar = snap.get("amount_result")
+            if isinstance(ar, dict):
+                return deepcopy(ar)
+        return None
+
+    def _open_diagnostics_for_row(self, row: int) -> None:
+        snap = self._get_row_invoice_diagnostics_snapshot(row)
+        limited = snap is None
+        if limited:
+            snap = self._minimal_diagnostics_snapshot_from_row(row)
+        try:
+            payment = self._payment_dict_from_row(row, require_resolved_amount=False)
+            decision = self._decision_for_row(row)
+            diag = build_diagnostics(snap or {}, payment=payment, decision=decision)
+            profile_eligible = self._row_can_profile_confirm(row)
+            dlg = DiagnosticsDialog(
+                diag,
+                parent=self,
+                on_pick_amount=lambda: self._on_table_cell_clicked(row, int(PaymentColumn.AMOUNT)),
+                limited_snapshot=limited,
+                profile_confirm_eligible=profile_eligible,
+                on_profile_confirm=lambda: self._on_profile_confirm_row(row)
+                if profile_eligible
+                else None,
+            )
+            dlg.exec()
+        except Exception as exc:
+            logger.exception("Diagnostics openen mislukt (rij %s)", row)
+            QMessageBox.warning(
+                self,
+                "Diagnostics",
+                f"Kon diagnostics niet openen:\n{exc}",
+            )
+
     def _decision_trace_debug_enabled(self) -> bool:
         raw = self._settings.get("decision_trace_debug")
         return bool(raw) or logger.isEnabledFor(logging.DEBUG)
@@ -1878,8 +2545,11 @@ class MainWindow(QMainWindow):
         base_amount_excl: Decimal | None = None,
         decision_trace: dict[str, Any] | None = None,
         amount_result_snapshot: dict[str, Any] | None = None,
+        invoice_number_result_snapshot: dict[str, Any] | None = None,
+        customer_number_result_snapshot: dict[str, Any] | None = None,
         decision: dict[str, Any] | None = None,
         row_id: str | None = None,
+        invoice_diagnostics_snapshot: dict | None = None,
     ) -> None:
         r = self._table.rowCount()
         self._table.insertRow(r)
@@ -1894,6 +2564,8 @@ class MainWindow(QMainWindow):
             sup_item.setData(_ROW_VAT_NUMBER_ROLE, vat_number)
         if invoice_number_meta:
             sup_item.setData(_ROW_INVOICE_META_ROLE, invoice_number_meta)
+        if invoice_diagnostics_snapshot is not None:
+            sup_item.setData(_ROW_INVOICE_DIAGNOSTICS_ROLE, invoice_diagnostics_snapshot)
         sup_item.setData(
             _ROW_ROW_ID_ROLE,
             row_id or f"{supplier}|{invoice_number_meta}|{pdf_name}",
@@ -1916,7 +2588,26 @@ class MainWindow(QMainWindow):
             amt_item.setData(_ROW_AMOUNT_RESULT_ROLE, deepcopy(amount_result_snapshot))
             amt_item.setToolTip("Klik om een voorgesteld bedrag te kiezen (PDF-parser).")
         self._table.setItem(r, PaymentColumn.AMOUNT, amt_item)
-        self._table.setItem(r, PaymentColumn.CUSTOMER_CODE, self._item_editable(customer_code))
+        cust_item = self._item_editable(customer_code)
+        if isinstance(customer_number_result_snapshot, dict):
+            cust_item.setData(
+                _ROW_CUSTOMER_NUMBER_RESULT_ROLE,
+                deepcopy(customer_number_result_snapshot),
+            )
+            if customer_code.strip() == "?":
+                cust_item.setToolTip("Klik om een klantnummer-kandidaat te kiezen.")
+        self._table.setItem(r, PaymentColumn.CUSTOMER_CODE, cust_item)
+        if isinstance(invoice_number_result_snapshot, dict):
+            sup_item.setData(
+                _ROW_INVOICE_NUMBER_RESULT_ROLE,
+                deepcopy(invoice_number_result_snapshot),
+            )
+            if not str(invoice_number_meta or "").strip() and customer_code != "?":
+                sup_item.setToolTip(
+                    (sup_item.toolTip() or "")
+                    + ("\n" if sup_item.toolTip() else "")
+                    + "Klik op Omschrijving om factuur-/polisnummer te kiezen."
+                )
         self._table.setItem(r, PaymentColumn.DESCRIPTION, self._item_editable(description))
         pdf_disp = pdf_name if pdf_name.strip() else "—"
         self._table.setItem(r, PaymentColumn.PDF, self._item_readonly(pdf_disp))
@@ -1962,6 +2653,9 @@ class MainWindow(QMainWindow):
         # independent of any debug toggle.
         err_item.setToolTip(self._compose_error_tooltip(error_msg=error_msg, decision_trace=decision_trace))
         self._table.setItem(r, PaymentColumn.ERROR, err_item)
+        info_item = self._item_readonly("🔍")
+        info_item.setToolTip("Diagnostics — wat ging er goed of mis?")
+        self._table.setItem(r, PaymentColumn.INFO, info_item)
         self._set_row_decision(r, decision if isinstance(decision, dict) else self._missing_decision_payload(r))
 
     def _populate_table_from_load(
@@ -2032,12 +2726,19 @@ class MainWindow(QMainWindow):
                     amount_str = _format_amount_nl(amt) if amt is not None else ""
                 err_cell = _nl_payment_warning(p.get("warning"))
                 disc = self._discount_for_payment(invoices, p)
-                cust, inv_meta = self._invoice_fields_for_payment(invoices, p)
-                desc = format_remittance_text(
-                    cust if cust else None,
-                    inv_meta if inv_meta else None,
-                    p.get("description"),
+                inv_match = self._match_inv_for_payment(invoices, p)
+                cust, inv_meta, desc, inv_res_snap, cust_res_snap = self._row_ident_fields_from_inv(
+                    inv_match if isinstance(inv_match, dict) else None
                 )
+                if not cust and not inv_meta:
+                    cust, inv_meta = self._invoice_fields_for_payment(invoices, p)
+                    desc = format_remittance_text(
+                        cust if cust else None,
+                        inv_meta if inv_meta else None,
+                        p.get("description"),
+                    )
+                    inv_res_snap = None
+                    cust_res_snap = None
                 pdf = _pdf_basename_from_dict(p)
                 wr = p.get("warning")
                 tr = p.get("supplier_term_trusted")
@@ -2048,7 +2749,6 @@ class MainWindow(QMainWindow):
                 ex_d = str(p.get("execution_date") or "").strip() or self._session_date.isoformat()
                 mode = str(p.get("date_mode") or "direct")
                 term_lbl = _term_status_label(trusted, eff_term)
-                inv_match = self._match_inv_for_payment(invoices, p)
                 base_incl, base_excl = self._payment_base_amounts_for_row(invoices, p, inv_match)
                 core_info = _core_matches_text(inv_match or {})
                 complete_info = _matches_completeness_text(inv_match or {})
@@ -2091,8 +2791,11 @@ class MainWindow(QMainWindow):
                     if isinstance(p.get("decision_trace"), dict)
                     else None,
                     amount_result_snapshot=amt_snap,
+                    invoice_number_result_snapshot=inv_res_snap,
+                    customer_number_result_snapshot=cust_res_snap,
                     decision=p.get("decision") if isinstance(p.get("decision"), dict) else None,
                     row_id=f"{str(p.get('supplier_name') or '')}|{inv_meta}|{pdf}",
+                    invoice_diagnostics_snapshot=_diagnostics_snapshot_from_invoice(inv_match or {}),
                 )
             needs_review_invs = [
                 (inv, r)
@@ -2107,13 +2810,7 @@ class MainWindow(QMainWindow):
             for inv, _reason in needs_review_invs:
                 amt = inv.get("amount")
                 amount_str = _format_amount_nl(amt) if amt is not None else ""
-                cust_r = str(inv.get("customer_number") or "").strip()
-                inv_meta_r = str(inv.get("invoice_number") or "").strip()
-                desc_r = format_remittance_text(
-                    cust_r if cust_r else None,
-                    inv_meta_r if inv_meta_r else None,
-                    inv.get("description"),
-                )
+                cust_r, inv_meta_r, desc_r, inv_res_r, cust_res_r = self._row_ident_fields_from_inv(inv)
                 pdf_r = _pdf_basename_from_dict(inv)
                 inv_dr = str(inv.get("invoice_date") or "").strip()
                 src_r = str(inv.get("invoice_date_source") or "missing")
@@ -2145,14 +2842,26 @@ class MainWindow(QMainWindow):
                     invoice_date_source=src_r,
                     effective_term_days=eff_r,
                     supplier_term_trusted=trusted_r,
+                    amount_result_snapshot=inv.get("amount_result")
+                    if isinstance(inv.get("amount_result"), dict)
+                    else None,
+                    invoice_number_result_snapshot=inv_res_r,
+                    customer_number_result_snapshot=cust_res_r,
                     decision=inv.get("decision") if isinstance(inv.get("decision"), dict) else None,
                     row_id=f"{_error_row_supplier(inv)}|{inv_meta_r}|{pdf_r}",
+                    invoice_diagnostics_snapshot=_diagnostics_snapshot_from_invoice(inv),
                 )
             for inv, reason in other_errors:
                 error_row_count += 1
                 amt = inv.get("amount")
                 ar_snap = inv.get("amount_result") if isinstance(inv.get("amount_result"), dict) else None
-                if reason in ("amount_ambiguous", "amount_uncertain"):
+                ar_status = (
+                    str((ar_snap or {}).get("status") or (ar_snap or {}).get("amount_status") or "")
+                    .strip()
+                    .lower()
+                )
+                ambiguous_ar = ar_status in ("ambiguous", "uncertain") and isinstance(ar_snap, dict)
+                if reason in ("amount_ambiguous", "amount_uncertain") or ambiguous_ar:
                     _snap = ar_snap if isinstance(ar_snap, dict) else {}
                     _ac = _snap.get("candidates")
                     _n = len(_ac) if isinstance(_ac, list) else -1
@@ -2170,13 +2879,7 @@ class MainWindow(QMainWindow):
                     amount_str = "?"
                 else:
                     amount_str = _format_amount_nl(amt) if amt is not None else ""
-                cust_e = str(inv.get("customer_number") or "").strip()
-                inv_meta_e = str(inv.get("invoice_number") or "").strip()
-                desc_e = format_remittance_text(
-                    cust_e if cust_e else None,
-                    inv_meta_e if inv_meta_e else None,
-                    inv.get("description"),
-                )
+                cust_e, inv_meta_e, desc_e, inv_res_e, cust_res_e = self._row_ident_fields_from_inv(inv)
                 pdf_e = _pdf_basename_from_dict(inv)
                 inv_de = str(inv.get("invoice_date") or "").strip()
                 src_e = str(inv.get("invoice_date_source") or "missing")
@@ -2204,9 +2907,14 @@ class MainWindow(QMainWindow):
                     term_hint="—",
                     date_mode="direct",
                     invoice_date_source=src_e,
-                    amount_result_snapshot=ar_snap if reason in ("amount_ambiguous", "amount_uncertain") else None,
+                    amount_result_snapshot=ar_snap
+                    if (reason in ("amount_ambiguous", "amount_uncertain") or ambiguous_ar)
+                    else None,
+                    invoice_number_result_snapshot=inv_res_e,
+                    customer_number_result_snapshot=cust_res_e,
                     decision=inv.get("decision") if isinstance(inv.get("decision"), dict) else None,
                     row_id=f"{_error_row_supplier(inv)}|{inv_meta_e}|{pdf_e}",
+                    invoice_diagnostics_snapshot=_diagnostics_snapshot_from_invoice(inv),
                 )
             self._auto_resize_columns_to_content()
             self._table.setSortingEnabled(True)
@@ -2222,6 +2930,7 @@ class MainWindow(QMainWindow):
         self._apply_row_colors()
         self._apply_filter_to_table(self._filter_edit.text())
         self._refresh_export_batch_status_label()
+        self._refresh_profile_button_state()
 
         return error_row_count
 
@@ -2395,10 +3104,64 @@ class MainWindow(QMainWindow):
         row = self._table.rowAt(pos.y())
         if row < 0:
             return
+        col = self._table.columnAt(pos.x())
         dec0 = self._decision_for_row(row)
         status = dec0.get("status")
         reason0 = str(dec0.get("reason_code") or "")
         menu = QMenu(self)
+        if col == int(PaymentColumn.AMOUNT) and self._cell_text(row, PaymentColumn.AMOUNT).strip() == "?":
+            sub = menu.addMenu("Kies bedrag…")
+            snap = self._amount_result_snapshot_for_row(row)
+            if isinstance(snap, dict):
+                for cand in snap.get("candidates") or []:
+                    if not isinstance(cand, dict):
+                        continue
+                    raw_v = cand.get("value")
+                    try:
+                        disp = _format_amount_nl(raw_v) if raw_v is not None else "?"
+                    except Exception:
+                        disp = str(raw_v or "?")
+                    label = f"{disp} — {_nl_amount_candidate_source(str(cand.get('source') or ''))}"
+                    act = sub.addAction(label)
+                    act.triggered.connect(
+                        lambda checked=False, r=row, c=cand: self._apply_amount_candidate_pick_to_row(r, c)
+                    )
+        if col == int(PaymentColumn.CUSTOMER_CODE) and self._ident_field_picker_eligible(
+            self._ident_field_result_snapshot_for_row(row, "customer_number")
+        ):
+            sub_c = menu.addMenu("Kies klantnummer…")
+            for cand in (self._ident_field_result_snapshot_for_row(row, "customer_number") or {}).get(
+                "candidates"
+            ) or []:
+                if not isinstance(cand, dict):
+                    continue
+                val = str(cand.get("value") or "").strip()
+                if not val:
+                    continue
+                act = sub_c.addAction(f"{val} — {cand.get('label') or 'kandidaat'}")
+                act.triggered.connect(
+                    lambda checked=False, r=row, c=cand: self._apply_ident_field_pick_to_row(
+                        r, "customer_number", c
+                    )
+                )
+        if col in (int(PaymentColumn.DESCRIPTION), int(PaymentColumn.SUPPLIER)) and self._ident_field_picker_eligible(
+            self._ident_field_result_snapshot_for_row(row, "invoice_number")
+        ):
+            sub_i = menu.addMenu("Kies factuur-/polisnummer…")
+            for cand in (self._ident_field_result_snapshot_for_row(row, "invoice_number") or {}).get(
+                "candidates"
+            ) or []:
+                if not isinstance(cand, dict):
+                    continue
+                val = str(cand.get("value") or "").strip()
+                if not val:
+                    continue
+                act = sub_i.addAction(f"{val} — {cand.get('label') or 'kandidaat'}")
+                act.triggered.connect(
+                    lambda checked=False, r=row, c=cand: self._apply_ident_field_pick_to_row(
+                        r, "invoice_number", c
+                    )
+                )
         if status == DECISION_NEEDS_REVIEW:
             action_confirm = menu.addAction("Bevestig factuur")
             action_confirm.triggered.connect(lambda: self._confirm_review_rows([row]))
@@ -2410,6 +3173,9 @@ class MainWindow(QMainWindow):
             if len(review_selected) > 1:
                 action_all = menu.addAction(f"Bevestig alle geselecteerde ({len(review_selected)})")
                 action_all.triggered.connect(lambda: self._confirm_review_rows(review_selected))
+        if self._row_can_profile_confirm(row):
+            action_profile = menu.addAction("Bevestig factuurgegevens…")
+            action_profile.triggered.connect(lambda: self._on_profile_confirm_row(row))
         if status == DECISION_EXCLUDED and reason0 == REASON_USER_MARKED_ERROR:
             action_restore = menu.addAction("Herstel naar OK")
             action_restore.triggered.connect(lambda: self._restore_rows_from_error([row]))
@@ -2511,12 +3277,27 @@ class MainWindow(QMainWindow):
             if err:
                 invalid_rows.append(r + 1)
         if invalid_rows:
+            amount_hints: list[int] = []
+            for r in rows:
+                if r < 0 or r >= self._table.rowCount() or self._is_row_blank(r):
+                    continue
+                p = self._payment_dict_from_row(r)
+                err = self._validate_single_payment_row(p)
+                if err and "bedrag" in err:
+                    amount_hints.append(r + 1)
+            extra = ""
+            if amount_hints:
+                extra = (
+                    "\n\nVoor bedrag '?': klik op de cel Bedrag en kies het juiste totaal, "
+                    "of open Info (🔍) → Bedrag kiezen. Daarna eventueel «Profiel aanmaken»."
+                )
             QMessageBox.warning(
                 self,
                 "Goedkeuren niet mogelijk",
                 "Eén of meer rijen zijn nog niet exporteerbaar.\n\n"
                 "Corrigeer eerst de velden (bijv. IBAN, bedrag, betaaldatum) en probeer opnieuw.\n"
-                f"Rij(en): {', '.join(str(x) for x in sorted(set(invalid_rows)))}",
+                f"Rij(en): {', '.join(str(x) for x in sorted(set(invalid_rows)))}"
+                f"{extra}",
             )
             return
 
@@ -3357,16 +4138,33 @@ class MainWindow(QMainWindow):
         self._refresh_export_batch_status_label()
 
     def _on_table_cell_clicked(self, row: int, column: int) -> None:
+        if column == int(PaymentColumn.INFO):
+            self._open_diagnostics_for_row(row)
+            return
+        if column == int(PaymentColumn.CUSTOMER_CODE):
+            if self._cell_text(row, PaymentColumn.CUSTOMER_CODE).strip() == "?":
+                self._show_ident_field_candidate_menu(row, "customer_number")
+            return
+        if column == int(PaymentColumn.DESCRIPTION):
+            if not self._get_row_invoice_number(row) and self._ident_field_picker_eligible(
+                self._ident_field_result_snapshot_for_row(row, "invoice_number")
+            ):
+                self._show_ident_field_candidate_menu(row, "invoice_number")
+            elif "?" in self._cell_text(row, PaymentColumn.DESCRIPTION):
+                self._show_ident_field_candidate_menu(row, "invoice_number")
+            return
         if column != int(PaymentColumn.AMOUNT):
             return
         amt_it = self._table.item(row, PaymentColumn.AMOUNT)
         if not amt_it:
             return
+        if self._cell_text(row, PaymentColumn.AMOUNT).strip() != "?":
+            return
         snap = amt_it.data(_ROW_AMOUNT_RESULT_ROLE)
         if not isinstance(snap, dict):
             return
         st = str(snap.get("status") or snap.get("amount_status") or "").strip().lower()
-        if st != "ambiguous":
+        if st not in ("ambiguous", "tentative", "failed"):
             return
         cands = snap.get("candidates")
         if not isinstance(cands, list) or not cands:
@@ -3527,6 +4325,7 @@ class MainWindow(QMainWindow):
         *,
         from_manual_typing: bool,
         picked_candidate: dict[str, Any] | None = None,
+        amount_source: str | None = None,
     ) -> None:
         """Werk amount_result-snapshot, trace en bedragcel bij na handmatige invoer of kandidaatkeuze."""
         amt_it = self._table.item(row, PaymentColumn.AMOUNT)
@@ -3553,7 +4352,11 @@ class MainWindow(QMainWindow):
         snap["amount_status"] = "confirmed"
         snap["user_selected"] = True
 
-        if picked_candidate is not None:
+        if amount_source == "profile":
+            snap["confidence"] = 95
+            snap["source"] = "profile"
+            snap["amount_status"] = "confirmed"
+        elif picked_candidate is not None:
             snap["confidence"] = int(picked_candidate.get("confidence") or snap.get("confidence") or 0)
             src = str(picked_candidate.get("source") or snap.get("source") or "").strip()
             snap["source"] = src.upper() if src else str(snap.get("source") or "")
@@ -3575,7 +4378,9 @@ class MainWindow(QMainWindow):
         amt_it.setText(_format_amount_nl(dec))
         amt_it.setData(Qt.ItemDataRole.UserRole, val_xml)
         amt_it.setData(_ROW_AMOUNT_RESULT_ROLE, snap)
-        if picked_candidate is not None:
+        if amount_source == "profile":
+            amt_it.setToolTip("Bevestigd via extractieprofiel")
+        elif picked_candidate is not None:
             amt_it.setToolTip("Handmatig gekozen uit parserkandidaten")
         else:
             amt_it.setToolTip("Handmatig ingevoerd bedrag")
@@ -3610,6 +4415,7 @@ class MainWindow(QMainWindow):
         self._update_row_render_hash(row)
         self._apply_row_colors()
         self._refresh_export_batch_status_label()
+        self._refresh_profile_button_state()
 
     def _apply_amount_candidate_pick_to_row(self, row: int, cand: dict[str, Any]) -> None:
         """Gebruiker kiest een parser-kandidaat: amount_result → confirmed, rij exporteerbaar."""
@@ -3630,6 +4436,7 @@ class MainWindow(QMainWindow):
         self._sync_amount_result_and_row_ui(
             row, dec, from_manual_typing=False, picked_candidate=cand
         )
+        self._refresh_profile_button_state()
 
     def _refresh_export_batch_status_label(self) -> None:
         """Batch-export preview: zelfde rijen als export vóór dialogs (geen fout/needs_review)."""
@@ -3655,7 +4462,9 @@ class MainWindow(QMainWindow):
         self._batch_status_label.setText(f"Batch status: {label_map[result.status]}")
         self._btn_xml.setEnabled(result.status != "blocked")
 
-    def _payment_dict_from_row(self, row: int) -> dict[str, Any]:
+    def _payment_dict_from_row(
+        self, row: int, *, require_resolved_amount: bool = True
+    ) -> dict[str, Any]:
         disc_raw = self._cell_text(row, PaymentColumn.DISCOUNT)
         inv_no = self._get_row_invoice_number(row)
         inv_dt_cell = self._table.item(row, PaymentColumn.INVOICE_DATE)
@@ -3674,16 +4483,19 @@ class MainWindow(QMainWindow):
         ex_txt = self._cell_text(row, PaymentColumn.EXECUTION_DATE).strip()
         ex_iso = parse_ui_date_to_iso(ex_txt)
         amt_cell_txt = self._cell_text(row, PaymentColumn.AMOUNT).strip()
-        amt_it = self._table.item(row, PaymentColumn.AMOUNT)
-        amt_snap = amt_it.data(_ROW_AMOUNT_RESULT_ROLE) if amt_it else None
+        amt_snap = self._amount_result_snapshot_for_row(row)
+        if require_resolved_amount:
+            amount_val = resolved_payment_amount_for_export(
+                amount_cell_text=amt_cell_txt,
+                amount_result=amt_snap,
+            )
+        else:
+            amount_val = None
         payment = {
             "row_id": self._row_id(row),
             "supplier_name": self._cell_text(row, PaymentColumn.SUPPLIER),
             "iban": self._cell_text(row, PaymentColumn.IBAN),
-            "amount": resolved_payment_amount_for_export(
-                amount_cell_text=amt_cell_txt,
-                amount_result=amt_snap if isinstance(amt_snap, dict) else None,
-            ),
+            "amount": amount_val,
             "description": self._cell_text(row, PaymentColumn.DESCRIPTION),
             "invoice_number": inv_no,
             "discount": disc_raw if disc_raw else "0",
@@ -3698,7 +4510,7 @@ class MainWindow(QMainWindow):
         err_it = self._table.item(row, PaymentColumn.ERROR)
         trace_raw = err_it.data(_ROW_DECISION_TRACE_ROLE) if err_it else None
         if isinstance(amt_snap, dict):
-            payment["amount_result"] = deepcopy(amt_snap)
+            payment["amount_result"] = amt_snap
             payment["decision_trace"] = _merge_decision_trace_parsed_amount(
                 trace_raw if isinstance(trace_raw, dict) else None,
                 amt_snap,

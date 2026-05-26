@@ -13,12 +13,14 @@ from __future__ import annotations
 import json
 import logging
 import re
+from decimal import Decimal, InvalidOperation
 from difflib import SequenceMatcher
 from pathlib import Path
 
 from logic.payment_amounts import normalize_supplier_vat_rate_pct
 from logic.settings import atomic_write
 from logic.validation import mask_iban_for_log
+from parser.profile_extractor import validate_profile
 
 logger = logging.getLogger(__name__)
 
@@ -842,6 +844,93 @@ class SupplierDB:
             supplier["aliases"] = self._dedup_preserve_order([a for a in aliases_clean if a])
 
             self._refresh_supplier_cache(supplier)
+            self.save()
+            return True
+        except Exception:
+            return False
+
+    def get_extraction_profile(self, supplier_name: str) -> dict | None:
+        """
+        Haal opgeslagen extractieprofiel op voor leverancier (canonieke naam).
+
+        Zoekt via ``_clean_name`` (zelfde als ``update_supplier`` / ``rename_supplier``).
+        """
+
+        try:
+            target_clean = self._clean_name(supplier_name)
+            if not target_clean:
+                return None
+            for s in self.suppliers:
+                if self._clean_name(s.get("name") or "") == target_clean:
+                    ep = s.get("extraction_profile")
+                    if isinstance(ep, dict):
+                        return ep
+                    return None
+            return None
+        except Exception:
+            return None
+
+    def save_extraction_profile(
+        self, supplier_name: str, profile: dict, *, raw_text: str
+    ) -> bool:
+        """
+        Sla extractieprofiel op na validatie tegen ``raw_text``.
+
+        ``raw_text`` is verplicht (PDF-tekst op moment van bevestiging).
+        Bij mislukte validatie: warning, geen persist.
+        """
+
+        try:
+            target_clean = self._clean_name(supplier_name)
+            if not target_clean:
+                return False
+
+            supplier: dict | None = None
+            for s in self.suppliers:
+                if self._clean_name(s.get("name") or "") == target_clean:
+                    supplier = s
+                    break
+            if supplier is None:
+                return False
+
+            confirmed: dict = {}
+            for key in ("amount", "invoice_number", "customer_number"):
+                field = profile.get(key)
+                if not isinstance(field, dict):
+                    continue
+                cv = field.get("confirmed_value")
+                if cv is None:
+                    continue
+                if key == "amount":
+                    try:
+                        confirmed["amount"] = Decimal(str(cv))
+                    except (InvalidOperation, ValueError):
+                        continue
+                else:
+                    s_val = str(cv).strip()
+                    if not s_val:
+                        continue
+                    confirmed[key] = s_val
+
+            if not validate_profile(raw_text, profile, confirmed):
+                logger.warning(
+                    "extraction_profile validatie mislukt voor %r",
+                    supplier_name,
+                )
+                return False
+
+            existing_ep = supplier.get("extraction_profile")
+            if isinstance(existing_ep, dict):
+                merged = dict(existing_ep)
+                lf = profile.get("learned_from")
+                if lf:
+                    merged["learned_from"] = lf
+                for key in ("amount", "invoice_number", "customer_number"):
+                    if key in profile and isinstance(profile.get(key), dict):
+                        merged[key] = profile[key]
+                profile = merged
+
+            supplier["extraction_profile"] = dict(profile)
             self.save()
             return True
         except Exception:

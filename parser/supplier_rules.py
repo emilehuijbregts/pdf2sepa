@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 
 def detect_supplier(text: str | None, suppliers_list: list[dict]) -> dict | None:
     """
@@ -56,5 +58,15 @@ def extract_supplier_name_hint(text: str | None) -> str | None:
             if len(parts) == 2:
                 cand = parts[1].strip()
                 return cand or None
+
+    # Premie/herinnering: "t.n.v. Polaris Werk, Vitaal en Verzekeren over te maken"
+    m_tnv = re.search(
+        r"(?i)\bt\.?\s*n\.?\s*v\.?\s+(.+?)\s+over\s+te\s+maken",
+        text,
+    )
+    if m_tnv:
+        cand = str(m_tnv.group(1) or "").strip().rstrip(",.;")
+        if cand:
+            return cand
 
     return None

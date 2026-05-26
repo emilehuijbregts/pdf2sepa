@@ -80,7 +80,25 @@
       ],
       "email_domains": [
         "2ba.nl"
-      ]
+      ],
+      "extraction_profile": {
+        "learned_from": "2ba Fact-2BA-20260114-260789-Duister.pdf",
+        "amount": {
+          "label": "Totaal",
+          "strategy": "same_line_last_amount",
+          "confirmed_value": "1551.22"
+        },
+        "invoice_number": {
+          "label": "Factuurnummer : ",
+          "strategy": "same_line_after_colon",
+          "confirmed_value": "260789"
+        },
+        "customer_number": {
+          "label": "Debiteurnummer : ",
+          "strategy": "same_line_after_colon",
+          "confirmed_value": "113073/17078"
+        }
+      }
     },
     {
       "name": "Aco B.V.",
@@ -823,6 +841,92 @@
       ],
       "email_domains": [
         "mikocoffee.com"
+      ]
+    },
+    {
+      "name": "PearlPaint B.V.",
+      "iban": "NL23INGB0008745902",
+      "discount": 2.0,
+      "aliases": [
+        "PearlPaint B.V."
+      ],
+      "customer_codes": [
+        "K1628"
+      ],
+      "default_payment_term_days": 21,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL803726387B01"
+      ],
+      "kvk_numbers": [
+        "39054749"
+      ],
+      "email_domains": [
+        "pearlpaint.nl"
+      ],
+      "extraction_profile": {
+        "learned_from": "Pearl paint 2610I000151.pdf",
+        "invoice_number": {
+          "label": "Factuurnummer: ",
+          "strategy": "same_line_after_colon",
+          "confirmed_value": "2610I000151"
+        },
+        "customer_number": {
+          "label": "Klantnummer: ",
+          "strategy": "same_line_after_colon",
+          "confirmed_value": "K1628"
+        },
+        "amount": {
+          "label": "Bedrag incl.... BTW",
+          "strategy": "same_line_last_amount",
+          "confirmed_value": "1185.12"
+        }
+      }
+    },
+    {
+      "name": "Polaris",
+      "iban": "NL34ABNA0135735831",
+      "discount": 0.0,
+      "aliases": [
+        "Polaris"
+      ],
+      "customer_codes": [],
+      "default_payment_term_days": 14,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL805301021B01"
+      ],
+      "kvk_numbers": [
+        "34095053"
+      ],
+      "email_domains": [
+        "polaris-werkvitaalverzekeren.nl"
+      ],
+      "extraction_profile": {
+        "learned_from": "Polaris Eerste herinnering Factuurnummer  2606(26892143).pdf",
+        "amount": {
+          "label": "Inkomenspakket EUR",
+          "strategy": "same_line_last_amount",
+          "confirmed_value": "4947.17"
+        }
+      }
+    },
+    {
+      "name": "OPTION TAPE SPECIALTIES N.V.",
+      "iban": "VF2602902VO2602744LEVERINGS",
+      "discount": 0.0,
+      "aliases": [
+        "OPTION TAPE SPECIALTIES N.V."
+      ],
+      "customer_codes": [],
+      "default_payment_term_days": 0,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL001740777B35"
+      ],
+      "kvk_numbers": [],
+      "email_domains": [
+        "optiontapespecialties.com"
       ]
     }
   ]

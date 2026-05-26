@@ -11,6 +11,7 @@ from parser.pdf_parser import (
     extract_ibans_from_images,
     extract_invoice_date,
     extract_invoice_data,
+    extract_ocr_supplement_text,
     extract_text_force_raster_ocr,
     extract_text_from_images,
     extract_text_strict,
@@ -133,6 +134,13 @@ def _invoice_load_error_dict(path: Path, code: str) -> dict:
         "supplier_hint": None,
     }
 
+
+def strip_raw_text_from_invoices(invoices: list[dict]) -> None:
+    """Verwijder ``raw_text`` uit factuurdicts na ``match_suppliers`` (geheugen)."""
+    for inv in invoices:
+        inv.pop("raw_text", None)
+
+
 def load_invoices_from_folder(
     folder: Path,
     *,
@@ -143,8 +151,9 @@ def load_invoices_from_folder(
     """
     Lees elke ``*.pdf`` in ``folder`` (niet recursief), parse naar factuurdict.
 
-    Elk dict bevat alle sleutels van ``extract_invoice_data`` behalve ``raw_text``
-    (geheugen); plus ``source_file`` als absoluut pad-string.
+    Elk dict bevat alle sleutels van ``extract_invoice_data`` inclusief ``raw_text``
+    (voor profiel-extractie in ``match_suppliers``; wordt later gestript via
+    ``strip_raw_text_from_invoices``), plus ``source_file`` als absoluut pad-string.
 
     Bij leesfouten of ontbrekende tekstlaag: dict met ``load_error`` (``read_failed`` /
     ``no_text``) i.p.v. stille lege parse.
@@ -166,12 +175,24 @@ def load_invoices_from_folder(
         except Exception:
             out.append(_invoice_load_error_dict(path, "read_failed"))
             continue
-        if not (text or "").strip():
+        ocr_supplement = ""
+        ocr_supplement_error: str | None = None
+        try:
+            ocr_supplement = extract_ocr_supplement_text(str(path)) or ""
+        except Exception as exc:
+            ocr_supplement_error = f"{type(exc).__name__}"
+
+        parse_text = text or ""
+        sup_stripped = (ocr_supplement or "").strip()
+        if sup_stripped and sup_stripped not in parse_text:
+            parse_text = f"{parse_text.rstrip()}\n{sup_stripped}".strip()
+
+        if not (parse_text or "").strip():
             out.append(_invoice_load_error_dict(path, "no_text"))
             continue
         try:
             data = extract_invoice_data(
-                text,
+                parse_text,
                 debtor_iban=debtor_iban,
                 debtor_kvk=debtor_kvk,
                 debtor_vat=debtor_vat,
@@ -179,8 +200,10 @@ def load_invoices_from_folder(
         except Exception:
             out.append(_invoice_load_error_dict(path, "read_failed"))
             continue
-        data.pop("raw_text", None)
         data["source_file"] = str(path.resolve())
+        data["raw_text"] = parse_text
+        data["ocr_supplement_len"] = int(len(sup_stripped))
+        data["ocr_supplement_error"] = ocr_supplement_error
 
         _dbg_935(
             "H0",
@@ -294,6 +317,15 @@ def load_invoices_from_folder(
                     ocr_ibans = extract_ibans_from_images(str(path)) or []
                 if ocr_ibans:
                     data["iban"] = ocr_ibans[0]
+                    merged_ibans: list[str] = []
+                    seen_iban: set[str] = set()
+                    for cand in list(data.get("all_ibans") or []) + list(ocr_ibans):
+                        s = str(cand or "").strip()
+                        if not s or s in seen_iban:
+                            continue
+                        seen_iban.add(s)
+                        merged_ibans.append(s)
+                    data["all_ibans"] = merged_ibans
             except Exception as exc:
                 data["ocr_iban_error"] = f"{type(exc).__name__}"
         else:
@@ -307,7 +339,11 @@ def load_invoices_from_folder(
         if not str(data.get("vat_number") or "").strip() or not str(data.get("kvk_number") or "").strip() or not str(data.get("email_domain") or "").strip():
             try:
                 ocr_ident_attempted = True
-                ocr_text_ident = extract_text_from_images(str(path)) or ""
+                ocr_text_ident = sup_stripped or extract_text_from_images(str(path)) or ""
+                if not str(data.get("vat_number") or "").strip() or not str(data.get("kvk_number") or "").strip() or not str(data.get("email_domain") or "").strip():
+                    raster_extra = extract_text_force_raster_ocr(str(path), max_pages=1) or ""
+                    if raster_extra.strip() and raster_extra.strip() not in ocr_text_ident:
+                        ocr_text_ident = f"{ocr_text_ident.rstrip()}\n{raster_extra.strip()}".strip()
                 ocr_ident_text_len = int(len(ocr_text_ident or ""))
                 if ocr_text_ident:
                     # Email domain
@@ -338,6 +374,11 @@ def load_invoices_from_folder(
                             # Dotted grouping seen in Felison OCR: "Btw NL8053.01.021.B.01"
                             m = re.search(
                                 r"(?i)\bNL\s*\d{4}[\s.\-]*\d{2}[\s.\-]*\d{3}[\s.\-]*B[\s.\-]*\d{2}\b",
+                                ocr_text_ident,
+                            )
+                        if not m:
+                            m = re.search(
+                                r"(?i)\b(?:btw|vat)\s*:\s*([\d.\s]+B[\d.\s]+)",
                                 ocr_text_ident,
                             )
                         if m:

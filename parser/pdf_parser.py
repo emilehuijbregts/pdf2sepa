@@ -348,7 +348,8 @@ _INVOICE_LABEL_RE = re.compile(
     r"(?:Factuurnummer|Factuurnr\.?|Factuur(?:\s*nummer|\s*nr\.?)|Fact\.?\s*nr\.?|"
     r"Document\s*nr\.?|Documentnr\.?|"
     r"Invoice\s*(?:number|no\.?|nr\.?)|"
-    r"Nota(?:\s*nummer|\s*nr\.?))",
+    r"Nota(?:\s*nummer|\s*nr\.?)|"
+    r"Polisnummer|Polis\s*nr\.?|Polis\s*nummer)",
     flags=re.IGNORECASE,
 )
 
@@ -456,6 +457,16 @@ _NOISE_WORDS = frozenset({
 _TOTAL_LINE_HINT_RE = re.compile(
     r"(?i)\b(?:totaal|total|te\s+betalen|te\s+voldoen|totaalfactuurbedrag|totaal\s+factuurbedrag|"
     r"factuurbedrag|factuurtotaal|eindbedrag|amount\s+due)\b"
+)
+# Labels voor profiel-leren (incl. Pearlpaint-achtige BTW-inclusief regels).
+_AMOUNT_PROFILE_LABEL_RE = re.compile(
+    r"(?i)\b(?:"
+    r"totaal|total|te\s+betalen|te\s+voldoen|totaalfactuurbedrag|totaal\s+factuurbedrag|"
+    r"factuurbedrag|factuurtotaal|eindbedrag|amount\s+due|"
+    r"btw\s*&\s*bedrag\s*inclusief\s*(?:btw|vat)|"
+    r"bedrag\s*inclusief\s*(?:btw|vat)|"
+    r"opensta(?:and|ande)\s+premie|verschuldigde\s+(?:premie|premies|bedrag)"
+    r")\b"
 )
 # Skip subtotal / excl / unit-price lines. Avoid bare ``netto``/``bruto`` — PDF table rows often
 # contain those column headers on the same line as the payable ``Totaal EUR …`` amount.
@@ -1017,16 +1028,37 @@ def _extract_amounts_from_total_lines(text: str) -> list[Decimal]:
                 candidates.append(v)
     return candidates
 
+def _compact_nl_vat_token(raw: str) -> str | None:
+    """Normaliseer NL-BTW naar ``NL#########B##`` (OCR met punten/spaties)."""
+    compact = re.sub(r"[^0-9A-Za-z]", "", str(raw or "")).upper()
+    if not compact:
+        return None
+    if re.fullmatch(r"NL\d{9}B\d{2}", compact):
+        return compact
+    if re.fullmatch(r"\d{9}B\d{2}", compact):
+        return f"NL{compact}"
+    return None
+
+
 def _iter_supplier_vat_candidates(text: str) -> list[str]:
     """BTW-nummers uit tekst, regels met 'klant/uw BTW' overgeslagen; genormaliseerd uniek volgordelijk."""
     raw_order: list[str] = []
     for line in text.splitlines():
-        vat_hits = []
+        vat_hits: list[str] = []
         for m in _VAT_RE.finditer(line):
             raw = str(m.group(0) or "")
-            compact = re.sub(r"[^0-9A-Za-z]", "", raw).upper()
+            compact = _compact_nl_vat_token(raw)
             if compact:
                 vat_hits.append(compact)
+        if not vat_hits:
+            m_btw = re.search(
+                r"(?i)\b(?:btw|vat)\s*:\s*([\d.\s]+B[\d.\s]+)",
+                line,
+            )
+            if m_btw:
+                compact = _compact_nl_vat_token(m_btw.group(1))
+                if compact:
+                    vat_hits.append(compact)
         if not vat_hits:
             continue
         if _VAT_DEBTOR_HINT_RE.search(line):
@@ -1282,6 +1314,11 @@ _VAT_SUMMARY_HDR_RE = re.compile(
     r"(?i)(?=.*\b(?:totaal|total)\b)(?=.*\b(?:btw|vat)\b)(?=.*\b(?:excl|exclusive|exclusief|basis|bedrag|%|percent)\b).+"
 )
 
+# Polyglass-achtig: kopregel ``% Bedrag TOTALE FACTUUR`` + bedragen op volgende regel.
+_TOTALE_FACTUUR_HDR_RE = re.compile(
+    r"(?i)\b(?:%?\s*bedrag\s+)?totale\s+factuur\b"
+)
+
 _PERCENT_CONTEXT_RE = re.compile(
     r"(?i)\b(?:btw|vat)\b\s*[\(\[]?\s*([0-9]{1,2}(?:[.,][0-9]{1,2})?)\s*%"
 )
@@ -1381,6 +1418,32 @@ def _normalize_text_for_amount_labels(text: str) -> str:
     return raw
 
 
+def collapse_stutter_chars(text: str) -> str:
+    """
+    Normaliseer PDF-tekst waar letters 4+ keer herhaald zijn (Pearlpaint: ``BBBBeee…`` → ``Be…``).
+
+    Gebruikt bij profiel-leren en -extractie zodat labels en contextregels matchen.
+    """
+    raw = text or ""
+    if not raw:
+        return raw
+    out: list[str] = []
+    i = 0
+    n = len(raw)
+    while i < n:
+        c = raw[i]
+        j = i + 1
+        while j < n and raw[j].lower() == c.lower():
+            j += 1
+        run = j - i
+        if run >= 4 and c.isalpha():
+            out.append(c)
+        else:
+            out.append(raw[i:j])
+        i = j
+    return re.sub(r"\s+", " ", "".join(out)).strip()
+
+
 def _iter_amount_tokens_excluding_percent(line: str) -> list[str]:
     """Return amount-like tokens on a line, excluding percentage contexts like 'BTW(21.00%)'."""
     ln = line or ""
@@ -1395,6 +1458,71 @@ def _iter_amount_tokens_excluding_percent(line: str) -> list[str]:
             continue
         out.append(m.group(0))
     return out
+
+
+def _append_value_line_amount_candidates(
+    candidates: list[AmountCandidate],
+    value_line: str,
+    *,
+    source: str,
+    base_confidence: int,
+    context: str,
+    classification_line: str,
+) -> None:
+    """
+    Voeg kandidaten toe voor alle bedragen op een waardenregel.
+
+    Bij ``1.063,88 EUR 1.287,29`` moet het betaalbare totaal (laatste bedrag) altijd
+    in de kandidatenlijst staan — nooit alleen het eerste token.
+    """
+    toks = _iter_amount_tokens_excluding_percent(value_line or "")
+    decs: list[Decimal] = []
+    for t in toks:
+        v = normalize_amount_decimal(t)
+        if v is not None and v > Decimal("0.00"):
+            decs.append(v)
+    if not decs:
+        return
+
+    hdr = (context.split(">>", 1)[0] if ">>" in (context or "") else (context or "")).strip()
+    hdr_low = hdr.lower()
+    has_eur = bool(re.search(r"(?i)\b(?:eur|€)\b", value_line or ""))
+    is_payable_footer = bool(
+        re.search(r"(?i)\b(?:totale\s+factuur|te\s+betalen|factuurbedrag)\b", hdr_low)
+    )
+    multi_emit = len(decs) >= 2 and (has_eur or is_payable_footer)
+
+    if multi_emit:
+        for idx, v in enumerate(decs):
+            conf = base_confidence if idx == len(decs) - 1 else max(base_confidence - 18, 42)
+            ctype: AmountCandidateType = "incl" if idx == len(decs) - 1 else "excl"
+            if idx < len(decs) - 1 and not has_eur:
+                ctype = "unknown"
+            candidates.append(
+                AmountCandidate(
+                    value=v,
+                    source=source,
+                    confidence=conf,
+                    context=context,
+                    type=ctype,
+                )
+            )
+        return
+
+    pick = decs[-1] if len(decs) >= 2 else decs[0]
+    ctype = _classify_candidate_amount_type(
+        classification_line=classification_line,
+        source=source,
+    )
+    candidates.append(
+        AmountCandidate(
+            value=pick,
+            source=source,
+            confidence=base_confidence,
+            context=context,
+            type=ctype,
+        )
+    )
 
 
 def _pick_labeled_line_amount_decimal(line: str, matched_source: str) -> Decimal | None:
@@ -1439,6 +1567,22 @@ def _extract_amount_candidates(text: str) -> list[AmountCandidate]:
         # Explicit freight-cost totals are never invoice totals.
         if re.search(r"(?i)\b(?:totaal\s+vrachtkosten|vrachtkosten\s+totaal)\b", ln):
             continue
+
+        # ``% Bedrag TOTALE FACTUUR`` + ``1.063,88 EUR 1.287,29`` op de volgende regel.
+        if _TOTALE_FACTUUR_HDR_RE.search(ln) and i + 1 < len(lines):
+            nxt = lines[i + 1] or ""
+            if _iter_amount_tokens_excluding_percent(nxt):
+                ctx_hdr = re.sub(r"\s+", " ", ln).strip()[:160]
+                nxt_ctx = re.sub(r"\s+", " ", nxt).strip()[:160]
+                full_ctx = f"{ctx_hdr} >> {nxt_ctx}"
+                _append_value_line_amount_candidates(
+                    candidates,
+                    nxt,
+                    source="total_label_invoice",
+                    base_confidence=90,
+                    context=full_ctx,
+                    classification_line=full_ctx,
+                )
 
         # VAT summary tables: header line mentions BTW/totaal, values line contains multiple € amounts.
         # Must run regardless of other "totaal" matches on the page.
@@ -1559,29 +1703,21 @@ def _extract_amount_candidates(text: str) -> list[AmountCandidate]:
             nxt = lines[i + dist] or ""
             toks = _iter_amount_tokens_excluding_percent(nxt)
             if toks:
-                pick_tok = toks[-1] if len(toks) >= 2 and matched_prio >= 85 else toks[0]
-                v = normalize_amount_decimal(pick_tok)
-                if v is not None and v > 0:
-                    nxt_ctx = re.sub(r"\s+", " ", nxt).strip()[:160]
-                    conf = max(matched_prio - dist * 5, 0)
-                    if matched_source != "total_label_excl" and matched_prio >= 70:
-                        conf = max(conf, 70)
-                    full_ctx = f"{ctx} >> {nxt_ctx}"
-                    ctype = _classify_candidate_amount_type(
-                        classification_line=_classify_line_for_source(full_ctx),
-                        source=matched_source,
-                    )
-                    candidates.append(
-                        AmountCandidate(
-                            value=v,
-                            source=matched_source,
-                            confidence=conf,
-                            context=full_ctx,
-                            type=ctype,
-                        )
-                    )
-                    if not _sum_scan_all_dist:
-                        break
+                nxt_ctx = re.sub(r"\s+", " ", nxt).strip()[:160]
+                conf = max(matched_prio - dist * 5, 0)
+                if matched_source != "total_label_excl" and matched_prio >= 70:
+                    conf = max(conf, 70)
+                full_ctx = f"{ctx} >> {nxt_ctx}"
+                _append_value_line_amount_candidates(
+                    candidates,
+                    nxt,
+                    source=matched_source,
+                    base_confidence=conf,
+                    context=full_ctx,
+                    classification_line=_classify_line_for_source(full_ctx),
+                )
+                if not _sum_scan_all_dist:
+                    break
 
     # Fallback tier 1: total-line hints (e.g. "Totaal" / "Te betalen" without label regex)
     total_line_amounts = _extract_amounts_from_total_lines(t)
@@ -2496,6 +2632,27 @@ def extract_invoice_data(
             if m_nummer_datum:
                 invoice_number = m_nummer_datum.group(1).strip()
                 invoice_number_source = "nummer_datum_table"
+        if invoice_number is None:
+            # Polyglass e.a.: kop ``Datum Nummer``, regel ``05/03/2026 26FC000498 1/2``.
+            for i, hdr in enumerate(lines):
+                if not (
+                    re.search(r"(?i)\bdatum\b", hdr)
+                    and re.search(r"(?i)\bnummer\b", hdr)
+                ):
+                    continue
+                for j in range(1, 4):
+                    if i + j >= len(lines):
+                        break
+                    m_dn = re.match(
+                        r"^\s*\d{1,2}/\d{1,2}/\d{4}\s+([A-Za-z0-9][A-Za-z0-9\-\/]{4,})\s",
+                        (lines[i + j] or "").strip(),
+                    )
+                    if m_dn and re.search(r"\d", m_dn.group(1) or ""):
+                        invoice_number = m_dn.group(1).strip()
+                        invoice_number_source = "datum_nummer_table"
+                        break
+                if invoice_number:
+                    break
         if invoice_number:
             logger.debug("Factuurnummer gevonden: %s", invoice_number)
         else:
@@ -2711,6 +2868,33 @@ def extract_invoice_data(
         run_id="extract",
     )
 
+    from parser.field_candidates import (
+        extract_customer_number_result,
+        extract_invoice_number_result,
+    )
+
+    inv_result = extract_invoice_number_result(
+        text,
+        resolved=invoice_number,
+        resolved_source=invoice_number_source if invoice_number else None,
+    )
+    if inv_result.value:
+        invoice_number = inv_result.value
+        invoice_number_source = inv_result.source
+    cust_result = extract_customer_number_result(
+        text,
+        resolved=customer_number,
+        resolved_source=customer_number_source if customer_number else None,
+    )
+    if cust_result.value:
+        customer_number = cust_result.value
+        customer_number_source = cust_result.source
+
+    try:
+        description = build_description(customer_number, invoice_number)
+    except Exception:
+        pass
+
     return {
         "iban": iban,
         "all_ibans": all_ibans,
@@ -2723,6 +2907,8 @@ def extract_invoice_data(
         "amount_excl_vat": amount_excl_vat,
         "invoice_number": invoice_number,
         "customer_number": customer_number,
+        "invoice_number_result": inv_result.to_dict(),
+        "customer_number_result": cust_result.to_dict(),
         "invoice_date": invoice_date,
         "invoice_date_source": invoice_date_source,
         "description": description,
@@ -2959,51 +3145,60 @@ def extract_text_from_images(file_path: str) -> str:
         except Exception:
             pass
 
-    # Deep fallback (Felison-like cases): render full page to a pixmap and OCR via pytesseract.
-    # This can pick up small header text that textpage_ocr misses.
-    if image_count == 0:
-        try:
-            # Only trigger when we still have very little structured signal.
-            combined_so_far = "\n".join(text_parts)
-            has_any_hint = bool(
-                re.search(r"(?i)\b(?:kvk|k\.?v\.?k\.?|btw|vat)\b", combined_so_far)
-                or re.search(r"(?i)\bN\s*L\s*\d{9}\s*B\s*\d{2}\b", combined_so_far)
-                or re.search(r"\b[A-Za-z0-9._%+-]+\s*@\s*[A-Za-z0-9.-]+\s*\.\s*[A-Za-z]{2,}\b", combined_so_far)
+    # Deep fallback: render full page to a pixmap and OCR via pytesseract.
+    # Ook wanneer embedded images bestaan maar geen IBAN/bankhint opleveren (Omniplast-footer).
+    try:
+        combined_so_far = "\n".join(text_parts)
+        has_iban_bank_hint = bool(
+            _scan_sepa_ibans_in_text(combined_so_far)
+            or re.search(
+                r"(?i)\b(?:iban|rabo|ingb|abna|bic|swift)\b",
+                combined_so_far,
             )
-            if not has_any_hint:
-                try:
-                    from PIL import Image  # noqa: E401
-                    import pytesseract  # noqa: E401
-                except Exception:
-                    pytesseract = None
-                if pytesseract is not None:
-                    doc3 = _fitz.open(file_path)
-                    raster_parts: list[str] = []
-                    for p in doc3:
-                        try:
-                            # Render at higher DPI via zoom matrix.
-                            mat = _fitz.Matrix(3, 3)  # ~216 dpi*3 ≈ high-res
-                            pix = p.get_pixmap(matrix=mat, alpha=False)
-                            img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-                            t = pytesseract.image_to_string(img, lang="nld+eng") or ""
-                            t = t.strip()
-                            if t:
-                                raster_parts.append(t)
-                        except Exception:
-                            continue
-                    doc3.close()
-                    if raster_parts:
-                        text_parts.extend(raster_parts)
-                        if is_debug_935_target:
-                            _dbg_935(
-                                "OCR3",
-                                "parser/pdf_parser.py:extract_text_from_images",
-                                "page raster OCR added text",
-                                {"pdf": base, "added_chars": int(sum(len(x) for x in raster_parts))},
-                                run_id="pre-fix",
-                            )
-        except Exception:
-            pass
+        )
+        has_any_hint = bool(
+            has_iban_bank_hint
+            or re.search(r"(?i)\b(?:kvk|k\.?v\.?k\.?|btw|vat)\b", combined_so_far)
+            or re.search(r"(?i)\bN\s*L\s*\d{9}\s*B\s*\d{2}\b", combined_so_far)
+            or re.search(
+                r"\b[A-Za-z0-9._%+-]+\s*@\s*[A-Za-z0-9.-]+\s*\.\s*[A-Za-z]{2,}\b",
+                combined_so_far,
+            )
+        )
+        need_page_raster = image_count == 0 or not has_iban_bank_hint
+        if need_page_raster and not has_any_hint:
+            try:
+                from PIL import Image  # noqa: E401
+                import pytesseract  # noqa: E401
+            except Exception:
+                pytesseract = None
+            if pytesseract is not None:
+                doc3 = _fitz.open(file_path)
+                raster_parts: list[str] = []
+                for p in doc3:
+                    try:
+                        mat = _fitz.Matrix(3, 3)
+                        pix = p.get_pixmap(matrix=mat, alpha=False)
+                        img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+                        t = pytesseract.image_to_string(img, lang="nld+eng") or ""
+                        t = t.strip()
+                        if t:
+                            raster_parts.append(t)
+                    except Exception:
+                        continue
+                doc3.close()
+                if raster_parts:
+                    text_parts.extend(raster_parts)
+                    if is_debug_935_target:
+                        _dbg_935(
+                            "OCR3",
+                            "parser/pdf_parser.py:extract_text_from_images",
+                            "page raster OCR added text",
+                            {"pdf": base, "added_chars": int(sum(len(x) for x in raster_parts))},
+                            run_id="pre-fix",
+                        )
+    except Exception:
+        pass
 
     combined = "\n".join(text_parts)
     if is_debug_935_target:
@@ -3052,6 +3247,22 @@ def extract_text_from_images(file_path: str) -> str:
     return combined
 
 
+def extract_ocr_supplement_text(file_path: str) -> str:
+    """Tekst uit embedded afbeeldingen + raster van pagina(’s) (footer in kleine afbeelding/OCR)."""
+    parts: list[str] = []
+    seen: set[str] = set()
+    for chunk in (
+        extract_text_from_images(file_path) or "",
+        extract_text_force_raster_ocr(file_path, max_pages=1) or "",
+    ):
+        c = str(chunk or "").strip()
+        if not c or c in seen:
+            continue
+        seen.add(c)
+        parts.append(c)
+    return "\n\n".join(parts)
+
+
 def extract_text_force_raster_ocr(file_path: str, *, max_pages: int = 1) -> str:
     """Force raster-based OCR of full page(s) via pytesseract.
 
@@ -3091,10 +3302,22 @@ def extract_text_force_raster_ocr(file_path: str, *, max_pages: int = 1) -> str:
         return ""
 
 def extract_ibans_from_images(file_path: str) -> list[str]:
-    """Extract validated SEPA IBANs from embedded images via OCR (NL/BE/DE/…)."""
-    ocr_text = extract_text_from_images(file_path)
-    if not ocr_text:
-        return []
+    """Extract validated SEPA IBANs via OCR (embedded images, daarna pagina-raster)."""
+    seen: set[str] = set()
+    ordered: list[str] = []
 
-    return _scan_sepa_ibans_in_text(ocr_text)
+    def _collect(text: str) -> None:
+        for iban in _scan_sepa_ibans_in_text(text or ""):
+            if iban not in seen:
+                seen.add(iban)
+                ordered.append(iban)
+
+    img_text = extract_text_from_images(file_path) or ""
+    _collect(img_text)
+
+    if not ordered:
+        raster_text = extract_text_force_raster_ocr(file_path, max_pages=2) or ""
+        _collect(raster_text)
+
+    return ordered
 

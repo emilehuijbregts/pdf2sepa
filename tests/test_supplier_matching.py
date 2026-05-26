@@ -5,11 +5,19 @@ from __future__ import annotations
 import json
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
+from parser.profile_extractor import learn_profile_from_confirmation
 from parser.supplier_db import SupplierDB
 from parser.supplier_matcher import match_suppliers
+from tests.test_profile_extractor import (
+    CONFIRMED_2BA,
+    PROFILE_LAST_AMOUNT,
+    TEXT_2BA,
+    TEXT_LAST_AMOUNT,
+)
 
 
 @pytest.fixture
@@ -67,12 +75,13 @@ class TestIbanMatch:
         assert result["supplier_name"] == "Wavin Nederland B.V."
         assert result["match_status"] == "confirmed"
 
-    def test_iban_plus_alias_confirmed(self, db_with_suppliers):
-        """IBAN + exact alias → confirmed."""
+    def test_iban_plus_alias_needs_review(self, db_with_suppliers):
+        """IBAN + exact alias: naam telt niet als tweede kernkenmerk."""
         inv = {"supplier_hint": "Wavin NL", "iban": "NL25CITI0266075452", "customer_number": None}
         result = match_suppliers([inv], db_with_suppliers)[0]
         assert result["supplier_name"] == "Wavin Nederland B.V."
-        assert result["match_status"] == "confirmed"
+        assert result["match_status"] == "needs_review"
+        assert result["db_core_matches"] == ["IBAN"]
 
     def test_iban_with_spaces(self, db_with_suppliers):
         inv = {"supplier_hint": None, "iban": "NL25 CITI 0266 0754 52", "customer_number": None}
@@ -110,12 +119,114 @@ class TestCustomerCodeMatch:
         result = match_suppliers([inv], db_with_suppliers)[0]
         assert result["iban"] == "NL25CITI0266075452"
 
-    def test_code_plus_alias_confirmed(self, db_with_suppliers):
-        """Customer code + alias → confirmed."""
+    def test_code_plus_alias_needs_review(self, db_with_suppliers):
+        """Klantnummer + alias: alleen één kernkenmerk → needs_review."""
         inv = {"supplier_hint": "Wavin NL", "iban": None, "customer_number": "1012146"}
         result = match_suppliers([inv], db_with_suppliers)[0]
         assert result["supplier_name"] == "Wavin Nederland B.V."
+        assert result["match_status"] == "needs_review"
+        assert result["db_core_matches"] == ["Klantnummer"]
+
+
+class TestPolarisCoreMatches:
+    def test_polaris_iban_plus_name_needs_review(self, tmp_path):
+        data = {
+            "suppliers": [
+                {
+                    "name": "Polaris",
+                    "iban": "NL34ABNA0135735831",
+                    "discount": 0.0,
+                    "aliases": ["Polaris"],
+                    "customer_codes": [],
+                    "kvk_numbers": ["34095053"],
+                    "email_domains": ["polaris-werkvitaalverzekeren.nl"],
+                },
+            ]
+        }
+        p = tmp_path / "suppliers.json"
+        p.write_text(json.dumps(data), encoding="utf-8")
+        db = SupplierDB(path=str(p))
+        inv = {
+            "supplier_hint": "Polaris",
+            "iban": "NL34ABNA0135735831",
+            "customer_number": None,
+            "kvk_number": None,
+            "email_domain": None,
+        }
+        result = match_suppliers([inv], db)[0]
+        assert result["supplier_name"] == "Polaris"
+        assert result["match_status"] == "needs_review"
+        assert result["db_core_matches"] == ["IBAN"]
+
+    def test_polaris_iban_profile_amount_while_needs_review(self, tmp_path):
+        """Polaris-achtige factuur: profiel levert bedrag, kernmatch blijft 1/2."""
+        data = {
+            "suppliers": [
+                {
+                    "name": "Polaris",
+                    "iban": "NL34ABNA0135735831",
+                    "discount": 0.0,
+                    "aliases": ["Polaris"],
+                    "customer_codes": [],
+                    "kvk_numbers": ["34095053"],
+                    "email_domains": ["polaris-werkvitaalverzekeren.nl"],
+                    "extraction_profile": {
+                        "amount": {
+                            "label": "Inkomenspakket EUR",
+                            "strategy": "same_line_last_amount",
+                            "confirmed_value": "4947.17",
+                        }
+                    },
+                },
+            ]
+        }
+        p = tmp_path / "suppliers.json"
+        p.write_text(json.dumps(data), encoding="utf-8")
+        db = SupplierDB(path=str(p))
+        text = (
+            "Inkomenspakket EUR 4.947,17\n"
+            "Wij verzoeken u deze premie binnen 14 dagen op IBAN NL34 ABNA 0135 7358 31\n"
+            "t.n.v. Polaris Werk, Vitaal en Verzekeren over te maken.\n"
+        )
+        inv = {
+            "supplier_hint": None,
+            "iban": "NL34ABNA0135735831",
+            "raw_text": text,
+        }
+        result = match_suppliers([inv], db)[0]
+        assert result["supplier_name"] == "Polaris"
+        assert result["match_status"] == "needs_review"
+        assert result["db_core_matches"] == ["IBAN"]
+        assert result.get("amount") == pytest.approx(4947.17)
+        ar = result.get("amount_result") or {}
+        assert ar.get("status") == "tentative"
+        assert result.get("supplier_db_traits_not_on_invoice") == ["KvK", "e-mail"]
+
+    def test_polaris_iban_plus_kvk_confirmed(self, tmp_path):
+        data = {
+            "suppliers": [
+                {
+                    "name": "Polaris",
+                    "iban": "NL34ABNA0135735831",
+                    "discount": 0.0,
+                    "aliases": ["Polaris"],
+                    "customer_codes": [],
+                    "kvk_numbers": ["34095053"],
+                    "email_domains": ["polaris-werkvitaalverzekeren.nl"],
+                },
+            ]
+        }
+        p = tmp_path / "suppliers.json"
+        p.write_text(json.dumps(data), encoding="utf-8")
+        db = SupplierDB(path=str(p))
+        inv = {
+            "supplier_hint": "Polaris",
+            "iban": "NL34ABNA0135735831",
+            "kvk_number": "34095053",
+        }
+        result = match_suppliers([inv], db)[0]
         assert result["match_status"] == "confirmed"
+        assert set(result["db_core_matches"]) == {"IBAN", "KvK"}
 
 
 class TestUnmatched:
@@ -238,6 +349,182 @@ class TestSupplierDB:
         db = SupplierDB(path=str(p))
         assert db.get_all() == []
         assert p.exists()
+
+
+class TestExtractionProfile:
+    def test_get_unknown_supplier(self, db_with_suppliers):
+        assert db_with_suppliers.get_extraction_profile("No Such BV") is None
+
+    def test_get_no_profile(self, db_with_suppliers):
+        assert db_with_suppliers.get_extraction_profile("SALO B.V.") is None
+
+    def test_get_corrupt_type(self, db_with_suppliers):
+        for s in db_with_suppliers.suppliers:
+            if s.get("name") == "SALO B.V.":
+                s["extraction_profile"] = "not-a-dict"
+                break
+        assert db_with_suppliers.get_extraction_profile("SALO B.V.") is None
+
+    def test_save_unknown_supplier(self, db_with_suppliers):
+        ok = db_with_suppliers.save_extraction_profile(
+            "Ghost BV",
+            PROFILE_LAST_AMOUNT,
+            raw_text=TEXT_LAST_AMOUNT,
+        )
+        assert ok is False
+        assert db_with_suppliers.get_extraction_profile("Ghost BV") is None
+
+    @patch("parser.supplier_db.validate_profile", return_value=False)
+    def test_save_validation_fail_no_persist(self, mock_validate, db_with_suppliers):
+        ok = db_with_suppliers.save_extraction_profile(
+            "SALO B.V.",
+            PROFILE_LAST_AMOUNT,
+            raw_text=TEXT_LAST_AMOUNT,
+        )
+        assert ok is False
+        mock_validate.assert_called_once()
+        assert db_with_suppliers.get_extraction_profile("SALO B.V.") is None
+        for s in db_with_suppliers.get_all():
+            if s["name"] == "SALO B.V.":
+                assert "extraction_profile" not in s
+
+    def test_save_success_roundtrip(self, db_with_suppliers, tmp_path):
+        ok = db_with_suppliers.save_extraction_profile(
+            "salo b.v.",
+            PROFILE_LAST_AMOUNT,
+            raw_text=TEXT_LAST_AMOUNT,
+        )
+        assert ok is True
+        got = db_with_suppliers.get_extraction_profile("SALO B.V.")
+        assert got is not None
+        assert got["amount"]["confirmed_value"] == "1551.22"
+        assert got["learned_from"] == "test.pdf"
+
+        data = json.loads((tmp_path / "suppliers.json").read_text(encoding="utf-8"))
+        salo = next(s for s in data["suppliers"] if s["name"] == "SALO B.V.")
+        assert salo["extraction_profile"]["amount"]["strategy"] == "same_line_last_amount"
+
+    def test_save_integration_validate_profile(self, db_with_suppliers):
+        """Real validate_profile path (no mock)."""
+        ok = db_with_suppliers.save_extraction_profile(
+            "Technische Unie B.V.",
+            PROFILE_LAST_AMOUNT,
+            raw_text=TEXT_LAST_AMOUNT,
+        )
+        assert ok is True
+        assert db_with_suppliers.get_extraction_profile("Technische Unie B.V.") is not None
+
+
+class TestProfilePipeline:
+    def test_confirmed_applies_profile_amount(self, db_with_suppliers):
+        db_with_suppliers.save_extraction_profile(
+            "SALO B.V.",
+            PROFILE_LAST_AMOUNT,
+            raw_text=TEXT_LAST_AMOUNT,
+        )
+        inv = {
+            "supplier_hint": "SALO B.V.",
+            "iban": "NL64ABNA0589033654",
+            "customer_number": "3503",
+            "raw_text": TEXT_LAST_AMOUNT,
+            "amount": 1.0,
+            "amount_result": {
+                "status": "ambiguous",
+                "source": "TEST",
+                "value": None,
+                "candidates": [{"value": "1.00"}],
+            },
+        }
+        result = match_suppliers([inv], db_with_suppliers)[0]
+        assert result["match_status"] == "confirmed"
+        assert result["extraction_source"] == "profile"
+        assert "amount" in result["profile_fields"]
+        assert result["amount"] == 1551.22
+        assert result["amount_result"]["source"] == "profile"
+        assert result["amount_result"]["status"] == "confirmed"
+        assert "raw_text" in result
+
+    def test_needs_review_with_iban_applies_profile_tentative(self, db_with_suppliers):
+        """IBAN-match + profiel: bedrag uit profiel, status tentative (export nog review)."""
+        db_with_suppliers.save_extraction_profile(
+            "SALO B.V.",
+            PROFILE_LAST_AMOUNT,
+            raw_text=TEXT_LAST_AMOUNT,
+        )
+        inv = {
+            "supplier_hint": None,
+            "iban": "NL64ABNA0589033654",
+            "customer_number": None,
+            "raw_text": TEXT_LAST_AMOUNT,
+            "amount": 1.0,
+            "amount_result": {
+                "status": "ambiguous",
+                "source": "TEST",
+                "value": None,
+                "candidates": [],
+            },
+        }
+        result = match_suppliers([inv], db_with_suppliers)[0]
+        assert result["match_status"] == "needs_review"
+        assert result["extraction_source"] == "profile"
+        assert "amount" in result["profile_fields"]
+        assert result["amount_result"]["source"] == "profile"
+        assert result["amount_result"]["status"] == "tentative"
+
+    def test_confirmed_no_profile_is_generic(self, db_with_suppliers):
+        inv = {
+            "supplier_hint": "SALO B.V.",
+            "iban": "NL64ABNA0589033654",
+            "customer_number": "3503",
+            "raw_text": TEXT_LAST_AMOUNT,
+        }
+        result = match_suppliers([inv], db_with_suppliers)[0]
+        assert result["match_status"] == "confirmed"
+        assert result["extraction_source"] == "generic"
+        assert result["profile_fields"] == []
+
+    def test_confirmed_profile_without_raw_text_is_generic(self, db_with_suppliers):
+        db_with_suppliers.save_extraction_profile(
+            "SALO B.V.",
+            PROFILE_LAST_AMOUNT,
+            raw_text=TEXT_LAST_AMOUNT,
+        )
+        inv = {
+            "supplier_hint": "SALO B.V.",
+            "iban": "NL64ABNA0589033654",
+            "customer_number": "3503",
+        }
+        result = match_suppliers([inv], db_with_suppliers)[0]
+        assert result["match_status"] == "confirmed"
+        assert result["extraction_source"] == "generic"
+        assert result["profile_fields"] == []
+
+    def test_profile_rebuilds_description(self, db_with_suppliers):
+        profile = learn_profile_from_confirmation(
+            TEXT_2BA,
+            CONFIRMED_2BA,
+            "2ba.pdf",
+        )
+        assert profile is not None
+        db_with_suppliers.save_extraction_profile(
+            "Technische Unie B.V.",
+            profile,
+            raw_text=TEXT_2BA,
+        )
+        inv = {
+            "supplier_hint": "Technische Unie B.V.",
+            "iban": "NL71ABNA0804385750",
+            "customer_number": "232210",
+            "raw_text": TEXT_2BA,
+            "invoice_number": "OLD",
+            "description": "old desc",
+        }
+        result = match_suppliers([inv], db_with_suppliers)[0]
+        assert result["match_status"] == "confirmed"
+        assert result["extraction_source"] == "profile"
+        assert result["invoice_number"] == "260789"
+        assert result["customer_number"] == "113073/17078"
+        assert result["description"] == "113073/17078 / 260789"
 
 
 class TestLoadFailedShortcut:

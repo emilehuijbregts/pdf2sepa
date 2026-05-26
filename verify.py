@@ -1,13 +1,14 @@
 """
 E2E verify voor PDF2SEPA: Module 1 (parser), Module 2 (supplier matching),
 Module 3 (payment engine), Module 4 (uitgebreide payment-scenario's), Module 4b (payment simulaties),
-Module 5 (XML generator).
+Module 5 (XML generator), Module 6B (diagnostics).
 Voer uit met: python verify.py
 Exitcode: 0 = alles goed, 1 = iets fout.
 """
 
 from __future__ import annotations
 
+import copy
 import io
 import json
 import shutil
@@ -932,6 +933,138 @@ def _run_module5_xml_generator_checks(results: list[bool]) -> None:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
+def _module6b_wavin_invoice() -> dict:
+    return {
+        "source_file": "/tmp/wavin.pdf",
+        "supplier_name": "Wavin",
+        "match_status": "confirmed",
+        "db_core_matches": ["IBAN", "Klantnummer"],
+        "match_info": {"iban_match": True, "customer_code_match": True},
+        "amount_result": {
+            "status": "confirmed",
+            "value": "100.00",
+            "confidence": 85,
+            "source": "total_label_payable",
+            "candidates": [],
+        },
+        "invoice_number": "INV001",
+        "customer_number": "12345",
+        "iban": "NL91INGB0001234567",
+        "all_ibans": ["NL91INGB0001234567"],
+    }
+
+
+def _run_module6b_diagnostics_checks(results: list[bool]) -> None:
+    print()
+    print("[ Module 6B — Diagnostics ]")
+    try:
+        from logic.diagnostics import build_diagnostics, build_invoice_diagnostics_snapshot
+    except Exception as e:
+        _record(results, False, f"import FAIL ({e.__class__.__name__})")
+        return
+
+    # Test 1 — confirmed / ok
+    try:
+        inv = _module6b_wavin_invoice()
+        snap = build_invoice_diagnostics_snapshot(inv)
+        d = build_diagnostics(
+            snap,
+            payment={"warning": None},
+            decision={"status": "included", "reason_code": "included_validated"},
+        )
+        ok = (
+            d["overall_status"] == "ok"
+            and not d["amount"]["needs_attention"]
+            and not d["supplier"]["needs_attention"]
+            and d["action_suggestions"] == []
+        )
+        _record(results, ok, "Test 1 — confirmed / ok")
+    except Exception as e:
+        _record(results, False, f"Test 1 crash ({e.__class__.__name__})")
+
+    # Test 2 — ambiguous bedrag
+    try:
+        inv = _module6b_wavin_invoice()
+        inv["amount_result"] = {
+            "status": "ambiguous",
+            "value": None,
+            "confidence": 0,
+            "source": "INCL_CONFLICT",
+            "candidates": [
+                {
+                    "value": "1282.00",
+                    "source": "total_label_excl",
+                    "confidence": 30,
+                    "type": "excl",
+                    "context": "",
+                },
+                {
+                    "value": "1551.22",
+                    "source": "total_label_payable",
+                    "confidence": 85,
+                    "type": "incl",
+                    "context": "",
+                },
+            ],
+        }
+        d = build_diagnostics(build_invoice_diagnostics_snapshot(inv))
+        suggestions = [str(s).lower() for s in d.get("action_suggestions") or []]
+        sug_ok = any("bedragcel" in s or "kandidaat" in s for s in suggestions)
+        ok = (
+            d["amount"]["needs_attention"] is True
+            and len(d["amount"]["candidates"]) == 2
+            and d["overall_status"] == "needs_review"
+            and sug_ok
+        )
+        _record(results, ok, "Test 2 — ambiguous bedrag")
+    except Exception as e:
+        _record(results, False, f"Test 2 crash ({e.__class__.__name__})")
+
+    # Test 3 — failed bedrag (overall_status error zonder load_error)
+    try:
+        inv = _module6b_wavin_invoice()
+        inv["amount_result"] = {
+            "status": "failed",
+            "value": None,
+            "confidence": 0,
+            "source": "UNKNOWN",
+            "candidates": [],
+        }
+        d = build_diagnostics(build_invoice_diagnostics_snapshot(inv))
+        suggestions = [str(s).lower() for s in d.get("action_suggestions") or []]
+        sug_ok = any("handmatig" in s for s in suggestions)
+        ok = (
+            d["amount"]["needs_attention"] is True
+            and d["overall_status"] == "error"
+            and sug_ok
+        )
+        _record(results, ok, "Test 3 — failed bedrag")
+    except Exception as e:
+        _record(results, False, f"Test 3 crash ({e.__class__.__name__})")
+
+    # Test 4 — unmatched leverancier
+    try:
+        inv = _module6b_wavin_invoice()
+        inv["match_status"] = "unmatched"
+        inv["db_core_matches"] = []
+        d = build_diagnostics(build_invoice_diagnostics_snapshot(inv))
+        suggestions = [str(s).lower() for s in d.get("action_suggestions") or []]
+        sug_ok = any("database" in s or "leverancier" in s for s in suggestions)
+        ok = d["supplier"]["needs_attention"] is True and sug_ok
+        _record(results, ok, "Test 4 — unmatched leverancier")
+    except Exception as e:
+        _record(results, False, f"Test 4 crash ({e.__class__.__name__})")
+
+    # Test 5 — snapshot bevat geen raw_text
+    try:
+        inv = copy.deepcopy(_module6b_wavin_invoice())
+        inv["raw_text"] = "x" * 10000
+        snap = build_invoice_diagnostics_snapshot(inv)
+        _record(results, "raw_text" not in snap, "Test 5 — snapshot zonder raw_text")
+    except Exception as e:
+        _record(results, False, f"Test 5 crash ({e.__class__.__name__})")
+
+
 def main() -> int:
     results: list[bool] = []
 
@@ -957,6 +1090,11 @@ def main() -> int:
     _run_module5_xml_generator_checks(results)
     m5_ok = all(results[m5_start:])
     print("All Module 5 checks passed ✅" if m5_ok else "Some Module 5 checks failed ❌")
+
+    m6b_start = len(results)
+    _run_module6b_diagnostics_checks(results)
+    m6b_ok = all(results[m6b_start:])
+    print("All Module 6B checks passed ✅" if m6b_ok else "Some Module 6B checks failed ❌")
 
     print()
     all_ok = all(results)

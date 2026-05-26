@@ -8,6 +8,8 @@ import time
 
 from logic.validation import is_plausible_iban, mask_iban_for_log
 from logic.payment_amounts import normalize_supplier_vat_rate_pct
+from parser.pdf_parser import normalize_amount_decimal
+from parser.profile_extractor import extract_with_profile
 from parser.supplier_db import SupplierDB
 
 logger = logging.getLogger(__name__)
@@ -164,42 +166,113 @@ def _db_core_matches(match_info: dict) -> list[str]:
     return core
 
 def _determine_match_status(match_info: dict) -> str:
-    """Derive match status from the characteristics that matched.
+    """Derive match status from kernkenmerken (IBAN, klantnummer, KvK, BTW, e-maildomein).
 
-    Rules (per plan):
-      - 2+ independent characteristics  → confirmed
-      - 1 primary + 1 secondary         → confirmed
-      - 1 characteristic only           → needs_review
-      - fuzzy match only                → needs_review
-      - nothing                         → (caller sets unmatched/no_hint)
-
-    Primary:   iban, customer_code
-    Secondary: alias (exact/substring)
-    Weak:      fuzzy (never sufficient alone for confirmed)
+    Bevestigd alleen bij 2+ kernkenmerken. Naam/alias telt niet mee als tweede kenmerk.
     """
+    if len(_db_core_matches(match_info)) >= 2:
+        return "confirmed"
+
     iban = match_info.get("iban_match", False)
     alias = match_info.get("alias_match", False)
     code = match_info.get("customer_code_match", False)
     fuzzy = match_info.get("fuzzy_match", False)
-
     kvk = match_info.get("kvk_match", False)
     vat = match_info.get("vat_match", False)
     email = match_info.get("email_domain_match", False)
-
-    primary = sum([iban, code, kvk, vat])
-    secondary = sum([1 if alias else 0, 1 if email else 0])
-
-    if primary >= 2:
-        return "confirmed"
-    if primary >= 1 and secondary >= 1:
-        return "confirmed"
-    if code and fuzzy:
-        return "confirmed"
 
     if iban or code or alias or fuzzy or kvk or vat or email:
         return "needs_review"
 
     return "unmatched"
+
+
+def _supplier_db_traits_not_on_invoice(supplier: dict, match_info: dict) -> list[str]:
+    """Kernkenmerken die in de leveranciers-DB staan maar niet op de factuur zijn gematcht."""
+    out: list[str] = []
+    if (supplier.get("kvk_numbers") or []) and not match_info.get("kvk_match"):
+        out.append("KvK")
+    if (supplier.get("email_domains") or []) and not match_info.get("email_domain_match"):
+        out.append("e-mail")
+    if (supplier.get("vat_numbers") or []) and not match_info.get("vat_match"):
+        out.append("BTW")
+    if (supplier.get("customer_codes") or []) and not match_info.get("customer_code_match"):
+        out.append("klantnummer")
+    return out
+
+
+def _apply_profile_extraction(
+    invoice: dict,
+    invoice_copy: dict,
+    supplier: dict,
+    db: SupplierDB,
+    *,
+    amount_status: str = "confirmed",
+) -> None:
+    """Velden uit leveranciers-extractieprofiel; ``amount_status`` tentative bij onzekere match."""
+    profile = db.get_extraction_profile(supplier["name"])
+    raw = invoice.get("raw_text") or invoice_copy.get("raw_text")
+    if not profile or not raw:
+        invoice_copy["extraction_source"] = "generic"
+        invoice_copy["profile_fields"] = []
+        return
+
+    extracted = extract_with_profile(raw, profile)
+    profile_fields: list[str] = []
+    for field in ("amount", "invoice_number", "customer_number"):
+        val = extracted.get(field)
+        if val is None:
+            continue
+        if field == "amount":
+            dec = normalize_amount_decimal(str(val))
+            if dec is None:
+                continue
+            st = str(amount_status or "confirmed").strip().lower()
+            if st not in ("confirmed", "tentative"):
+                st = "confirmed"
+            invoice_copy["amount"] = float(dec)
+            invoice_copy["amount_confidence"] = "high" if st == "confirmed" else "medium"
+            invoice_copy["amount_source"] = "profile"
+            invoice_copy["amount_result"] = {
+                "status": st,
+                "amount_status": st,
+                "source": "profile",
+                "value": str(dec),
+                "selected_amount": str(dec),
+                "confidence": 95 if st == "confirmed" else 75,
+                "amount_confidence": 95 if st == "confirmed" else 75,
+                "candidates": [],
+            }
+            if st == "tentative":
+                invoice_copy["amount_result"]["review_suggested"] = True
+            profile_fields.append(field)
+            continue
+        invoice_copy[field] = val
+        if field == "invoice_number":
+            invoice_copy["invoice_number_result"] = {
+                "status": "confirmed",
+                "value": str(val),
+                "confidence": 95,
+                "source": "profile",
+                "candidates": [],
+            }
+        elif field == "customer_number":
+            invoice_copy["customer_number_result"] = {
+                "status": "confirmed",
+                "value": str(val),
+                "confidence": 95,
+                "source": "profile",
+                "candidates": [],
+            }
+        profile_fields.append(field)
+
+    cc = str(invoice_copy.get("customer_number") or "").strip()
+    inv_no = str(invoice_copy.get("invoice_number") or "").strip()
+    if cc and inv_no:
+        invoice_copy["description"] = f"{cc} / {inv_no}"
+
+    invoice_copy["extraction_source"] = "profile" if profile_fields else "generic"
+    invoice_copy["profile_fields"] = profile_fields
 
 
 def _is_unanchored_tax_only_match(match_info: dict) -> bool:
@@ -286,6 +359,9 @@ def match_suppliers(invoices: list[dict], db: SupplierDB) -> list[dict]:
             )
             invoice_copy["supplier_match_source"] = "db_match"
             invoice_copy["match_info"] = match_info
+            invoice_copy["supplier_db_traits_not_on_invoice"] = _supplier_db_traits_not_on_invoice(
+                supplier, match_info
+            )
             core_matches = _db_core_matches(match_info)
             invoice_copy["db_core_matches"] = core_matches
             invoice_copy["db_core_match_count"] = len(core_matches)
@@ -452,6 +528,18 @@ def match_suppliers(invoices: list[dict], db: SupplierDB) -> list[dict]:
             invoice_copy["supplier_vat_rate"] = normalize_supplier_vat_rate_pct(
                 supplier.get("vat_rate", 21)
             )
+            if invoice_copy.get("match_status") == "confirmed":
+                _apply_profile_extraction(
+                    invoice, invoice_copy, supplier, db, amount_status="confirmed"
+                )
+            elif match_info.get("iban_match"):
+                # IBAN-match + profiel: bedrag/factuurnr. uit profiel, status blijft needs_review.
+                _apply_profile_extraction(
+                    invoice, invoice_copy, supplier, db, amount_status="tentative"
+                )
+            else:
+                invoice_copy["extraction_source"] = "generic"
+                invoice_copy["profile_fields"] = []
         else:
             inv_iban = str(invoice.get("iban") or "").strip()
             inv_hint = str(invoice.get("supplier_hint") or "").strip()
@@ -481,6 +569,8 @@ def match_suppliers(invoices: list[dict], db: SupplierDB) -> list[dict]:
             invoice_copy["supplier_payment_term_days_raw"] = 0
             invoice_copy["supplier_term_trusted"] = False
             invoice_copy["supplier_vat_rate"] = 21
+            invoice_copy["extraction_source"] = "generic"
+            invoice_copy["profile_fields"] = []
 
         out.append(invoice_copy)
 

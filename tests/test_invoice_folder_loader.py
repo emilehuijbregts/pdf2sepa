@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from logic.invoice_folder_loader import load_invoices_from_folder
+from logic.invoice_folder_loader import load_invoices_from_folder, strip_raw_text_from_invoices
 
 
 def test_load_error_no_text(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -88,6 +88,14 @@ def test_successful_load_parses(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     assert out[0].get("load_error") is None
     assert out[0].get("iban") == "NL25CITI0266075452"
     assert out[0]["source_file"] == str(pdf.resolve())
+    assert out[0].get("raw_text") == sample
+
+
+def test_strip_raw_text_from_invoices() -> None:
+    invs = [{"raw_text": "x", "iban": "NL00"}, {"iban": "NL11"}]
+    strip_raw_text_from_invoices(invs)
+    assert "raw_text" not in invs[0]
+    assert "raw_text" not in invs[1]
 
 
 def test_skips_hidden_appledouble_pdfs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -24,7 +24,10 @@ APP_BASE = Path(__file__).resolve().parents[1]
 if str(APP_BASE) not in sys.path:
     sys.path.insert(0, str(APP_BASE))
 
-from logic.invoice_folder_loader import load_invoices_from_folder  # noqa: E402
+from logic.invoice_folder_loader import (  # noqa: E402
+    load_invoices_from_folder,
+    strip_raw_text_from_invoices,
+)
 from logic.paths import read_user_data_root  # noqa: E402
 from logic.payment_engine import calculate_payments  # noqa: E402
 from logic.settings import load_settings, merge_debtor_with_defaults  # noqa: E402
@@ -198,6 +201,7 @@ def main() -> int:
     )
     db = SupplierDB(path=str(user_data_dir / "suppliers.json"))
     matched = match_suppliers(invoices, db)
+    strip_raw_text_from_invoices(matched)
     payments, errors = calculate_payments(matched, session_date=session_d)
 
     payment_index = _build_payment_index(payments)

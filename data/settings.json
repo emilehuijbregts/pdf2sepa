@@ -8,10 +8,10 @@
   },
   "export_dir": "/Users/eh/Documents/Cursor/PDF2SEPA/exports",
   "last_invoice_dir": "/Volumes/KINGSTON/Facturen om te testen/Batch 5",
-  "window_width": 1100,
+  "window_width": 1140,
   "window_height": 560,
-  "window_x": 116,
-  "window_y": 336,
+  "window_x": 139,
+  "window_y": 317,
   "column_widths": {
     "0": 203,
     "1": 225,
@@ -21,11 +21,12 @@
     "5": 396,
     "6": 50,
     "7": 87,
-    "8": 87,
-    "9": 84,
-    "10": 231,
-    "11": 220,
-    "12": 121,
-    "13": 134
+    "8": 86,
+    "9": 252,
+    "10": 496,
+    "11": 122,
+    "12": 100,
+    "13": 385,
+    "14": 30
   }
 }

@@ -424,6 +424,17 @@ class TestDebtorKvkVatExclusion:
         assert d["kvk_number"] is None
         assert d["vat_number"] is None
 
+    def test_polaris_footer_ocr_vat_dotted(self):
+        footer = (
+            "Polaris Werk, Vitaal & Verzekeren\n"
+            "info@polaris-werkvitaalverzekeren.nl\n"
+            "IBAN: NL34 ABNA 0135 7358 31 | KvK: 34095053 | Btw: 8053.01.021.B.01\n"
+        )
+        d = extract_invoice_data(footer)
+        assert d["kvk_number"] == "34095053"
+        assert d["email_domain"] == "polaris-werkvitaalverzekeren.nl"
+        assert d["vat_number"] == "NL805301021B01"
+
 
 # ---------------------------------------------------------------------------
 # Empty / edge-case inputs
@@ -517,6 +528,24 @@ class TestBatchFiveInvoicePatterns:
         assert d["customer_number"] == "04816069"
         assert d["invoice_number"] == "26FC000498"
         assert d["amount"] == pytest.approx(1287.29)
+        ir = d.get("invoice_number_result") or {}
+        assert len(ir.get("candidates") or []) >= 1
+        assert any(
+            c.get("value") == "26FC000498" for c in (ir.get("candidates") or [])
+        )
+
+    def test_polyglass_table_footer_both_amounts_in_candidates(self):
+        """PDF-tabel: netto en totaal op één regel met EUR ertussen."""
+        t = (
+            "TOTAAL HANDELSWAAR KORTING\n"
+            "% Bedrag TOTALE FACTUUR\n"
+            "1.063,88 EUR 1.287,29\n"
+        )
+        d = extract_invoice_data(t)
+        ar = d.get("amount_result") or {}
+        values = {float(c["value"]) for c in (ar.get("candidates") or []) if c.get("value")}
+        assert 1287.29 in values
+        assert 1063.88 in values
 
     def test_klantcode_fused_word(self):
         d = extract_invoice_data("Klantcode: 09998877\nBedrag EUR 44,03")
