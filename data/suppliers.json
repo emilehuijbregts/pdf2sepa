@@ -912,13 +912,15 @@
       }
     },
     {
-      "name": "OPTION TAPE SPECIALTIES N.V.",
-      "iban": "VF2602902VO2602744LEVERINGS",
+      "name": "Option Tape Specialties N.V.",
+      "iban": "BE98001759308093",
       "discount": 0.0,
       "aliases": [
-        "OPTION TAPE SPECIALTIES N.V."
+        "Option Tape Specialties N.V."
       ],
-      "customer_codes": [],
+      "customer_codes": [
+        "K014135"
+      ],
       "default_payment_term_days": 0,
       "vat_rate": 21,
       "vat_numbers": [
@@ -927,6 +929,158 @@
       "kvk_numbers": [],
       "email_domains": [
         "optiontapespecialties.com"
+      ],
+      "extraction_profile": {
+        "learned_from": "Option tape Verkoopfactuur VF2602902.pdf",
+        "amount": {
+          "label": "Totaal",
+          "strategy": "same_line_last_amount",
+          "confirmed_value": "305.36",
+          "confidence": 100
+        }
+      }
+    },
+    {
+      "name": "Polyglass Netherlands BV",
+      "iban": "NL60HSBC1057811001",
+      "discount": 0.0,
+      "aliases": [
+        "Polyglass Netherlands BV"
+      ],
+      "customer_codes": [
+        "04816069"
+      ],
+      "default_payment_term_days": 30,
+      "vat_rate": 21,
+      "vat_numbers": [],
+      "kvk_numbers": [
+        "94258392"
+      ],
+      "email_domains": [
+        "polyglass.nl"
+      ]
+    },
+    {
+      "name": "Profolux",
+      "iban": "NL85INGB0006784804",
+      "discount": 0.0,
+      "aliases": [
+        "PROFOLUX",
+        "Profolux"
+      ],
+      "customer_codes": [],
+      "default_payment_term_days": 30,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL852857470B01"
+      ],
+      "kvk_numbers": [],
+      "email_domains": [
+        "profolux.nl"
+      ]
+    },
+    {
+      "name": "pgb-Europe N.V.",
+      "iban": "BE78290016060086",
+      "discount": 0.0,
+      "aliases": [
+        "pgb-Europe N.V."
+      ],
+      "customer_codes": [
+        "1016589"
+      ],
+      "default_payment_term_days": 30,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL001740777B35"
+      ],
+      "kvk_numbers": [],
+      "email_domains": [
+        "pgb-europe.com"
+      ]
+    },
+    {
+      "name": "Pipelife Nederland B.V.",
+      "iban": "NL52KRED0633000574",
+      "discount": 0.0,
+      "aliases": [
+        "Pipelife Nederland B.V."
+      ],
+      "customer_codes": [
+        "475700"
+      ],
+      "default_payment_term_days": 30,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL148005664B01"
+      ],
+      "kvk_numbers": [
+        "36044660"
+      ],
+      "email_domains": [
+        "pipelife.nl"
+      ]
+    },
+    {
+      "name": "OEG",
+      "iban": "DE03265700900050035500",
+      "discount": 2.0,
+      "aliases": [
+        "OEG"
+      ],
+      "customer_codes": [
+        "85763"
+      ],
+      "default_payment_term_days": 30,
+      "vat_rate": 0,
+      "vat_numbers": [
+        "NL001740777B35"
+      ],
+      "kvk_numbers": [],
+      "email_domains": [
+        "oeg.net"
+      ]
+    },
+    {
+      "name": "Omniplast BV",
+      "iban": "NL98RABO0303915781",
+      "discount": 0.0,
+      "aliases": [
+        "Omniplast BV"
+      ],
+      "customer_codes": [
+        "12040"
+      ],
+      "default_payment_term_days": 30,
+      "vat_rate": 21,
+      "vat_numbers": [],
+      "kvk_numbers": [
+        "16028740"
+      ],
+      "email_domains": [
+        "omniplast-group.com"
+      ]
+    },
+    {
+      "name": "PM Coded B.V.",
+      "iban": "NL54RABO0331334690",
+      "discount": 0.0,
+      "aliases": [
+        "PM Coded B.V."
+      ],
+      "customer_codes": [
+        "2944"
+      ],
+      "default_payment_term_days": 30,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL858762857B01"
+      ],
+      "kvk_numbers": [
+        "71560130"
+      ],
+      "email_domains": [
+        "pmcoded.nl"
       ]
     }
   ]

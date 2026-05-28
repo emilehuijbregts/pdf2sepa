@@ -1,0 +1,13 @@
+{
+  "source_file": "Pm Coded Factuur 15.pdf",
+  "invoice_number": "2026/15",
+  "supplier_name": "PM Coded B.V.",
+  "iban": "NL54RABO0331334690",
+  "amount": "62.96",
+  "amount_status": "confirmed",
+  "customer_code": "2944",
+  "description": "2944 / 2026/15",
+  "discount_percentage": "0.00",
+  "invoice_date": "2026-02-01",
+  "payment_terms_days": 30
+}

@@ -1,0 +1,13 @@
+{
+  "source_file": "profolux factuur-25-025881.pdf",
+  "invoice_number": "25-025881",
+  "supplier_name": "Profolux",
+  "iban": "NL85INGB0006784804",
+  "amount": "175.40",
+  "amount_status": "confirmed",
+  "customer_code": "",
+  "description": "",
+  "discount_percentage": "0.00",
+  "invoice_date": "2025-12-19",
+  "payment_terms_days": 30
+}

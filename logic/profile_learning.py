@@ -8,7 +8,11 @@ from pathlib import Path
 from typing import Any
 
 from logic.payment_amounts import amount_to_decimal, format_eur_xml
-from parser.profile_extractor import FIELD_KEYS, learn_profile_from_confirmation
+from parser.field_model import ALL_FIELD_IDS, CORE_PROFILE_FIELD_KEYS, FieldId
+from parser.profile_learner import (
+    learn_profile_from_resolved_fields,
+    prepare_learnable_field_results,
+)
 from parser.supplier_db import SupplierDB
 
 
@@ -23,9 +27,9 @@ class ProfileLearnResult:
 def profile_field_keys_missing(stored_profile: dict[str, Any] | None) -> list[str]:
     """Velden die in ``suppliers.json`` nog ontbreken in het extractieprofiel."""
     if not isinstance(stored_profile, dict):
-        return list(FIELD_KEYS)
+        return list(CORE_PROFILE_FIELD_KEYS)
     missing: list[str] = []
-    for key in FIELD_KEYS:
+    for key in CORE_PROFILE_FIELD_KEYS:
         spec = stored_profile.get(key)
         if not isinstance(spec, dict) or not spec.get("label") or not spec.get("strategy"):
             missing.append(key)
@@ -49,11 +53,9 @@ def profile_learning_block_reason(
     match_status = str(snapshot.get("match_status") or "").strip()
     if match_status not in ("confirmed", "needs_review"):
         return "match_not_eligible"
-    # Bedrag mag in de profiel-dialog worden ingevuld; geen harde blokkade op de knop.
     extraction_source = str(snapshot.get("extraction_source") or "").strip().lower()
     missing = profile_field_keys_missing(stored_profile)
     if extraction_source == "profile" and missing:
-        # Profiel in DB is onvolledig (bv. alleen factuur/klant) — aanvullen mag.
         pass
     elif extraction_source and extraction_source != "generic":
         return "already_profile"
@@ -102,88 +104,19 @@ def _normalize_confirmed(confirmed: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-def string_context_from_field_result(
-    field_result: dict[str, Any] | None,
+def _legacy_result_dicts(
     *,
-    target_value: str | None = None,
-) -> str | None:
-    """Regelcontext van gekozen identificatie-kandidaat (factuur/polis/klant)."""
-    if not isinstance(field_result, dict):
-        return None
-    target = str(target_value or field_result.get("value") or "").strip()
-    if not target:
-        return None
-    cands = field_result.get("candidates")
-    if not isinstance(cands, list):
-        return None
-    best_ctx: str | None = None
-    best_key: tuple[int, int] = (-1, -1)
-    user_picked = bool(field_result.get("user_selected"))
-    for c in cands:
-        if not isinstance(c, dict):
-            continue
-        if str(c.get("value") or "").strip() != target:
-            continue
-        ctx = str(c.get("context") or "").strip()
-        if not ctx:
-            continue
-        try:
-            conf = int(c.get("confidence") or 0)
-        except (TypeError, ValueError):
-            conf = 0
-        prio = 2 if user_picked else 1
-        key = (prio, conf)
-        if key > best_key:
-            best_key = key
-            best_ctx = ctx
-    return best_ctx
-
-
-def amount_context_from_amount_result(amount_result: dict[str, Any] | None) -> str | None:
-    """Regelcontext van de gekozen parser-kandidaat (voor bedrag in profiel leren)."""
-    if not isinstance(amount_result, dict):
-        return None
-    target_raw = amount_result.get("value") or amount_result.get("selected_amount")
-    if target_raw is None:
-        return None
-    try:
-        target = amount_to_decimal(str(target_raw))
-    except (TypeError, ValueError, InvalidOperation):
-        return None
-    cands = amount_result.get("candidates")
-    if not isinstance(cands, list):
-        return None
-    best_ctx: str | None = None
-    best_key: tuple[int, int] = (-1, -1)
-    user_picked = bool(amount_result.get("user_selected"))
-    for c in cands:
-        if not isinstance(c, dict):
-            continue
-        raw_v = c.get("value")
-        if raw_v is None:
-            continue
-        try:
-            if amount_to_decimal(str(raw_v)) != target:
-                continue
-        except (TypeError, ValueError, InvalidOperation):
-            continue
-        ctx = str(c.get("context") or "").strip()
-        if not ctx:
-            continue
-        try:
-            conf = int(c.get("confidence") or 0)
-        except (TypeError, ValueError):
-            conf = 0
-        prio = 0
-        if user_picked and str(c.get("source") or "").lower() in ("manual", "user", "picked"):
-            prio = 2
-        elif user_picked:
-            prio = 1
-        key = (prio, conf)
-        if key > best_key:
-            best_key = key
-            best_ctx = ctx
-    return best_ctx
+    amount_result: dict[str, Any] | None,
+    invoice_number_result: dict[str, Any] | None,
+    customer_number_result: dict[str, Any] | None,
+    iban_result: dict[str, Any] | None,
+) -> dict[FieldId, dict[str, Any] | None]:
+    return {
+        "amount": amount_result if isinstance(amount_result, dict) else None,
+        "invoice_number": invoice_number_result if isinstance(invoice_number_result, dict) else None,
+        "customer_number": customer_number_result if isinstance(customer_number_result, dict) else None,
+        "iban": iban_result if isinstance(iban_result, dict) else None,
+    }
 
 
 def merge_extraction_profiles(existing: dict[str, Any] | None, learned: dict[str, Any]) -> dict[str, Any]:
@@ -192,7 +125,7 @@ def merge_extraction_profiles(existing: dict[str, Any] | None, learned: dict[str
     lf = learned.get("learned_from")
     if lf:
         out["learned_from"] = lf
-    for key in FIELD_KEYS:
+    for key in ALL_FIELD_IDS:
         if key in learned and isinstance(learned.get(key), dict):
             out[key] = learned[key]
     return out
@@ -207,14 +140,16 @@ def confirm_invoice_fields(
     db: SupplierDB,
     save_profile: bool,
     iban: str | None = None,
+    post_resolve_snapshot: dict[str, Any] | None = None,
     amount_result: dict[str, Any] | None = None,
     invoice_number_result: dict[str, Any] | None = None,
     customer_number_result: dict[str, Any] | None = None,
+    iban_result: dict[str, Any] | None = None,
 ) -> ProfileLearnResult:
     """
     Bevestig velden; leer en sla optioneel extractieprofiel op.
 
-    ``confirmed`` keys: amount, invoice_number, customer_number.
+    Orchestrator: prepare learnable FieldResults → learn → save.
     """
     norm = _normalize_confirmed(confirmed)
     name = str(supplier_name or "").strip()
@@ -234,56 +169,28 @@ def confirm_invoice_fields(
             confirmed=norm,
         )
 
-    amount_ctx = amount_context_from_amount_result(amount_result)
-    inv_ctx = string_context_from_field_result(
-        invoice_number_result,
-        target_value=str(norm.get("invoice_number") or ""),
-    )
-    cust_ctx = string_context_from_field_result(
-        customer_number_result,
-        target_value=str(norm.get("customer_number") or ""),
-    )
-    profile = learn_profile_from_confirmation(
-        raw_text,
-        norm,
-        source_file,
-        amount_context_line=amount_ctx,
-        invoice_context_line=inv_ctx,
-        customer_context_line=cust_ctx,
-    )
-    # #region agent log
-    try:
-        import json
-        import time
-        from pathlib import Path as _Path
+    snap = post_resolve_snapshot if isinstance(post_resolve_snapshot, dict) else {}
+    iban_res = iban_result
+    if iban_res is None and isinstance(snap.get("iban_result"), dict):
+        iban_res = snap["iban_result"]
 
-        _log_path = "/Users/eh/Documents/Cursor/PDF2SEPA/.cursor/debug-8539bd.log"
-        _payload = {
-            "sessionId": "8539bd",
-            "hypothesisId": "H-A1-H-A3",
-            "location": "profile_learning.py:confirm_invoice_fields",
-            "message": "learn_profile_result",
-            "data": {
-                "amount_in_norm": norm.get("amount") is not None,
-                "amount_in_profile": isinstance(profile, dict) and "amount" in profile,
-                "has_amount_ctx": bool(amount_ctx),
-                "amount_ctx_len": len(amount_ctx or ""),
-                "amount_ctx_preview": (amount_ctx or "")[:48],
-                "profile_keys": list(profile.keys()) if isinstance(profile, dict) else [],
-                "amount_label": (
-                    (profile or {}).get("amount", {}).get("label")
-                    if isinstance(profile, dict)
-                    else None
-                ),
-            },
-            "timestamp": int(time.time() * 1000),
-            "runId": "post-fix-amount",
-        }
-        with open(_log_path, "a", encoding="utf-8") as _f:
-            _f.write(json.dumps(_payload, ensure_ascii=False) + "\n")
-    except Exception:
-        pass
-    # #endregion
+    learnable = prepare_learnable_field_results(
+        snap,
+        dialog_confirmed=norm,
+        legacy_result_dicts=_legacy_result_dicts(
+            amount_result=amount_result,
+            invoice_number_result=invoice_number_result,
+            customer_number_result=customer_number_result,
+            iban_result=iban_res,
+        ),
+    )
+
+    profile = learn_profile_from_resolved_fields(
+        raw_text=raw_text,
+        source_file=source_file,
+        field_results=learnable,
+    )
+
     if profile is None:
         return ProfileLearnResult(
             saved=False,

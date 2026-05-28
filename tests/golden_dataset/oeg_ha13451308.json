@@ -1,0 +1,13 @@
+{
+  "source_file": "OEG FactuurHA13451308.pdf",
+  "invoice_number": "HA13451308",
+  "supplier_name": "OEG",
+  "iban": "DE03265700900050035500",
+  "amount": "492.40",
+  "amount_status": "confirmed",
+  "customer_code": "85763",
+  "description": "85763 / HA13451308",
+  "discount_percentage": "2.00",
+  "invoice_date": "2026-01-09",
+  "payment_terms_days": 30
+}

@@ -8,8 +8,7 @@ import time
 
 from logic.validation import is_plausible_iban, mask_iban_for_log
 from logic.payment_amounts import normalize_supplier_vat_rate_pct
-from parser.pdf_parser import normalize_amount_decimal
-from parser.profile_extractor import extract_with_profile
+from parser.hybrid_field_apply import apply_hybrid_field_extraction
 from parser.supplier_db import SupplierDB
 
 logger = logging.getLogger(__name__)
@@ -208,71 +207,17 @@ def _apply_profile_extraction(
     db: SupplierDB,
     *,
     amount_status: str = "confirmed",
+    use_profile: bool = True,
 ) -> None:
-    """Velden uit leveranciers-extractieprofiel; ``amount_status`` tentative bij onzekere match."""
-    profile = db.get_extraction_profile(supplier["name"])
-    raw = invoice.get("raw_text") or invoice_copy.get("raw_text")
-    if not profile or not raw:
-        invoice_copy["extraction_source"] = "generic"
-        invoice_copy["profile_fields"] = []
-        return
-
-    extracted = extract_with_profile(raw, profile)
-    profile_fields: list[str] = []
-    for field in ("amount", "invoice_number", "customer_number"):
-        val = extracted.get(field)
-        if val is None:
-            continue
-        if field == "amount":
-            dec = normalize_amount_decimal(str(val))
-            if dec is None:
-                continue
-            st = str(amount_status or "confirmed").strip().lower()
-            if st not in ("confirmed", "tentative"):
-                st = "confirmed"
-            invoice_copy["amount"] = float(dec)
-            invoice_copy["amount_confidence"] = "high" if st == "confirmed" else "medium"
-            invoice_copy["amount_source"] = "profile"
-            invoice_copy["amount_result"] = {
-                "status": st,
-                "amount_status": st,
-                "source": "profile",
-                "value": str(dec),
-                "selected_amount": str(dec),
-                "confidence": 95 if st == "confirmed" else 75,
-                "amount_confidence": 95 if st == "confirmed" else 75,
-                "candidates": [],
-            }
-            if st == "tentative":
-                invoice_copy["amount_result"]["review_suggested"] = True
-            profile_fields.append(field)
-            continue
-        invoice_copy[field] = val
-        if field == "invoice_number":
-            invoice_copy["invoice_number_result"] = {
-                "status": "confirmed",
-                "value": str(val),
-                "confidence": 95,
-                "source": "profile",
-                "candidates": [],
-            }
-        elif field == "customer_number":
-            invoice_copy["customer_number_result"] = {
-                "status": "confirmed",
-                "value": str(val),
-                "confidence": 95,
-                "source": "profile",
-                "candidates": [],
-            }
-        profile_fields.append(field)
-
-    cc = str(invoice_copy.get("customer_number") or "").strip()
-    inv_no = str(invoice_copy.get("invoice_number") or "").strip()
-    if cc and inv_no:
-        invoice_copy["description"] = f"{cc} / {inv_no}"
-
-    invoice_copy["extraction_source"] = "profile" if profile_fields else "generic"
-    invoice_copy["profile_fields"] = profile_fields
+    """Hybride profiel-toepassing: generic primair, profile/db als kandidaten."""
+    apply_hybrid_field_extraction(
+        invoice,
+        invoice_copy,
+        supplier,
+        db,
+        amount_status=amount_status,
+        use_profile=use_profile,
+    )
 
 
 def _is_unanchored_tax_only_match(match_info: dict) -> bool:
@@ -483,38 +428,15 @@ def match_suppliers(invoices: list[dict], db: SupplierDB) -> list[dict]:
             # blijft de safety guard: needs_review blijft geel en vraagt om bevestiging.
             invoice_copy["supplier_name"] = supplier["name"]
 
-            # IBAN: prefer DB; store PDF value for mismatch detection
+            # IBAN/customer: pdf-waarden bewaren; DB-master via hybride resolver
             inv_iban_raw = invoice.get("iban")
             inv_iban = str(inv_iban_raw).strip() if inv_iban_raw is not None else ""
-            sup_iban_raw = supplier.get("iban")
-            sup_iban = str(sup_iban_raw).strip() if sup_iban_raw is not None else ""
-
             if inv_iban:
                 invoice_copy["pdf_iban"] = inv_iban
-            if sup_iban:
-                invoice_copy["iban"] = sup_iban
-            if inv_iban and sup_iban and db._clean_iban(inv_iban) != db._clean_iban(sup_iban):
-                invoice_copy["iban_mismatch"] = True
 
-            # Customer code: prefer DB value when a matching code exists
             pdf_cc = str(invoice.get("customer_number") or "").strip()
             if pdf_cc:
                 invoice_copy["pdf_customer_number"] = pdf_cc
-
-            db_codes = supplier.get("customer_codes") or []
-            if db_codes:
-                matched_code = None
-                if pdf_cc:
-                    norm_pdf = db._normalize_customer_code(pdf_cc)
-                    for code in db_codes:
-                        if norm_pdf and db._normalize_customer_code(code) == norm_pdf:
-                            matched_code = code
-                            break
-                db_cc = matched_code or db_codes[0]
-                invoice_copy["customer_number"] = db_cc
-                inv_no = invoice_copy.get("invoice_number")
-                if db_cc and inv_no:
-                    invoice_copy["description"] = f"{db_cc} / {inv_no}"
 
             try:
                 invoice_copy["supplier_payment_term_days_raw"] = int(
@@ -530,14 +452,17 @@ def match_suppliers(invoices: list[dict], db: SupplierDB) -> list[dict]:
             )
             if invoice_copy.get("match_status") == "confirmed":
                 _apply_profile_extraction(
-                    invoice, invoice_copy, supplier, db, amount_status="confirmed"
+                    invoice, invoice_copy, supplier, db, amount_status="confirmed", use_profile=True
                 )
             elif match_info.get("iban_match"):
                 # IBAN-match + profiel: bedrag/factuurnr. uit profiel, status blijft needs_review.
                 _apply_profile_extraction(
-                    invoice, invoice_copy, supplier, db, amount_status="tentative"
+                    invoice, invoice_copy, supplier, db, amount_status="tentative", use_profile=True
                 )
             else:
+                _apply_profile_extraction(
+                    invoice, invoice_copy, supplier, db, use_profile=False
+                )
                 invoice_copy["extraction_source"] = "generic"
                 invoice_copy["profile_fields"] = []
         else:

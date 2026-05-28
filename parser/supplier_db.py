@@ -16,10 +16,12 @@ import re
 from decimal import Decimal, InvalidOperation
 from difflib import SequenceMatcher
 from pathlib import Path
+from typing import Any
 
 from logic.payment_amounts import normalize_supplier_vat_rate_pct
 from logic.settings import atomic_write
 from logic.validation import mask_iban_for_log
+from parser.field_model import ALL_FIELD_IDS
 from parser.profile_extractor import validate_profile
 
 logger = logging.getLogger(__name__)
@@ -894,7 +896,7 @@ class SupplierDB:
                 return False
 
             confirmed: dict = {}
-            for key in ("amount", "invoice_number", "customer_number"):
+            for key in ALL_FIELD_IDS:
                 field = profile.get(key)
                 if not isinstance(field, dict):
                     continue
@@ -906,31 +908,43 @@ class SupplierDB:
                         confirmed["amount"] = Decimal(str(cv))
                     except (InvalidOperation, ValueError):
                         continue
+                elif key == "iban":
+                    from logic.validation import clean_iban
+
+                    v = clean_iban(str(cv))
+                    if v:
+                        confirmed["iban"] = v
                 else:
                     s_val = str(cv).strip()
                     if not s_val:
                         continue
                     confirmed[key] = s_val
 
-            if not validate_profile(raw_text, profile, confirmed):
+            validated_fields: dict[str, dict] = {}
+            for key in ALL_FIELD_IDS:
+                field = profile.get(key)
+                if not isinstance(field, dict) or key not in confirmed:
+                    continue
+                field_spec = {key: field}
+                if validate_profile(raw_text, field_spec, {key: confirmed[key]}):
+                    validated_fields[key] = dict(field)
+
+            if not validated_fields:
                 logger.warning(
-                    "extraction_profile validatie mislukt voor %r",
+                    "extraction_profile validatie mislukt voor %r (geen velden)",
                     supplier_name,
                 )
                 return False
 
             existing_ep = supplier.get("extraction_profile")
-            if isinstance(existing_ep, dict):
-                merged = dict(existing_ep)
-                lf = profile.get("learned_from")
-                if lf:
-                    merged["learned_from"] = lf
-                for key in ("amount", "invoice_number", "customer_number"):
-                    if key in profile and isinstance(profile.get(key), dict):
-                        merged[key] = profile[key]
-                profile = merged
+            merged: dict[str, Any] = dict(existing_ep) if isinstance(existing_ep, dict) else {}
+            lf = profile.get("learned_from")
+            if lf:
+                merged["learned_from"] = lf
+            for key, spec in validated_fields.items():
+                merged[key] = spec
 
-            supplier["extraction_profile"] = dict(profile)
+            supplier["extraction_profile"] = merged
             self.save()
             return True
         except Exception:

@@ -42,7 +42,33 @@ _NUMMER_DATUM_RE = re.compile(
 _DATE_INVOICE_LINE_RE = re.compile(
     r"^\s*\d{1,2}/\d{1,2}/\d{4}\s+([A-Za-z0-9][A-Za-z0-9\-\/]{4,})\s"
 )
-
+# Klantnummer-fallbacks (zelfde patronen als ``pdf_parser``, plus losse K-codes in tekst).
+_UW_KLANT_K_RE = re.compile(r"(?i)\bUw\s+(?:Klant\s*[:]?\s*)?(K\d{3,12})\b")
+_KLANT_LINE_K_RE = re.compile(r"(?i)\bKlant[^\n]{0,48}\s*[:]?\s*(K\d{3,12})\b")
+_DELIVERY_BLOCK_SIX_DIGIT_RE = re.compile(
+    r"(?is)\bAfleveradres\b[^\n]{0,88}(?:\n[^\n]*){1,10}?\s*(\d{6})(?!\d)"
+)
+# K + cijfers: veel leveranciers (Option Tape, Wavin, …); case-insensitive, OCR-spaties.
+_STANDALONE_K_CUSTOMER_RE = re.compile(r"(?i)(?<![a-z])(k\d{4,12})(?!\d)")
+_SPACED_K_CUSTOMER_RE = re.compile(r"(?i)(?<![a-z])(k(?:\s*\d){4,12})(?!\d)")
+_LINE_ONLY_K_CODE_RE = re.compile(r"(?im)^\s*(k(?:\s*\d){4,12})\s*$")
+_K_NEWLINE_DIGITS_RE = re.compile(r"(?is)(?<![a-z])k\s*\n\s*(0?\d{4,10})\b")
+# Max ~7 cijfers na K (voorkomt ``K0141357550`` op collapsed tekst zonder spaties).
+_COLLAPSED_K_IN_TEXT_RE = re.compile(r"(?i)k0?\d{4,7}(?!\d)")
+# Labels voor klantnummer/klantcode (layout: label + cel ernaast/eronder).
+_CUSTOMER_FIELD_LABEL_RE = re.compile(
+    r"(?i)\b(?:klantnummer|klant-nummer|klant\s*nummer|klantcode|klantnr\.?|klant-nr\.?|"
+    r"klantrekening|uw\s+klant)\b"
+)
+_REFERENTIE_ONLY_LINE_RE = re.compile(
+    r"(?i)\b(?:uw|onze|jullie|your)\s+referentie\b"
+)
+_KLANTCODE_INLINE_RE = re.compile(
+    r"(?i)\bklantcode\s*[:#]?\s*([A-Za-z]?\d{4,12})\b"
+)
+_UW_REFERENTIE_LINE_RE = re.compile(r"(?i)\buw\s+referentie\b")
+_ORDER_REF_TOKEN_RE = re.compile(r"^20\d{4,6}$")
+_REF_SLASH_CUSTOMER_RE = re.compile(r"\b(?!\d{2}/\d{7})(\d{5,})\s*/\s*(\d{4,})\b")
 
 @dataclass
 class IdentFieldCandidate:
@@ -70,15 +96,22 @@ class IdentFieldResult:
     source: str = "UNKNOWN"
     status: str = "failed"
     user_selected: bool = False
+    absence_state: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
             "candidates": [c.to_dict() for c in self.candidates],
             "value": self.value,
+            "selected_value": self.value,
             "confidence": self.confidence,
             "source": self.source,
             "status": self.status,
+            "decision_trace": [],
+            "override_reason": "",
+            "resolver_finalized": False,
         }
+        if self.absence_state:
+            d["absence_state"] = self.absence_state
         if self.user_selected:
             d["user_selected"] = True
         return d
@@ -100,6 +133,15 @@ def _tokens_after_label(line: str, end: int, *, join_spaced_digits: bool) -> lis
     if not after.strip():
         return []
     if join_spaced_digits:
+        # PM Coded e.a.: factuurnummer kan zijn "2026 / 15" (spaties rond slash).
+        m_slash = re.match(r"^\s*(\d[\d\s]{1,8})\s*/\s*(\d[\d\s]{1,8})\b", after)
+        if m_slash:
+            left = re.sub(r"\s+", "", m_slash.group(1))
+            right = re.sub(r"\s+", "", m_slash.group(2))
+            joined = f"{left}/{right}"
+            v = _normalize_ident_value(joined, join_spaced_digits=False)
+            if v:
+                return [v]
         m = re.match(r"([\d][\d\s]{2,})", after)
         if m:
             v = _normalize_ident_value(m.group(1), join_spaced_digits=True)
@@ -271,6 +313,494 @@ def _collect_invoice_fallback_candidates(text: str) -> list[IdentFieldCandidate]
     return cands
 
 
+def _customer_candidate_ok(value: str) -> bool:
+    return bool(
+        re.search(r"\d", value)
+        and len(value) >= 3
+        and not _is_noise_value(value)
+        and not _looks_like_date_token(value)
+    )
+
+
+def _normalize_k_customer_code(raw: str) -> str | None:
+    """``K 014135`` / ``k014135`` / ``K0 14135`` → ``K014135``."""
+    compact = re.sub(r"\s+", "", (raw or "").strip())
+    if not re.fullmatch(r"(?i)k\d{4,12}", compact):
+        return None
+    return "K" + compact[1:]
+
+
+def _is_k_customer_code(value: str) -> bool:
+    norm = _normalize_k_customer_code(value)
+    if not norm:
+        return False
+    digits = norm[1:]
+    return 4 <= len(digits) <= 8
+
+
+def _compose_k_digits(digits: str) -> str | None:
+    d = str(digits or "").strip()
+    if not re.fullmatch(r"0?\d{4,10}", d):
+        return None
+    if _ORDER_REF_TOKEN_RE.fullmatch(d):
+        return None
+    return "K" + d
+
+
+def _is_order_or_reference_token(value: str, *, line: str = "") -> bool:
+    """Alleen orderrefs op expliciete referentieregels — niet op klantnummer-regels."""
+    v = str(value or "").strip()
+    ln = str(line or "")
+    if not v or not _ORDER_REF_TOKEN_RE.fullmatch(v):
+        return False
+    if _CUSTOMER_FIELD_LABEL_RE.search(ln):
+        return False
+    return bool(_REFERENTIE_ONLY_LINE_RE.search(ln))
+
+
+_WEAK_CUSTOMER_RESOLVED_SOURCES = frozenset(
+    {"delivery_block_six_digit", "ref_slash_customer"}
+)
+_WEAK_CUSTOMER_FALLBACK_SOURCES = frozenset(
+    {
+        "delivery_block_six_digit",
+        "ref_slash_customer",
+        "collapsed_k_token",
+        "collapsed_k_near_label",
+    }
+)
+
+
+def _sanitize_legacy_customer_resolved(
+    resolved: str | None,
+    resolved_source: str | None,
+    body: str,
+) -> tuple[str | None, str | None]:
+    rv = str(resolved or "").strip()
+    if not rv:
+        return None, None
+    for line in (body or "").splitlines():
+        if rv in (line or "") and _is_order_or_reference_token(rv, line=line):
+            return None, None
+    if _ORDER_REF_TOKEN_RE.fullmatch(rv) and _UW_REFERENTIE_LINE_RE.search(body or ""):
+        return None, None
+    return rv, resolved_source
+
+
+def _has_labeled_customer_candidate(cands: list[IdentFieldCandidate]) -> bool:
+    for c in cands:
+        src = str(c.source or "")
+        if src.startswith("label_block") or src.startswith("klantcode"):
+            return True
+        if src in ("label", "label_next_line", "collapsed_klantcode_fused"):
+            return True
+    return False
+
+
+def _reject_weak_resolved_against_candidates(
+    resolved: str | None,
+    resolved_source: str | None,
+    cands: list[IdentFieldCandidate],
+) -> tuple[str | None, str | None]:
+    """Geen afleveradres-6-cijfer als er een klantcode/klantnummer-labelkandidaat is."""
+    rv = str(resolved or "").strip()
+    rs = str(resolved_source or "").strip()
+    if not rv or rs not in _WEAK_CUSTOMER_RESOLVED_SOURCES:
+        return resolved, resolved_source
+    if not _has_labeled_customer_candidate(cands):
+        return resolved, resolved_source
+    if any(c.value.casefold() == rv.casefold() for c in cands):
+        return resolved, resolved_source
+    return None, None
+
+
+def _filter_weak_customer_fallbacks(
+    cands: list[IdentFieldCandidate],
+) -> list[IdentFieldCandidate]:
+    if not _has_labeled_customer_candidate(cands):
+        return cands
+    return [c for c in cands if c.source not in _WEAK_CUSTOMER_FALLBACK_SOURCES]
+
+
+def _same_line_plausible_customer_values(
+    vals: list[str],
+    *,
+    label_line: str,
+) -> list[str]:
+    """Kolomkoppen (MAGAZIJN, CODE) zijn geen klantnummer op dezelfde regel als ``Klantcode``."""
+    out: list[str] = []
+    for val in vals:
+        if not _customer_value_ok(val, label_line=label_line):
+            continue
+        if not re.search(r"\d", val):
+            continue
+        if re.fullmatch(r"(?i)[a-z]+", val):
+            continue
+        out.append(val)
+    return out
+
+
+def _drop_kvk_smear_k_candidates(
+    cands: list[IdentFieldCandidate],
+    body: str,
+) -> list[IdentFieldCandidate]:
+    """Geen ``K94258392`` uit platte tekst ``kvk94258392``."""
+    compact = re.sub(r"[^a-z0-9]", "", (body or "").lower())
+    if not compact:
+        return cands
+    out: list[IdentFieldCandidate] = []
+    for c in cands:
+        if not _is_k_customer_code(c.value):
+            out.append(c)
+            continue
+        digits = str(c.value or "").strip()[1:].lower()
+        if digits and f"kvk{digits}" in compact:
+            continue
+        out.append(c)
+    return out
+
+
+def _drop_false_k_glue_candidates(
+    cands: list[IdentFieldCandidate],
+) -> list[IdentFieldCandidate]:
+    """Verwijder OCR-lijm zoals ``K01413552`` wanneer ``K014135`` al bestaat."""
+    k_vals = sorted(
+        {str(c.value or "").strip() for c in cands if _is_k_customer_code(c.value)},
+        key=len,
+    )
+    if len(k_vals) < 2:
+        return cands
+    drop: set[str] = set()
+    for i, short in enumerate(k_vals):
+        for long in k_vals[i + 1 :]:
+            if long.upper().startswith(short.upper()) and len(long) > len(short):
+                drop.add(long.casefold())
+    if not drop:
+        return cands
+    return [c for c in cands if str(c.value or "").strip().casefold() not in drop]
+
+
+def _text_has_k_customer_code(text: str) -> bool:
+    body = text or ""
+    if _STANDALONE_K_CUSTOMER_RE.search(body):
+        return True
+    if _SPACED_K_CUSTOMER_RE.search(body):
+        return True
+    collapsed = re.sub(r"\s+", "", body)
+    return bool(_COLLAPSED_K_IN_TEXT_RE.search(collapsed))
+
+
+def _customer_value_ok(value: str, *, label_line: str = "") -> bool:
+    v = str(value or "").strip()
+    if not _customer_candidate_ok(v):
+        return False
+    if _is_order_or_reference_token(v, line=label_line):
+        return False
+    if re.fullmatch(r"(?i)klant(?:nummer|code|nr)?", v):
+        return False
+    return True
+
+
+def _collect_customer_label_block_candidates(text: str) -> list[IdentFieldCandidate]:
+    """``Klantnummer`` / ``Klantcode`` + waarde opzelfde regel of in cel eronder/ernaast."""
+    body = text or ""
+    lines = body.splitlines()
+    cands: list[IdentFieldCandidate] = []
+
+    for i, line in enumerate(lines):
+        m = _CUSTOMER_FIELD_LABEL_RE.search(line or "")
+        if not m:
+            continue
+        if _REFERENTIE_ONLY_LINE_RE.search(line or "") and not re.search(
+            r"(?i)klant(?:nummer|code|nr)", line or ""
+        ):
+            continue
+        label_span = (line or "")[m.start() : m.end()].strip()
+        ctx = re.sub(r"\s+", " ", (line or "")).strip()[:160]
+        same_line_vals = _same_line_plausible_customer_values(
+            _tokens_after_label(line, m.end(), join_spaced_digits=False),
+            label_line=line,
+        )
+        for val in same_line_vals:
+            norm = _normalize_k_customer_code(val) or val
+            cands.append(
+                IdentFieldCandidate(
+                    value=norm,
+                    source="label_block_same_line",
+                    confidence=94,
+                    context=ctx,
+                    label=label_span,
+                )
+            )
+        if same_line_vals:
+            continue
+        for j in range(1, 4):
+            if i + j >= len(lines):
+                break
+            nxt_line = lines[i + j] or ""
+            if not nxt_line.strip():
+                continue
+            if _REFERENTIE_ONLY_LINE_RE.search(nxt_line) and not _CUSTOMER_FIELD_LABEL_RE.search(
+                nxt_line
+            ):
+                continue
+            nxt_ctx = re.sub(r"\s+", " ", nxt_line).strip()[:160]
+            got = False
+            for val in _tokens_after_label(nxt_line, 0, join_spaced_digits=False):
+                if not _customer_value_ok(val, label_line=line):
+                    continue
+                norm = _normalize_k_customer_code(val) or val
+                if re.search(r"(?i)\buw\s+klant\b", line or "") and re.fullmatch(
+                    r"0?\d{4,10}", val
+                ):
+                    norm = _compose_k_digits(val) or norm
+                cands.append(
+                    IdentFieldCandidate(
+                        value=norm,
+                        source="label_block_next_line",
+                        confidence=93 - j,
+                        context=nxt_ctx,
+                        label=label_span,
+                    )
+                )
+                got = True
+                break
+            if got:
+                break
+            if re.search(r"(?i)\buw\s+klant\b", line or "") and re.fullmatch(
+                r"0?\d{4,10}", nxt_line.strip()
+            ):
+                composed = _compose_k_digits(nxt_line.strip())
+                if composed:
+                    cands.append(
+                        IdentFieldCandidate(
+                            value=composed,
+                            source="label_block_uw_klant_digits",
+                            confidence=91 - j,
+                            context=nxt_ctx,
+                            label=label_span,
+                        )
+                    )
+                    break
+    return cands
+
+
+def _collect_collapsed_customer_layout_candidates(text: str) -> list[IdentFieldCandidate]:
+    """Alleen direct na ``klantcode``/``klantnummer`` in platte tekst (geen globale K-scan)."""
+    body = text or ""
+    compact = re.sub(r"[^a-z0-9]", "", body.lower())
+    cands: list[IdentFieldCandidate] = []
+    if "klantnummer" not in compact and "klantcode" not in compact:
+        return cands
+    for label in ("klantcode", "klantnummer"):
+        start = 0
+        while True:
+            pos = compact.find(label, start)
+            if pos < 0:
+                break
+            window = compact[pos : pos + len(label) + 22]
+            tail = window[len(label) :]
+            fused = re.match(r"^(0?\d{5,10})(?!\d)", tail)
+            if fused and not _ORDER_REF_TOKEN_RE.fullmatch(fused.group(1)):
+                cands.append(
+                    IdentFieldCandidate(
+                        value=fused.group(1),
+                        source="collapsed_klantcode_fused",
+                        confidence=92,
+                        context="",
+                        label=label,
+                    )
+                )
+            for m in re.finditer(r"(?<!kv)k(\d{4,7})(?!\d)", tail):
+                val = "K" + m.group(1)
+                if _is_k_customer_code(val):
+                    cands.append(
+                        IdentFieldCandidate(
+                            value=val,
+                            source="collapsed_k_near_label",
+                            confidence=88,
+                            context="",
+                            label=label,
+                        )
+                    )
+            start = pos + 1
+    return cands
+
+
+def _collect_split_k_line_candidates(text: str) -> list[IdentFieldCandidate]:
+    """Regel met alleen ``K``, cijfers op volgende regel(s)."""
+    body = text or ""
+    lines = body.splitlines()
+    cands: list[IdentFieldCandidate] = []
+    for i, line in enumerate(lines):
+        if not re.fullmatch(r"(?i)\s*k\s*", (line or "").strip()):
+            continue
+        for j in range(1, 3):
+            if i + j >= len(lines):
+                break
+            nxt = (lines[i + j] or "").strip()
+            composed = _compose_k_digits(nxt)
+            if composed:
+                cands.append(
+                    IdentFieldCandidate(
+                        value=composed,
+                        source="split_k_line",
+                        confidence=88 - j,
+                        context=nxt[:160],
+                        label="K",
+                    )
+                )
+    for m in _K_NEWLINE_DIGITS_RE.finditer(body):
+        composed = _compose_k_digits(m.group(1))
+        if composed:
+            cands.append(
+                IdentFieldCandidate(
+                    value=composed,
+                    source="split_k_newline",
+                    confidence=87,
+                    context=_line_context_at(body, m.start()),
+                    label="K",
+                )
+            )
+    return cands
+
+
+def _collect_klantcode_table_candidates(text: str) -> list[IdentFieldCandidate]:
+    """Tabelkop met ``KLANTCODE`` (Option Tape e.d.)."""
+    body = text or ""
+    lines = body.splitlines()
+    cands: list[IdentFieldCandidate] = []
+    for i, hdr in enumerate(lines):
+        if not re.search(r"(?i)\bklantcode\b", hdr or ""):
+            continue
+        hdr_tokens = re.split(r"\s+", (hdr or "").strip())
+        col_idx: int | None = None
+        for j, tok in enumerate(hdr_tokens):
+            if re.search(r"(?i)klantcode", tok):
+                col_idx = j
+                break
+        label = "KLANTCODE"
+        for row in lines[i + 1 : i + 6]:
+            if not (row or "").strip():
+                continue
+            ctx = re.sub(r"\s+", " ", row).strip()[:160]
+            inline = _KLANTCODE_INLINE_RE.search(row or "")
+            if inline:
+                val = inline.group(1).strip()
+                norm = _normalize_k_customer_code(val) or val
+                cands.append(
+                    IdentFieldCandidate(
+                        value=norm,
+                        source="klantcode_inline",
+                        confidence=92,
+                        context=ctx,
+                        label=label,
+                    )
+                )
+                continue
+            for m in _STANDALONE_K_CUSTOMER_RE.finditer(row or ""):
+                norm = _normalize_k_customer_code(m.group(1))
+                if norm:
+                    cands.append(
+                        IdentFieldCandidate(
+                            value=norm,
+                            source="klantcode_table_k",
+                            confidence=93,
+                            context=ctx,
+                            label=label,
+                        )
+                    )
+    for m in _KLANTCODE_INLINE_RE.finditer(body):
+        val = m.group(1).strip()
+        norm = _normalize_k_customer_code(val) or val
+        if _customer_candidate_ok(norm):
+            cands.append(
+                IdentFieldCandidate(
+                    value=norm,
+                    source="klantcode_inline",
+                    confidence=92,
+                    context=_line_context_at(body, m.start()),
+                    label="Klantcode",
+                )
+            )
+    return cands
+
+
+def _collect_customer_fallback_candidates(text: str) -> list[IdentFieldCandidate]:
+    """Tekstscan voor klantnummer zonder label (onafhankelijk van supplier/profiel)."""
+    body = text or ""
+    cands: list[IdentFieldCandidate] = []
+
+    def _add(val: str, source: str, confidence: int, pos: int, label: str = "") -> None:
+        v = str(val or "").strip()
+        if not _customer_candidate_ok(v):
+            return
+        cands.append(
+            IdentFieldCandidate(
+                value=v,
+                source=source,
+                confidence=confidence,
+                context=_line_context_at(body, pos),
+                label=label,
+            )
+        )
+
+    for rx, source, conf in (
+        (_UW_KLANT_K_RE, "uw_klant_k_prefix", 90),
+        (_KLANT_LINE_K_RE, "klant_line_k_prefix", 88),
+        (_DELIVERY_BLOCK_SIX_DIGIT_RE, "delivery_block_six_digit", 84),
+    ):
+        for m in rx.finditer(body):
+            _add(m.group(1), source, conf, m.start())
+
+    for m in _REF_SLASH_CUSTOMER_RE.finditer(body):
+        _add(m.group(2), "ref_slash_customer", 76, m.start(2))
+
+    for m in _STANDALONE_K_CUSTOMER_RE.finditer(body):
+        norm = _normalize_k_customer_code(m.group(1))
+        if norm:
+            _add(norm, "standalone_k_token", 86, m.start(1))
+
+    for m in _SPACED_K_CUSTOMER_RE.finditer(body):
+        norm = _normalize_k_customer_code(m.group(1))
+        if norm:
+            _add(norm, "spaced_k_token", 85, m.start(1))
+
+    for m in _LINE_ONLY_K_CODE_RE.finditer(body):
+        norm = _normalize_k_customer_code(m.group(1))
+        if norm:
+            _add(norm, "line_only_k_code", 84, m.start(1))
+
+    collapsed = re.sub(r"\s+", "", body)
+    seen_k: set[str] = set()
+    for m in _COLLAPSED_K_IN_TEXT_RE.finditer(collapsed):
+        val = _normalize_k_customer_code(m.group(0))
+        if not val:
+            continue
+        key = val.casefold()
+        if key in seen_k:
+            continue
+        seen_k.add(key)
+        pos = 0
+        for raw_m in _SPACED_K_CUSTOMER_RE.finditer(body):
+            if _normalize_k_customer_code(raw_m.group(1)) == val:
+                pos = raw_m.start(1)
+                break
+        else:
+            pos_m = _STANDALONE_K_CUSTOMER_RE.search(body)
+            if pos_m and _normalize_k_customer_code(pos_m.group(1)) == val:
+                pos = pos_m.start(1)
+        _add(val, "collapsed_k_token", 83, pos)
+
+    for c in _collect_split_k_line_candidates(body):
+        _add(c.value, c.source, c.confidence, 0, c.label)
+
+    for c in _collect_klantcode_table_candidates(body):
+        _add(c.value, c.source, c.confidence, 0, c.label)
+
+    return cands
+
+
 def _merge_resolved_into_candidates(
     candidates: list[IdentFieldCandidate],
     resolved_value: str | None,
@@ -290,6 +820,25 @@ def _merge_resolved_into_candidates(
             label="",
         )
     ]
+
+
+def _drop_redundant_k_suffix_candidates(
+    cands: list[IdentFieldCandidate],
+) -> list[IdentFieldCandidate]:
+    """Verwijder ``014135`` als ``K014135`` al als kandidaat bestaat (label + K-regel)."""
+    k_codes = [
+        c.value
+        for c in cands
+        if re.fullmatch(r"(?i)K\d{4,12}", str(c.value or "").strip())
+    ]
+    if not k_codes:
+        return cands
+    drop: set[str] = set()
+    for kc in k_codes:
+        suffix = str(kc)[1:]
+        if suffix:
+            drop.add(suffix.casefold())
+    return [c for c in cands if str(c.value or "").strip().casefold() not in drop]
 
 
 def _dedupe_candidates(cands: list[IdentFieldCandidate]) -> list[IdentFieldCandidate]:
@@ -389,6 +938,7 @@ def build_ident_field_result(
     *,
     resolved_value: str | None = None,
     resolved_source: str | None = None,
+    prefer_k_prefix: bool = False,
 ) -> IdentFieldResult:
     """Selecteer status; ``resolved_value`` van legacy extractie heeft voorrang."""
     polis_best = _prefer_polis_candidate(candidates, resolved_value)
@@ -409,8 +959,16 @@ def build_ident_field_result(
         )
     if not candidates:
         return IdentFieldResult(status="failed", source="NOT_FOUND")
-    if len(candidates) == 1:
-        c = candidates[0]
+    ordered = list(candidates)
+    if prefer_k_prefix:
+        k_cands = [c for c in ordered if _is_k_customer_code(c.value)]
+        other = [c for c in ordered if not _is_k_customer_code(c.value)]
+        if k_cands:
+            ordered = sorted(k_cands, key=lambda x: (-x.confidence, -len(x.value))) + sorted(
+                other, key=lambda x: (-x.confidence, -len(x.value))
+            )
+    if len(ordered) == 1:
+        c = ordered[0]
         st = "confirmed" if c.confidence >= 80 else "tentative"
         return IdentFieldResult(
             candidates=candidates,
@@ -419,8 +977,8 @@ def build_ident_field_result(
             source=c.source,
             status=st,
         )
-    top = candidates[0]
-    second = candidates[1]
+    top = ordered[0]
+    second = ordered[1]
     if top.confidence >= 85 and top.confidence - second.confidence >= 12:
         return IdentFieldResult(
             candidates=candidates,
@@ -452,11 +1010,12 @@ def extract_invoice_number_result(
     )
     cands.extend(_collect_invoice_fallback_candidates(text))
     cands = _dedupe_candidates(cands)
-    return build_ident_field_result(
+    result = build_ident_field_result(
         cands,
         resolved_value=resolved,
         resolved_source=resolved_source,
     )
+    return result
 
 
 def extract_customer_number_result(
@@ -464,14 +1023,49 @@ def extract_customer_number_result(
     *,
     resolved: str | None = None,
     resolved_source: str | None = None,
+    supplier_customer_absent: bool = False,
 ) -> IdentFieldResult:
-    cands = collect_ident_field_candidates(
-        text,
+    body = text or ""
+    resolved, resolved_source = _sanitize_legacy_customer_resolved(
+        resolved, resolved_source, body
+    )
+    block_cands = _collect_customer_label_block_candidates(body)
+    label_cands = collect_ident_field_candidates(
+        body,
         _CUSTOMER_LABEL_RE,
         field_kind="customer_number",
     )
-    return build_ident_field_result(
+    collapsed_cands = _collect_collapsed_customer_layout_candidates(body)
+    fallback_cands = _collect_customer_fallback_candidates(body)
+    cands = _drop_kvk_smear_k_candidates(
+        _drop_false_k_glue_candidates(
+            _drop_redundant_k_suffix_candidates(
+                _dedupe_candidates(
+                    block_cands + label_cands + collapsed_cands + fallback_cands
+                )
+            )
+        ),
+        body,
+    )
+    cands = _filter_weak_customer_fallbacks(cands)
+    resolved, resolved_source = _reject_weak_resolved_against_candidates(
+        resolved, resolved_source, cands
+    )
+    if cands and not any(_is_k_customer_code(c.value) for c in cands):
+        collapsed = re.sub(r"\s+", "", body)
+    result = build_ident_field_result(
         cands,
         resolved_value=resolved,
         resolved_source=resolved_source,
+        prefer_k_prefix=_text_has_k_customer_code(body),
     )
+    has_value = bool(str(result.value or "").strip())
+    if not cands and not has_value:
+        if supplier_customer_absent:
+            result.absence_state = "NOT_PRESENT_SUPPLIER_LEVEL"
+            result.source = "NOT_PRESENT_SUPPLIER_LEVEL"
+        else:
+            result.absence_state = "NOT_FOUND"
+            result.source = "NOT_FOUND"
+        result.status = "failed"
+    return result

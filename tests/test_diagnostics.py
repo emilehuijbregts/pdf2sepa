@@ -5,7 +5,11 @@ from __future__ import annotations
 from logic.diagnostics import (
     build_diagnostics,
     build_invoice_diagnostics_snapshot,
+    overlay_amount_result,
+    overlay_field_result,
+    overlay_iban_result,
 )
+from logic.field_diagnostics import build_iban_diag_block
 
 
 def _base_invoice(**overrides: object) -> dict:
@@ -31,6 +35,20 @@ def _base_invoice(**overrides: object) -> dict:
             "value": "100.00",
             "confidence": 95,
             "candidates": [],
+        },
+        "iban_result": {
+            "status": "confirmed",
+            "value": "NL20INGB0001234567",
+            "confidence": 88,
+            "source": "pdf_text",
+            "candidates": [
+                {
+                    "value": "NL20INGB0001234567",
+                    "source": "pdf_text",
+                    "confidence": 88,
+                    "context": "IBAN",
+                }
+            ],
         },
         "raw_text": "SHOULD NOT APPEAR IN SNAPSHOT",
     }
@@ -60,6 +78,9 @@ def test_snapshot_whitelist_and_deepcopy_amount_result() -> None:
             "ocr_iban_attempted",
             "ocr_iban_error",
             "amount_result",
+            "iban_result",
+            "invoice_number_result",
+            "customer_number_result",
             "invoice_number",
             "customer_number",
             "invoice_date_source",
@@ -118,6 +139,137 @@ def test_amount_ambiguous_suggestion() -> None:
     assert len(preview) <= 81
     assert preview.endswith("…")
     assert diag["amount"]["detail_nl"]
+
+
+def test_overlay_field_result_invoice_number_live_wins() -> None:
+    inv = _base_invoice(
+        invoice_number="OLD",
+        invoice_number_result={
+            "status": "ambiguous",
+            "value": "OLD",
+            "confidence": 0,
+            "source": "label",
+            "candidates": [
+                {"value": "OLD", "source": "a", "confidence": 80, "context": "x"},
+                {"value": "NEW", "source": "b", "confidence": 85, "context": "y"},
+            ],
+        },
+    )
+    snap = build_invoice_diagnostics_snapshot(inv)
+    live = {
+        "status": "confirmed",
+        "user_selected": True,
+        "value": "NEW",
+        "confidence": 95,
+        "source": "USER_PICKED",
+        "candidates": [],
+    }
+    merged = overlay_field_result(snap, "invoice_number", live)
+    assert merged["invoice_number"] == "NEW"
+    assert merged["invoice_number_result"]["status"] == "confirmed"
+    diag = build_diagnostics(merged)
+    assert diag["invoice_number"]["value"] == "NEW"
+    assert snap["invoice_number"] == "OLD"
+
+
+def test_overlay_amount_result_replaces_stale_parser_snapshot() -> None:
+    """Live amount_result from UI cell must win over batch diagnostics snapshot."""
+    inv = _base_invoice(
+        amount_result={
+            "status": "ambiguous",
+            "source": "INCL_CONFLICT",
+            "value": None,
+            "confidence": 0,
+            "candidates": [{"value": "10.00", "source": "total_label_payable", "confidence": 80}],
+        }
+    )
+    snap = build_invoice_diagnostics_snapshot(inv)
+    live = {
+        "status": "confirmed",
+        "amount_status": "confirmed",
+        "user_selected": True,
+        "value": "200.00",
+        "selected_amount": "200.00",
+        "confidence": 100,
+        "source": "TOTAL_LABEL_PAYABLE",
+        "candidates": [{"value": "200.00", "source": "total_label_payable", "confidence": 80}],
+    }
+    merged = overlay_amount_result(snap, live)
+    diag = build_diagnostics(merged)
+    assert diag["amount"]["status"] == "confirmed"
+    assert diag["amount"]["value"] == "200.00"
+    assert diag["amount"]["needs_attention"] is False
+    assert snap["amount_result"]["status"] == "ambiguous"
+
+
+def test_overlay_iban_result_replaces_stale_snapshot() -> None:
+    inv = _base_invoice(
+        iban="NL20INGB0001234567",
+        iban_result={
+            "status": "ambiguous",
+            "value": None,
+            "confidence": 0,
+            "source": "AMBIGUOUS",
+            "candidates": [
+                {"value": "NL20INGB0001234567", "source": "pdf_text", "confidence": 88, "context": "a"},
+                {"value": "NL91ABNA0417164300", "source": "pdf_text", "confidence": 72, "context": "b"},
+            ],
+        },
+    )
+    snap = build_invoice_diagnostics_snapshot(inv)
+    live = {
+        "status": "confirmed",
+        "user_selected": True,
+        "value": "NL20INGB0001234567",
+        "confidence": 95,
+        "source": "USER_PICKED",
+        "candidates": [],
+    }
+    merged = overlay_iban_result(snap, live)
+    assert merged["iban"] == "NL20INGB0001234567"
+    diag = build_diagnostics(merged)
+    assert diag["iban"]["value"] == "NL20INGB0001234567"
+    assert diag["iban"]["masked_value"] == "NL…4567"
+
+
+def test_build_iban_diag_block_masks_candidates() -> None:
+    snap = {
+        "iban": "NL20INGB0001234567",
+        "iban_result": {
+            "status": "confirmed",
+            "value": "NL20INGB0001234567",
+            "confidence": 88,
+            "source": "pdf_text",
+            "candidates": [
+                {"value": "NL20INGB0001234567", "source": "pdf_text", "confidence": 88, "context": "IBAN"},
+            ],
+        },
+    }
+    block = build_iban_diag_block(snap)
+    assert block["value"] == "NL20INGB0001234567"
+    assert block["candidates"][0]["value_display"] == "NL…4567"
+
+
+def test_hybrid_override_trace_in_amount_diag() -> None:
+    snap = _base_invoice(
+        amount_result={
+            "status": "confirmed",
+            "value": "100.00",
+            "confidence": 90,
+            "source": "total_label_payable",
+            "override_reason": "generic_strong",
+            "decision_trace": [
+                {"source": "total_label_payable", "confidence": 90, "considered": True, "win": True},
+                {"source": "profile", "confidence": 90, "considered": True, "win": False, "excluded_reason": "generic_strong"},
+            ],
+            "candidates": [],
+        },
+    )
+    diag = build_diagnostics(snap)
+    amount = diag["amount"]
+    assert amount.get("override_reason") == "generic_strong"
+    assert amount.get("override_reason_nl")
+    assert len(amount.get("decision_trace") or []) == 2
 
 
 def test_load_failed_error_status() -> None:

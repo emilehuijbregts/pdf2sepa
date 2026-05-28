@@ -1,0 +1,13 @@
+{
+  "source_file": "Pipelife Factuur 0266069151.PDF",
+  "invoice_number": "266069151",
+  "supplier_name": "Pipelife Nederland B.V.",
+  "iban": "NL52KRED0633000574",
+  "amount": "600.77",
+  "amount_status": "confirmed",
+  "customer_code": "475700",
+  "description": "475700 / 266069151",
+  "discount_percentage": "0.00",
+  "invoice_date": "2026-03-25",
+  "payment_terms_days": 30
+}

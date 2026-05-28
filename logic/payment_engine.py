@@ -75,6 +75,25 @@ def _agent_log(hypothesis_id: str, location: str, message: str, data: dict) -> N
 # endregion
 
 
+def _effective_amount_status(inv_raw: dict) -> tuple[str, dict]:
+    """
+    Bepaal bedragstatus voor betalingsbeslissingen.
+
+    Profiel-bedrag bij bevestigde leverancier (confidence >= 85) telt als confirmed,
+    ook wanneer upstream nog ``tentative`` door cap/legacy pad staat.
+    """
+    inv_amt_result = inv_raw.get("amount_result") or {}
+    if not isinstance(inv_amt_result, dict):
+        inv_amt_result = {}
+    st = str(inv_amt_result.get("status") or inv_amt_result.get("amount_status") or "").strip().lower()
+    src = str(inv_amt_result.get("source") or "").strip().lower()
+    conf = int(inv_amt_result.get("confidence") or 0)
+    match_st = str(inv_raw.get("match_status") or "").strip().lower()
+    if src == "profile" and match_st == "confirmed" and conf >= 85:
+        return "confirmed", inv_amt_result
+    return st, inv_amt_result
+
+
 def _to_decimal_money(value: object, *, field: str) -> Decimal:
     """Strict money coercion for engine boundary: only parse, never guess."""
     if isinstance(value, bool):
@@ -750,8 +769,7 @@ def _process_supplier_group(
         src = str(inv_raw.get("invoice_date_source") or "missing")
         if not inv_date:
             warn_parts.append("missing_invoice_date")
-        inv_amt_result = inv_raw.get("amount_result") or {}
-        inv_amt_status = str(inv_amt_result.get("status") or inv_amt_result.get("amount_status") or "").strip().lower()
+        inv_amt_status, inv_amt_result = _effective_amount_status(inv_raw)
         if inv_amt_status == "tentative":
             warn_parts.append("amount_tentative")
         elif inv_amt_status == "low_confidence":

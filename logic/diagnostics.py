@@ -6,10 +6,17 @@ import copy
 from pathlib import Path
 from typing import Any
 
-from logic.payment_amounts import amount_to_decimal, format_eur_xml
+from logic.field_diagnostics import (
+    amount_needs_attention,
+    build_amount_diag_block,
+    build_iban_diag_block,
+    build_ident_field_diag_block,
+)
 from logic.payment_amounts import amount_to_decimal, resolved_payment_amount_for_export
 from logic.profile_learning import can_offer_profile_learning
-from logic.validation import mask_iban_for_log
+from logic.validation import clean_iban, mask_iban_for_log
+from parser.field_adapters import normalize_amount_result_dict
+from parser.field_model import FieldId, _LEGACY_VALUE_KEY_BY_FIELD, _RESULT_KEY_BY_FIELD
 
 # --- NL label maps (single source for diagnostics popup; UI may import these) ---
 
@@ -80,36 +87,11 @@ WARNING_NL: dict[str, str] = {
     "amount_uncertain": "Bedrag niet met voldoende zekerheid uit de PDF af te leiden — controleer het totaal of vul handmatig in.",
 }
 
-_AMOUNT_CONFLICT_SOURCES = frozenset(
-    {"INCL_CONFLICT", "GENERIC_TOTAL_CONFLICT", "CONFLICTING_HIGH_CONFIDENCE", "LOAD_FAILED"}
-)
-
-_AMOUNT_WARNING_KEYS = frozenset(
-    {
-        "amount_low_confidence",
-        "amount_tentative",
-        "amount_ambiguous",
-        "amount_uncertain",
-    }
-)
-
-_AMOUNT_REASON_CODES = frozenset(
-    {
-        "missing_amount",
-        "amount_ambiguous",
-        "amount_uncertain",
-        "amount_failed",
-        "amount_low_confidence",
-    }
-)
-
 _IBAN_REASON_CODES = frozenset({"missing_iban", "invalid_iban"})
 
 _SUPPLIER_NEEDS_ATTENTION = frozenset(
     {"needs_review", "unmatched", "no_hint", "new", "load_failed"}
 )
-
-_AMOUNT_NEEDS_ATTENTION = frozenset({"tentative", "ambiguous", "failed"})
 
 _MATCH_INFO_FLAG_KEYS = (
     "iban_match",
@@ -154,6 +136,7 @@ _SNAPSHOT_FIELDS = (
     "match_signals",
     "iban",
     "all_ibans",
+    "iban_result",
     "iban_mismatch",
     "ocr_iban_attempted",
     "ocr_iban_error",
@@ -169,9 +152,6 @@ _SNAPSHOT_FIELDS = (
     "pdf_customer_number",
 )
 
-_CONTEXT_PREVIEW_MAX = 80
-
-
 def _nl(code: str, mapping: dict[str, str]) -> str:
     s = str(code or "").strip()
     if not s:
@@ -183,49 +163,15 @@ def _parse_warnings(pipe_str: str) -> list[str]:
     return [p.strip() for p in str(pipe_str or "").split("|") if p.strip()]
 
 
-def _format_amount_display(raw: object | None) -> str | None:
-    if raw is None:
-        return None
-    s = str(raw).strip()
-    if not s:
-        return None
-    try:
-        formatted = format_eur_xml(amount_to_decimal(s)).replace(".", ",")
-        return f"€ {formatted}"
-    except ValueError:
-        return None
-
-
 def _normalize_amount_result(ar: dict[str, Any] | None) -> dict[str, Any]:
-    if not isinstance(ar, dict):
-        return {
-            "status": "failed",
-            "source": "",
-            "value": None,
-            "confidence": 0,
-            "candidates": [],
-        }
-    status = str(ar.get("status") or ar.get("amount_status") or "failed").strip() or "failed"
-    source = str(ar.get("source") or "").strip()
-    val = ar.get("value")
-    if val is None:
-        val = ar.get("selected_amount")
-    conf = ar.get("confidence")
-    if conf is None:
-        conf = ar.get("amount_confidence")
-    try:
-        confidence = int(conf) if conf is not None else 0
-    except (TypeError, ValueError):
-        confidence = 0
-    cands = ar.get("candidates")
-    if not isinstance(cands, list):
-        cands = []
+    """Backward-compatible wrapper; canonical logic in ``normalize_amount_result_dict``."""
+    n = normalize_amount_result_dict(ar)
     return {
-        "status": status,
-        "source": source,
-        "value": str(val) if val is not None else None,
-        "confidence": confidence,
-        "candidates": cands,
+        "status": n["status"],
+        "source": n["source"],
+        "value": n["value"],
+        "confidence": n["confidence"],
+        "candidates": n["candidates"],
     }
 
 
@@ -273,162 +219,6 @@ def _supplier_detail_nl(snap: dict[str, Any], status: str) -> str | None:
     return None
 
 
-def _map_ident_candidate(cand: dict[str, Any]) -> dict[str, Any]:
-    val_str = str(cand.get("value") or "").strip()
-    src = str(cand.get("source") or "").strip()
-    ctx = str(cand.get("context") or "")
-    preview = ctx[:_CONTEXT_PREVIEW_MAX] if ctx else None
-    if ctx and len(ctx) > _CONTEXT_PREVIEW_MAX:
-        preview = ctx[:_CONTEXT_PREVIEW_MAX] + "…"
-    try:
-        conf = int(cand.get("confidence") or 0)
-    except (TypeError, ValueError):
-        conf = 0
-    return {
-        "value": val_str,
-        "value_display": val_str,
-        "source": src,
-        "source_nl": src,
-        "confidence": conf,
-        "label": str(cand.get("label") or "").strip() or None,
-        "context_preview": preview,
-    }
-
-
-def _ident_field_diag_block(
-    snap: dict[str, Any],
-    field: str,
-    *,
-    payment_fallback: str | None = None,
-) -> dict[str, Any]:
-    """Diagnostics-weergave: ``snap[field]`` (profiel/tabel) gaat vóór verouderde ``*_result``."""
-    legacy = str(snap.get(field) or "").strip() or None
-    if not legacy and payment_fallback:
-        legacy = str(payment_fallback).strip() or None
-    extraction_source = str(snap.get("extraction_source") or "").strip().lower()
-    profile_fields = snap.get("profile_fields")
-    from_profile = extraction_source == "profile" or (
-        isinstance(profile_fields, list) and field in profile_fields
-    )
-
-    fr = snap.get(f"{field}_result")
-    if not isinstance(fr, dict):
-        return {
-            "value": legacy,
-            "needs_attention": not legacy,
-            "status_nl": "Via extractieprofiel" if legacy and from_profile else (
-                "Aanwezig" if legacy else "Ontbreekt"
-            ),
-            "candidates": [],
-            "resolved_source": "profile" if from_profile else None,
-        }
-
-    st = str(fr.get("status") or "").strip().lower()
-    cands_out: list[dict[str, Any]] = []
-    for c in fr.get("candidates") or []:
-        if isinstance(c, dict):
-            cands_out.append(_map_ident_candidate(c))
-
-    # Waarde in tabel/omschrijving (legacy) is leidend — niet oude result.value.
-    val = legacy or str(fr.get("value") or "").strip() or None
-    if val and legacy and str(fr.get("value") or "").strip() not in ("", val):
-        st = "confirmed"
-
-    if val:
-        if from_profile:
-            cands_out = [
-                {
-                    "value": val,
-                    "value_display": val,
-                    "source": "profile",
-                    "source_nl": "Extractieprofiel",
-                    "confidence": 95,
-                    "label": None,
-                    "context_preview": None,
-                    "is_resolved": True,
-                }
-            ]
-            st = "confirmed"
-        else:
-            matching = [c for c in cands_out if str(c.get("value") or "").strip() == val]
-            if not matching or not cands_out:
-                cands_out = [
-                    {
-                        "value": val,
-                        "value_display": val,
-                        "source": "resolved",
-                        "source_nl": "Gekozen waarde",
-                        "confidence": 95,
-                        "label": None,
-                        "context_preview": None,
-                        "is_resolved": True,
-                    },
-                    *[
-                        c
-                        for c in cands_out
-                        if str(c.get("value") or "").strip() != val
-                    ],
-                ]
-                if st in ("confirmed", "tentative", "failed", "ambiguous", ""):
-                    st = "confirmed"
-            else:
-                for c in cands_out:
-                    c["is_resolved"] = str(c.get("value") or "").strip() == val
-    elif st == "confirmed" and fr.get("value"):
-        val = str(fr.get("value") or "").strip() or None
-
-    needs = (
-        not val
-        and st in ("ambiguous", "tentative", "failed")
-        and bool(cands_out)
-    ) or (st in ("ambiguous", "tentative") and val and len(cands_out) > 1)
-
-    if from_profile and val:
-        status_nl = "Via extractieprofiel"
-    elif st == "confirmed" and val:
-        status_nl = "Aanwezig"
-    elif st == "ambiguous":
-        status_nl = "Meerdere kandidaten — kies in tabel"
-    elif st == "tentative":
-        status_nl = "Twijfelachtig — controleer"
-    elif val:
-        status_nl = "Aanwezig"
-    else:
-        status_nl = "Ontbreekt"
-
-    return {
-        "value": val,
-        "status": st or None,
-        "needs_attention": needs,
-        "status_nl": status_nl,
-        "candidates": cands_out,
-        "resolved_source": "profile" if from_profile and val else None,
-    }
-
-
-def _map_candidate(cand: dict[str, Any]) -> dict[str, Any]:
-    raw_val = cand.get("value")
-    val_str = str(raw_val) if raw_val is not None else ""
-    src = str(cand.get("source") or "").strip()
-    ctx = str(cand.get("context") or "")
-    preview = ctx[:_CONTEXT_PREVIEW_MAX] if ctx else None
-    if ctx and len(ctx) > _CONTEXT_PREVIEW_MAX:
-        preview = ctx[:_CONTEXT_PREVIEW_MAX] + "…"
-    try:
-        conf = int(cand.get("confidence") or 0)
-    except (TypeError, ValueError):
-        conf = 0
-    return {
-        "value": val_str,
-        "value_display": _format_amount_display(raw_val),
-        "source": src,
-        "source_nl": _nl(src, AMOUNT_SOURCE_NL),
-        "confidence": conf,
-        "type": str(cand.get("type") or "unknown"),
-        "context_preview": preview,
-    }
-
-
 def _supplier_display(snap: dict[str, Any]) -> str:
     sn = str(snap.get("supplier_name") or "").strip()
     if sn:
@@ -445,18 +235,6 @@ def _pdf_basename(snap: dict[str, Any], payment: dict[str, Any] | None) -> str:
         if psf:
             return Path(str(psf)).name
     return ""
-
-
-def _amount_needs_attention(
-    status: str,
-    reason_code: str,
-    warning_keys: list[str],
-) -> bool:
-    if status in _AMOUNT_NEEDS_ATTENTION:
-        return True
-    if reason_code in _AMOUNT_REASON_CODES:
-        return True
-    return bool(_AMOUNT_WARNING_KEYS.intersection(warning_keys))
 
 
 def _resolved_source_file_for_profile(snap: dict[str, Any], payment: dict[str, Any] | None) -> str | None:
@@ -552,15 +330,52 @@ def _build_action_suggestions(
     return suggestions
 
 
+def overlay_field_result(
+    invoice_snapshot: dict,
+    field_id: FieldId,
+    field_result: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Return snapshot copy with live ``*_result`` from UI (canonical over batch snap)."""
+    out = copy.deepcopy(invoice_snapshot)
+    if not isinstance(field_result, dict):
+        return out
+    result_key = _RESULT_KEY_BY_FIELD.get(field_id)
+    if not result_key:
+        return out
+    out[result_key] = copy.deepcopy(field_result)
+    legacy_key = _LEGACY_VALUE_KEY_BY_FIELD.get(field_id)
+    if legacy_key and field_id in ("invoice_number", "customer_number", "iban"):
+        val = str(field_result.get("value") or "").strip()
+        if val:
+            out[legacy_key] = clean_iban(val) if field_id == "iban" else val
+    return out
+
+
+def overlay_iban_result(
+    invoice_snapshot: dict,
+    iban_result: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Return snapshot copy with live iban_result (UI canonical IBAN cell)."""
+    return overlay_field_result(invoice_snapshot, "iban", iban_result)
+
+
+def overlay_amount_result(
+    invoice_snapshot: dict,
+    amount_result: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Return snapshot copy with live amount_result (UI canonical amount cell)."""
+    return overlay_field_result(invoice_snapshot, "amount", amount_result)
+
+
 def build_invoice_diagnostics_snapshot(invoice: dict) -> dict:
     """Compacte, JSON-serialiseerbare subset voor opslag op tabelrij."""
     snap: dict[str, Any] = {}
     for key in _SNAPSHOT_FIELDS:
         if key not in invoice:
             continue
-        if key == "amount_result":
-            ar = invoice.get("amount_result")
-            snap[key] = copy.deepcopy(ar) if isinstance(ar, dict) else ar
+        if key in ("amount_result", "iban_result"):
+            val = invoice.get(key)
+            snap[key] = copy.deepcopy(val) if isinstance(val, dict) else val
         else:
             snap[key] = invoice[key]
     return snap
@@ -603,29 +418,21 @@ def build_diagnostics(
         snap.get("amount_result") if isinstance(snap.get("amount_result"), dict) else None
     )
     amount_status = ar_norm["status"]
-    amount_source = ar_norm["source"]
     reason_code = str(dec.get("reason_code") or "").strip()
     decision_status = str(dec.get("status") or "").strip() or None
 
-    amount_warnings_nl = [_nl(k, WARNING_NL) for k in warning_keys if k in _AMOUNT_WARNING_KEYS]
     iban_warnings_nl = [_nl(k, WARNING_NL) for k in warning_keys if k == "iban_mismatch_supplier"]
 
-    engine_reason_code: str | None = None
-    engine_reason_nl: str | None = None
-    if reason_code in _AMOUNT_REASON_CODES:
-        engine_reason_code = reason_code
-        engine_reason_nl = _nl(reason_code, ERROR_REASON_NL)
-
-    amount_needs = _amount_needs_attention(amount_status, reason_code, warning_keys)
-
-    detail_nl: str | None = None
-    if amount_source in _AMOUNT_CONFLICT_SOURCES:
-        detail_nl = _nl(amount_source, AMOUNT_SOURCE_NL)
-
-    candidates_out = []
-    for c in ar_norm["candidates"]:
-        if isinstance(c, dict):
-            candidates_out.append(_map_candidate(c))
+    amount_block = build_amount_diag_block(
+        snap,
+        reason_code=reason_code,
+        warning_keys=warning_keys,
+        error_reason_nl=ERROR_REASON_NL,
+        warning_nl=WARNING_NL,
+        amount_status_nl=AMOUNT_STATUS_NL,
+        amount_source_nl=AMOUNT_SOURCE_NL,
+    )
+    amount_needs = amount_block["needs_attention"]
 
     inv_no = str(snap.get("invoice_number") or "").strip()
     if not inv_no and pay:
@@ -636,34 +443,15 @@ def build_diagnostics(
     cust_empty = not cust_no
     cust_val = cust_no or None
 
-    iban_raw = str(snap.get("iban") or "").strip()
-    all_ibans = snap.get("all_ibans")
-    iban_list: list[str] = []
-    if isinstance(all_ibans, list):
-        for x in all_ibans:
-            s = str(x or "").strip()
-            if s:
-                iban_list.append(s)
-    if iban_raw and iban_raw not in iban_list:
-        iban_list.insert(0, iban_raw)
-    elif iban_raw and not iban_list:
-        iban_list = [iban_raw]
-
-    iban_mismatch = bool(snap.get("iban_mismatch"))
-    iban_needs = (
-        iban_mismatch
-        or "iban_mismatch_supplier" in warning_keys
-        or reason_code in _IBAN_REASON_CODES
-        or not iban_raw
+    iban_fallback = str(pay.get("iban") or "").strip() if pay else None
+    iban_block = build_iban_diag_block(
+        snap,
+        payment_fallback=iban_fallback or None,
+        reason_code=reason_code,
+        warning_keys=warning_keys,
     )
-
-    ocr_attempted = bool(snap.get("ocr_iban_attempted"))
-    ocr_error = snap.get("ocr_iban_error")
-    ocr_error_s = str(ocr_error).strip() if ocr_error else None
-
-    iban_status_nl = "IBAN aanwezig" if iban_raw else "IBAN ontbreekt"
-    if iban_mismatch or "iban_mismatch_supplier" in warning_keys:
-        iban_status_nl = "IBAN komt niet overeen met leverancier"
+    iban_block["warnings_nl"] = iban_warnings_nl
+    iban_needs = bool(iban_block.get("needs_attention"))
 
     action_suggestions = _build_action_suggestions(
         snap,
@@ -713,47 +501,14 @@ def build_diagnostics(
             "status_nl": _nl(match_status, MATCH_STATUS_NL) if match_status else "",
             "detail_nl": _supplier_detail_nl(snap, match_status),
         },
-        "amount": {
-            "status": amount_status,
-            "value": ar_norm["value"],
-            "value_display": _format_amount_display(ar_norm["value"]),
-            "confidence": ar_norm["confidence"],
-            "source": amount_source,
-            "candidates": candidates_out,
-            "needs_attention": amount_needs,
-            "status_nl": _nl(amount_status, AMOUNT_STATUS_NL),
-            "detail_nl": detail_nl,
-            "engine_reason_code": engine_reason_code,
-            "engine_reason_nl": engine_reason_nl,
-            "warnings_nl": amount_warnings_nl,
-        },
-        "invoice_number": _ident_field_diag_block(
+        "amount": amount_block,
+        "invoice_number": build_ident_field_diag_block(
             snap,
             "invoice_number",
             payment_fallback=str(pay.get("invoice_number") or "").strip() or None if pay else None,
         ),
-        "customer_number": _ident_field_diag_block(snap, "customer_number"),
-        "iban": {
-            "masked_value": mask_iban_for_log(iban_raw) if iban_raw else "<none>",
-            "all_ibans_masked": [mask_iban_for_log(x) for x in iban_list],
-            "candidates": [
-                {
-                    "value": mask_iban_for_log(x),
-                    "value_display": mask_iban_for_log(x),
-                    "source": "ocr" if ocr_attempted and x == iban_list[0] else "pdf_text",
-                    "source_nl": "OCR" if ocr_attempted and x == iban_list[0] else "PDF-tekst",
-                    "confidence": 95 if x == iban_raw else 80,
-                    "is_resolved": x == iban_raw,
-                }
-                for x in iban_list
-            ],
-            "mismatch": iban_mismatch,
-            "ocr_attempted": ocr_attempted,
-            "ocr_error": ocr_error_s,
-            "needs_attention": iban_needs,
-            "status_nl": iban_status_nl,
-            "warnings_nl": iban_warnings_nl,
-        },
+        "customer_number": build_ident_field_diag_block(snap, "customer_number"),
+        "iban": iban_block,
         "general": {
             "load_error": load_error_s,
             "load_error_nl": _nl(load_error_s, LOAD_ERROR_NL) if load_error_s else None,

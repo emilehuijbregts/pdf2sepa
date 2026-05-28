@@ -1,0 +1,242 @@
+"""Hybride veld-toepassing: generic primair, profile/db als kandidaten."""
+
+from __future__ import annotations
+
+from decimal import Decimal
+from typing import Any
+
+from logic.validation import clean_iban
+from parser.field_adapters import field_result_from_legacy_dict, field_result_to_legacy_dict
+from parser.field_model import FieldCandidate, FieldId
+from parser.resolved_field_apply import apply_resolved_field_result
+from parser.field_resolver import (
+    db_master_confidence,
+    profile_confidence_for_field,
+    resolve_field,
+)
+from parser.profile_extractor import extract_with_profile, validate_profile
+from parser.supplier_db import SupplierDB
+
+_HYBRID_FIELD_IDS: tuple[FieldId, ...] = (
+    "amount",
+    "invoice_number",
+    "customer_number",
+    "iban",
+)
+
+_RESULT_KEY: dict[FieldId, str] = {
+    "amount": "amount_result",
+    "invoice_number": "invoice_number_result",
+    "customer_number": "customer_number_result",
+    "iban": "iban_result",
+}
+
+
+def _profile_candidate(
+    field_id: FieldId,
+    value: Any,
+    *,
+    validated: bool,
+    context: str = "",
+) -> FieldCandidate:
+    return FieldCandidate(
+        value=value,
+        source="profile",
+        confidence=profile_confidence_for_field(field_id, validated=validated),
+        context=context,
+    )
+
+
+def _amount_decimal(val: Any) -> Decimal | None:
+    if val is None:
+        return None
+    try:
+        from logic.payment_amounts import amount_to_decimal
+
+        return amount_to_decimal(str(val))
+    except (TypeError, ValueError):
+        return None
+
+
+def _generic_result_dict(invoice: dict, invoice_copy: dict, field_id: FieldId) -> dict[str, Any]:
+    key = _RESULT_KEY[field_id]
+    raw = invoice.get(key)
+    if not isinstance(raw, dict):
+        raw = {}
+    merged = dict(raw)
+    ic = invoice_copy.get(key)
+    if isinstance(ic, dict):
+        for flag in ("user_overridden", "previous_value", "user_selected", "override_reason"):
+            if flag in ic:
+                merged[flag] = ic[flag]
+        if ic.get("decision_trace"):
+            merged["decision_trace"] = ic["decision_trace"]
+    return merged
+
+
+def _build_db_override_candidates(
+    field_id: FieldId,
+    supplier: dict,
+    invoice: dict,
+    db: SupplierDB,
+) -> list[FieldCandidate]:
+    out: list[FieldCandidate] = []
+    if field_id == "iban":
+        sup_iban = clean_iban(str(supplier.get("iban") or ""))
+        if sup_iban:
+            out.append(
+                FieldCandidate(
+                    value=sup_iban,
+                    source="db_master",
+                    confidence=db_master_confidence("iban"),
+                    context="Leveranciers-DB",
+                )
+            )
+        return out
+
+    if field_id == "customer_number":
+        pdf_cc = str(invoice.get("customer_number") or "").strip()
+        db_codes = supplier.get("customer_codes") or []
+        if not db_codes:
+            return out
+        matched_code = None
+        if pdf_cc:
+            norm_pdf = db._normalize_customer_code(pdf_cc)
+            for code in db_codes:
+                if norm_pdf and db._normalize_customer_code(code) == norm_pdf:
+                    matched_code = code
+                    break
+        db_cc = matched_code or db_codes[0]
+        if db_cc:
+            out.append(
+                FieldCandidate(
+                    value=str(db_cc).strip(),
+                    source="db_master",
+                    confidence=db_master_confidence("customer_number"),
+                    context="Leveranciers-DB",
+                )
+            )
+    return out
+
+
+def _cap_amount_tentative(resolved_dict: dict[str, Any]) -> dict[str, Any]:
+    out = dict(resolved_dict)
+    st = str(out.get("status") or "").strip().lower()
+    if st == "confirmed":
+        out["status"] = "tentative"
+        out["amount_status"] = "tentative"
+        out["review_suggested"] = True
+        conf = int(out.get("confidence") or 0)
+        if conf > 75:
+            out["confidence"] = 75
+            out["amount_confidence"] = 75
+    return out
+
+
+def apply_hybrid_field_extraction(
+    invoice: dict,
+    invoice_copy: dict,
+    supplier: dict,
+    db: SupplierDB,
+    *,
+    amount_status: str = "confirmed",
+    use_profile: bool = True,
+) -> None:
+    """Pas hybride resolver toe op alle extractievelden."""
+    profile = db.get_extraction_profile(supplier["name"]) if use_profile else None
+    raw = invoice.get("raw_text") or invoice_copy.get("raw_text")
+    extracted: dict[str, float | str | None] = {
+        "amount": None,
+        "invoice_number": None,
+        "customer_number": None,
+        "iban": None,
+    }
+    profile_validated = False
+    if profile and raw:
+        extracted = extract_with_profile(raw, profile)
+        profile_validated = validate_profile(raw, profile)
+    elif not use_profile:
+        profile = None
+
+    profile_fields: list[str] = []
+
+    inv_iban = str(invoice.get("iban") or "").strip()
+    if inv_iban:
+        invoice_copy["pdf_iban"] = inv_iban
+
+    pdf_cc = str(invoice.get("customer_number") or "").strip()
+    if pdf_cc:
+        invoice_copy["pdf_customer_number"] = pdf_cc
+
+    amount_tentative = str(amount_status or "").strip().lower() == "tentative"
+
+    for field_id in _HYBRID_FIELD_IDS:
+        generic_fr = field_result_from_legacy_dict(
+            _generic_result_dict(invoice, invoice_copy, field_id),
+            field_id=field_id,
+        )
+
+        overrides: list[FieldCandidate] = []
+        overrides.extend(_build_db_override_candidates(field_id, supplier, invoice, db))
+
+        prof_val = extracted.get(field_id)
+        if prof_val is not None and profile and field_id in profile:
+            if field_id == "amount":
+                cand_val = _amount_decimal(prof_val)
+            elif field_id == "iban":
+                cand_val = clean_iban(str(prof_val)) or None
+            else:
+                cand_val = str(prof_val).strip()
+            if cand_val is not None:
+                field_spec = {field_id: profile[field_id]}
+                field_valid = profile_validated or validate_profile(
+                    raw,
+                    field_spec,
+                    {field_id: prof_val},
+                )
+                overrides.append(
+                    _profile_candidate(
+                        field_id,
+                        cand_val,
+                        validated=field_valid,
+                        context=str(profile.get(field_id, {}).get("label") or ""),
+                    )
+                )
+
+        user_pick: FieldCandidate | None = None
+        if generic_fr.user_overridden and generic_fr.selected_value is not None:
+            user_pick = FieldCandidate(
+                value=generic_fr.selected_value,
+                source=generic_fr.source or "USER_PICKED",
+                confidence=100,
+                context=str(generic_fr.context or ""),
+            )
+
+        resolved_fr = resolve_field(field_id, generic_fr, overrides, user_pick=user_pick)
+        resolved_fr.resolver_finalized = True
+        resolved_dict = field_result_to_legacy_dict(resolved_fr)
+
+        if (
+            field_id == "amount"
+            and amount_tentative
+            and str(resolved_dict.get("source") or "") == "profile"
+        ):
+            resolved_dict = _cap_amount_tentative(resolved_dict)
+
+        apply_resolved_field_result(invoice_copy, field_id, resolved_dict)
+
+        if str(resolved_dict.get("source") or "") == "profile":
+            profile_fields.append(field_id)
+
+    cc = str(invoice_copy.get("customer_number") or "").strip()
+    inv_no = str(invoice_copy.get("invoice_number") or "").strip()
+    if cc and inv_no:
+        invoice_copy["description"] = f"{cc} / {inv_no}"
+
+    sup_iban = clean_iban(str(supplier.get("iban") or ""))
+    pdf_iban_clean = clean_iban(str(invoice_copy.get("pdf_iban") or inv_iban or ""))
+    if pdf_iban_clean and sup_iban and pdf_iban_clean != sup_iban:
+        invoice_copy["iban_mismatch"] = True
+
+    invoice_copy["extraction_source"] = "profile" if profile_fields else "generic"
+    invoice_copy["profile_fields"] = profile_fields

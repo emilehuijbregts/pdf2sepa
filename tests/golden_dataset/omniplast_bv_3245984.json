@@ -1,0 +1,13 @@
+{
+  "source_file": "Omniplast 3245984_0.pdf",
+  "invoice_number": "3245984",
+  "supplier_name": "Omniplast BV",
+  "iban": "NL98RABO0303915781",
+  "amount": "2018.52",
+  "amount_status": "confirmed",
+  "customer_code": "12040",
+  "description": "12040 / 3245984",
+  "discount_percentage": "0.00",
+  "invoice_date": "2026-01-14",
+  "payment_terms_days": 30
+}

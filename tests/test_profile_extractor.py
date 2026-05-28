@@ -10,9 +10,9 @@ import pytest
 from parser.profile_extractor import (
     STRATEGIES,
     extract_with_profile,
-    learn_profile_from_confirmation,
     validate_profile,
 )
+from parser.profile_learner import learn_profile_from_confirmation
 from parser.pdf_parser import extract_text_strict
 
 # ---------------------------------------------------------------------------
@@ -107,9 +107,42 @@ class TestExtractWithProfile:
         assert out["amount"] is None
         assert "invoice_number" in out
 
-    def test_always_returns_three_keys(self):
+    def test_always_returns_four_keys(self):
         out = extract_with_profile("", {})
-        assert set(out.keys()) == {"amount", "invoice_number", "customer_number"}
+        assert set(out.keys()) == {"amount", "invoice_number", "customer_number", "iban"}
+
+    def test_totaal_label_skips_header_without_amount(self):
+        """«Prijs totaal» in tabelkop mag niet vóór echte totalenregel winnen (Option Tape)."""
+        text = (
+            "Artikel Uw ref Omschrijving Prijs totaal\n"
+            "regel zonder bedrag\n"
+            "Totaal 305,36 EUR\n"
+        )
+        profile = {
+            "learned_from": "option_tape.pdf",
+            "amount": {
+                "label": "Totaal",
+                "strategy": "same_line_last_amount",
+                "confirmed_value": "305.36",
+            },
+        }
+        out = extract_with_profile(text, profile)
+        assert out["amount"] == 305.36
+        assert validate_profile(text, profile, {"amount": Decimal("305.36")})
+
+    def test_same_line_first_iban(self):
+        text = "IBAN NL20 INGB 0001 2345 67\n"
+        profile = {
+            "learned_from": "test.pdf",
+            "iban": {
+                "label": "IBAN",
+                "strategy": "same_line_first_iban",
+                "confirmed_value": "NL20INGB0001234567",
+            },
+        }
+        out = extract_with_profile(text, profile)
+        assert out["iban"] == "NL20INGB0001234567"
+        assert validate_profile(text, profile, None)
 
 
 # ---------------------------------------------------------------------------
@@ -282,5 +315,7 @@ class TestGolden2baPdf:
 
 
 class TestStrategiesConstant:
-    def test_four_strategies(self):
-        assert len(STRATEGIES) == 4
+    def test_six_strategies(self):
+        assert len(STRATEGIES) == 6
+        assert "same_line_first_iban" in STRATEGIES
+        assert "next_line_first_iban" in STRATEGIES

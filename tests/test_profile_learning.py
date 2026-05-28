@@ -10,7 +10,6 @@ import pytest
 
 from logic.profile_learning import (
     ProfileLearnResult,
-    amount_context_from_amount_result,
     can_offer_profile_learning,
     confirm_invoice_fields,
     confirmed_amount_xml,
@@ -100,18 +99,6 @@ class TestCanOfferProfileLearning:
 
     def test_rejects_none_source_file(self) -> None:
         assert can_offer_profile_learning(_base_snapshot(), source_file=None) is False
-
-
-class TestAmountContextFromResult:
-    def test_picks_matching_candidate_context(self):
-        ar = {
-            "value": "1234.56",
-            "candidates": [
-                {"value": "99.00", "context": "Subtotaal 99,00", "confidence": 50},
-                {"value": "1234.56", "context": "Totaal EUR 1.234,56", "confidence": 90},
-            ],
-        }
-        assert amount_context_from_amount_result(ar) == "Totaal EUR 1.234,56"
 
 
 class TestMergeExtractionProfiles:

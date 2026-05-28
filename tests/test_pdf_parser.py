@@ -253,6 +253,10 @@ class TestIbanExtraction:
         # NL91… is géén geldige mod‑97 testcase; echte parity vereist valide checksum.
         d = extract_invoice_data("IBAN: NL25CITI0266075452")
         assert d["iban"] == "NL25CITI0266075452"
+        ir = d.get("iban_result") or {}
+        assert ir.get("status") in ("confirmed", "tentative")
+        assert ir.get("value") == "NL25CITI0266075452"
+        assert isinstance(ir.get("candidates"), list)
 
     def test_no_iban(self):
         d = extract_invoice_data("Geen bankgegevens hier")

@@ -1,0 +1,13 @@
+{
+  "source_file": "Option tape Verkoopfactuur VF2602902.pdf",
+  "invoice_number": "VF2602902",
+  "supplier_name": "Option Tape Specialties N.V.",
+  "iban": "BE98001759308093",
+  "amount": "305.36",
+  "amount_status": "confirmed",
+  "customer_code": "K014135",
+  "description": "K014135 / VF2602902",
+  "discount_percentage": "0.00",
+  "invoice_date": "2026-03-11",
+  "payment_terms_days": 0
+}

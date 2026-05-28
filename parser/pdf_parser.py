@@ -141,6 +141,7 @@ class AmountResult:
         return self.status
 
     def to_dict(self) -> dict[str, Any]:
+        selected = str(self.value) if self.value is not None else None
         d: dict[str, Any] = {
             "candidates": [
                 {
@@ -152,12 +153,16 @@ class AmountResult:
                 }
                 for c in self.candidates
             ],
-            "value": str(self.value) if self.value is not None else None,
+            "value": selected,
+            "selected_value": selected,
             "confidence": self.confidence,
             "source": self.source,
             "status": self.status,
+            "decision_trace": [],
+            "override_reason": "",
+            "resolver_finalized": False,
             # Backward-compatible keys
-            "selected_amount": str(self.value) if self.value is not None else None,
+            "selected_amount": selected,
             "amount_confidence": self.confidence,
             "amount_status": self.status,
         }
@@ -353,14 +358,25 @@ _INVOICE_LABEL_RE = re.compile(
     flags=re.IGNORECASE,
 )
 
+# Prefer real invoice identifiers over insurance "Polisnummer" when both exist in the same document.
+_INVOICE_LABEL_RE_NO_POLIS = re.compile(
+    r"(?:Factuurnummer|Factuurnr\.?|Factuur(?:\s*nummer|\s*nr\.?)|Fact\.?\s*nr\.?|"
+    r"Document\s*nr\.?|Documentnr\.?|"
+    r"Invoice\s*(?:number|no\.?|nr\.?)|"
+    r"Nota(?:\s*nummer|\s*nr\.?))",
+    flags=re.IGNORECASE,
+)
+
 _CUSTOMER_LABEL_RE = re.compile(
-    r"(?:\bKlantcode\b|Klant(?:en)?(?:\s*nummer|\s*nr\.?|-nr\.?|\s*code)|Klantnr\.?|"
+    r"(?:\bKlantcode\b|\bklantnummer\b|\bklant-nummer\b|"
+    r"Klant(?:en)?(?:\s*nummer|\s*nr\.?|-nr\.?|\s*code)|Klantnr\.?|"
     r"Debiteur(?:en)?(?:\s*nummer|\s*nr\.?)|"
     r"Deb\.?\s*(?:nr\.?|nummer)|Debnr\.?|"
     r"Debiteur|"
     r"Lid(?:\s*nummer|\s*nr\.?)|"
     r"Relatie(?:\s*nummer|\s*nr\.?)|"
-    r"Customer\s*(?:number|no\.?|code|nr\.?)|"
+    r"Customer\s*(?:number|no\.?|code|nr\.?|id)|"
+    r"Client\s*(?:number|no\.?|code|nr\.?|id)|"
     r"Account\s*(?:number|no\.?|nr\.?))",
     flags=re.IGNORECASE,
 )
@@ -523,6 +539,28 @@ def _sanitize_customer_number(value: str | None) -> str | None:
     m = re.fullmatch(r"(?i)(?:nr|no)\W*(\d{3,})", v)
     if m:
         return m.group(1)
+    return v
+
+
+def _normalize_k_customer_code(raw: str) -> str | None:
+    """``K 014135`` / ``K0 14135`` → ``K014135`` (PDF/OCR spaties)."""
+    compact = re.sub(r"\s+", "", (raw or "").strip())
+    if not re.fullmatch(r"(?i)K\d{4,12}", compact):
+        return None
+    return "K" + compact[1:]
+
+
+def _reject_uw_referentie_as_customer(
+    value: str | None, text: str
+) -> str | None:
+    """``Uw referentie 202603`` is geen klantnummer."""
+    v = str(value or "").strip()
+    if not v:
+        return None
+    if re.fullmatch(r"20\d{4,6}", v) and re.search(
+        rf"(?i)\buw\s+referentie\s+{re.escape(v)}\b", text or ""
+    ):
+        return None
     return v
 
 def _normalize_two_digit_year(y: int) -> int:
@@ -843,6 +881,13 @@ def _extract_labeled_field(
     """
     lines = text.split("\n")
 
+    def _score_inv(tok: str) -> tuple[int, int]:
+        t = str(tok or "")
+        has_hyphen = 1 if "-" in t or "/" in t else 0
+        has_letters = 1 if re.search(r"[A-Za-z]", t) else 0
+        has_digits = 1 if re.search(r"\d", t) else 0
+        return (has_hyphen * 3 + has_letters * 2 + has_digits, len(t))
+
     for i, line in enumerate(lines):
         m = label_re.search(line)
         if not m:
@@ -860,7 +905,7 @@ def _extract_labeled_field(
         # Header rows often contain multiple labels on one line:
         # "klantnummer Factuurdatum Factuurnr Betalingstermijn …"
         # In that case the value is typically on the next line; avoid picking the next label word.
-        if label_re is _INVOICE_LABEL_RE:
+        if label_re in (_INVOICE_LABEL_RE, _INVOICE_LABEL_RE_NO_POLIS):
             hdr_low = (line or "").lower()
             after_low = (after_stripped or "").lower()
             has_multi_labels = (
@@ -878,7 +923,7 @@ def _extract_labeled_field(
                 after_stripped = ""
 
         # PM coded-style invoice ids with a spaced slash: ``2026 / 15``.
-        if label_re is _INVOICE_LABEL_RE and (after_stripped or "").strip():
+        if label_re in (_INVOICE_LABEL_RE, _INVOICE_LABEL_RE_NO_POLIS) and (after_stripped or "").strip():
             m_yrslash = re.match(
                 r"(?i)^(\d{4})\s*/\s*(\d{1,6})\b(?!\s*/\s*\d)",
                 after_stripped.strip(),
@@ -943,6 +988,7 @@ def _extract_labeled_field(
             continue
 
         remainder = after_stripped
+        inv_same: list[str] = []
         for _ in range(3):
             vm = _FIELD_VALUE_RE.match(remainder)
             if not vm:
@@ -954,9 +1000,15 @@ def _extract_labeled_field(
                 and not _looks_like_date_token(val)
                 and (not require_digit or any(ch.isdigit() for ch in val))
             ):
-                return val
+                if label_re in (_INVOICE_LABEL_RE, _INVOICE_LABEL_RE_NO_POLIS):
+                    inv_same.append(val)
+                else:
+                    return val
             remainder = remainder[vm.end():]
             remainder = re.sub(r"^[\s:\.\[\]]+", "", remainder)
+        if inv_same:
+            # Prefer invoice-like tokens in same-line multi-token layouts.
+            return sorted(inv_same, key=_score_inv, reverse=True)[0]
 
         for j in (1, 2):
             if i + j >= len(lines):
@@ -972,6 +1024,12 @@ def _extract_labeled_field(
                 if slash_next:
                     picked = slash_next.group(1).strip()
                     return picked
+            # PM coded-style invoice ids with a spaced slash can appear on the next line: ``2026 / 15``.
+            if label_re in (_INVOICE_LABEL_RE, _INVOICE_LABEL_RE_NO_POLIS) and next_line:
+                m_yrslash_n = re.match(r"^(\d{4})\s*/\s*(\d{1,6})\b(?!\s*/\s*\d)", next_line)
+                if m_yrslash_n:
+                    picked = f"{m_yrslash_n.group(1)}/{m_yrslash_n.group(2)}"
+                    return picked
             remainder = next_line
             picked_candidates: list[str] = []
             cust_next_tokens: list[str] = []
@@ -986,7 +1044,7 @@ def _extract_labeled_field(
                     and not _looks_like_date_token(val)
                     and (not require_digit or any(ch.isdigit() for ch in val))
                 ):
-                    if label_re is _INVOICE_LABEL_RE:
+                    if label_re in (_INVOICE_LABEL_RE, _INVOICE_LABEL_RE_NO_POLIS):
                         picked_candidates.append(val)
                     elif label_re is _CUSTOMER_LABEL_RE:
                         cust_next_tokens.append(val)
@@ -998,15 +1056,8 @@ def _extract_labeled_field(
                 cbest = sorted(cust_next_tokens, key=_score_customer_candidate_token, reverse=True)[0]
                 cbest = re.sub(r"(?i)^(?:nr|no)\W*(\d{3,})$", r"\1", str(cbest or "").strip())
                 return cbest
-            if label_re is _INVOICE_LABEL_RE and picked_candidates:
+            if label_re in (_INVOICE_LABEL_RE, _INVOICE_LABEL_RE_NO_POLIS) and picked_candidates:
                 # Prefer invoice-like tokens in multi-column value rows (e.g. "VF-1094659")
-                def _score_inv(tok: str) -> tuple[int, int]:
-                    t = str(tok or "")
-                    has_hyphen = 1 if "-" in t or "/" in t else 0
-                    has_letters = 1 if re.search(r"[A-Za-z]", t) else 0
-                    has_digits = 1 if re.search(r"\d", t) else 0
-                    return (has_hyphen * 3 + has_letters * 2 + has_digits, len(t))
-
                 best = sorted(picked_candidates, key=_score_inv, reverse=True)[0]
                 return best
 
@@ -2242,6 +2293,7 @@ def format_remittance_text(
 def extract_invoice_data(
     text: str | None,
     *,
+    ocr_text: str | None = None,
     debtor_iban: str | None = None,
     debtor_kvk: str | None = None,
     debtor_vat: str | None = None,
@@ -2256,7 +2308,43 @@ def extract_invoice_data(
         debtor_vat: Eigen BTW-nummer; wordt nooit als leverancier-BTW gebruikt. Bij meerdere
                     BTW-nummers op de factuur wordt de eerstvolgende na dit nummer gekozen.
     """
-    text = text or ""
+    primary_text = text or ""
+    ocr_clean = str(ocr_text or "").strip()
+    ident_text = primary_text
+    if ocr_clean and ocr_clean not in ident_text:
+        ident_text = f"{ident_text.rstrip()}\n{ocr_clean}".strip()
+
+    # #region agent log
+    try:
+        import json as _json
+        import time as _time
+
+        payload = {
+            "sessionId": "808457",
+            "runId": "pre-fix",
+            "hypothesisId": "H6",
+            "location": "parser/pdf_parser.py:extract_invoice_data:ocr_summary",
+            "message": "OCR/ident_text availability for customer_number",
+            "data": {
+                "primary_len": len(primary_text),
+                "ocr_len": len(ocr_clean),
+                "ident_len": len(ident_text),
+                "ocr_has_k_token": bool(re.search(r"(?i)\bk\s*\d{4,12}\b", ocr_clean)),
+                "ocr_has_klant_label": bool(re.search(r"(?i)\bklant(?:nummer|code)\b", ocr_clean)),
+                "primary_has_k_token": bool(re.search(r"(?i)\bk\s*\d{4,12}\b", primary_text)),
+                "primary_has_klant_label": bool(re.search(r"(?i)\bklant(?:nummer|code)\b", primary_text)),
+            },
+            "timestamp": int(_time.time() * 1000),
+        }
+        with open(
+            "/Users/eh/Documents/Cursor/PDF2SEPA/.cursor/debug-808457.log",
+            "a",
+            encoding="utf-8",
+        ) as _fh:
+            _fh.write(_json.dumps(payload, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+    # #endregion
 
     iban: str | None = None
     all_ibans: list[str] = []
@@ -2280,18 +2368,22 @@ def extract_invoice_data(
     debtor_kvk_norm = _normalize_kvk_digits(debtor_kvk) if debtor_kvk else ""
     debtor_vat_norm = _normalize_vat_compact(debtor_vat) if debtor_vat else ""
 
-    # IBAN — alle SEPA-landcodes (NL/BE/DE/…) via mod-97; daarna debtor IBAN gefilterd
+    # IBAN — kandidaten + status via iban_result (legacy iban/all_ibans blijven gesynchroniseerd)
+    from parser.iban_candidates import extract_iban_result, iban_values_from_candidates
+    from parser.field_candidates import IdentFieldResult
+
     debtor_filtered = 0
     candidates_clean: list[str] = []
+    iban_result = IdentFieldResult(status="failed", source="NOT_FOUND")
     try:
-        candidates_clean = _scan_sepa_ibans_in_text(text)
-        for candidate in candidates_clean:
-            if debtor_clean and candidate.upper() == debtor_clean:
-                debtor_filtered += 1
-                continue
-            all_ibans.append(candidate)
-        if all_ibans:
-            iban = all_ibans[0]
+        candidates_clean = _scan_sepa_ibans_in_text(ident_text)
+        debtor_filtered = sum(
+            1 for c in candidates_clean if debtor_clean and c.upper() == debtor_clean
+        )
+        iban_result = extract_iban_result(ident_text, debtor_iban=debtor_iban)
+        iban = iban_result.value
+        all_ibans = iban_values_from_candidates(iban_result.candidates)
+        if iban:
             logger.debug(
                 "IBAN gevonden: %s (van %d kandidaten)",
                 mask_iban_for_log(iban),
@@ -2302,6 +2394,8 @@ def extract_invoice_data(
     except Exception:
         logger.debug("IBAN niet gevonden", exc_info=True)
         iban = None
+        all_ibans = []
+        iban_result = IdentFieldResult(status="failed", source="NOT_FOUND")
 
     _dbg_935(
         "H4",
@@ -2332,8 +2426,26 @@ def extract_invoice_data(
     # Amount — multi-candidate extraction with explicit status
     amount_result = AmountResult(source="NOT_EVALUATED", status="failed")
     try:
-        amt_candidates = _extract_amount_candidates(text)
-        amount_result = _select_amount(amt_candidates)
+        primary_candidates = _extract_amount_candidates(primary_text)
+        amount_result = _select_amount(primary_candidates)
+
+        # OCR override layer: never add candidates; only override when primary truly fails.
+        # Allowed only when primary failed OR produced zero candidates. Never for "ambiguous".
+        try:
+            if (
+                ocr_clean
+                and (amount_result.status == "failed" or len(primary_candidates) == 0)
+            ):
+                ocr_candidates = _extract_amount_candidates(ocr_clean)
+                ocr_result = _select_amount(ocr_candidates)
+                if (
+                    ocr_result.value is not None
+                    and ocr_result.status in ("confirmed", "tentative")
+                ):
+                    amount_result = ocr_result
+        except Exception:
+            pass
+
         if amount_result.status in ("confirmed", "tentative") and amount_result.value is not None:
             amount = float(amount_result.value)
         else:
@@ -2388,7 +2500,7 @@ def extract_invoice_data(
                     }
                 )
             sample_lines = []
-            for ln in (text or "").splitlines():
+            for ln in (primary_text or "").splitlines():
                 low = (ln or "").lower()
                 if "totaal" in low or "total" in low or "betalen" in low or "due" in low or "eur" in low or "€" in low:
                     toks = _iter_amount_tokens_excluding_percent(ln or "")
@@ -2418,7 +2530,7 @@ def extract_invoice_data(
 
     # Amount excl. BTW (nabij label; anders None)
     try:
-        amount_excl_vat = extract_amount_excl_vat(text)
+        amount_excl_vat = extract_amount_excl_vat(primary_text)
         if amount_excl_vat is not None:
             logger.debug("Bedrag excl. BTW gevonden: %s", amount_excl_vat)
         else:
@@ -2429,7 +2541,7 @@ def extract_invoice_data(
 
     # Derive excl amount from incl amount + VAT% when missing or clearly wrong (e.g. equals incl).
     try:
-        vat_pct = _extract_vat_rate_pct(text)
+        vat_pct = _extract_vat_rate_pct(primary_text)
         _agent_log(
             "H3",
             "parser/pdf_parser.py:extract_invoice_data",
@@ -2444,7 +2556,7 @@ def extract_invoice_data(
             # First: if excl is missing or clearly invalid (>= incl), try to refine from totals lines.
             if amount_excl_vat is None or float(amount_excl_vat) >= float(amount):
                 refined = _refine_excl_vat_using_incl_and_rate(
-                    text,
+                    primary_text,
                     amount_incl=float(amount),
                     vat_pct=float(vat_pct),
                 )
@@ -2515,7 +2627,8 @@ def extract_invoice_data(
                 )
                 has_cust = bool(
                     re.search(
-                        r"(?i)\b(?:klant\s*-?\s*nr\.?|klantnr\.?|deb\.?\s*nr\.?|debnr\.?|debiteur)\b",
+                        r"(?i)\b(?:klant\s*code|klantcode|klant\s*-?\s*nr\.?|klantnr\.?|"
+                        r"deb\.?\s*nr\.?|debnr\.?|debiteur)\b",
                         hdr,
                     )
                 )
@@ -2564,7 +2677,7 @@ def extract_invoice_data(
                 return vals[-1], vals[-2]
             return None, None
 
-        lines = text.split("\n")
+        lines = primary_text.split("\n")
         tab_inv, tab_cust = _tabular_invoice_customer(lines)
         # no debug logging
         if tab_inv or tab_cust:
@@ -2588,17 +2701,25 @@ def extract_invoice_data(
 
         if invoice_number is None:
             # Invoice numbers should contain at least one digit; prevents placeholder words like "vermelden".
+            # Prefer explicit invoice labels over "Polisnummer" when both exist (Felison-style layouts).
             invoice_number = _extract_labeled_field(
-                text,
-                _INVOICE_LABEL_RE,
+                primary_text,
+                _INVOICE_LABEL_RE_NO_POLIS,
                 min_value_len=2,
                 require_digit=True,
             )
+            if invoice_number is None:
+                invoice_number = _extract_labeled_field(
+                    primary_text,
+                    _INVOICE_LABEL_RE,
+                    min_value_len=2,
+                    require_digit=True,
+                )
             if invoice_number is not None:
                 invoice_number_source = "label"
         if invoice_number is None:
             # Fallback for vendors using plain "Factuur : <nr>"
-            m_fact = re.search(r"(?im)^\s*Factuur\s*:\s*([A-Za-z0-9][A-Za-z0-9\-\/]{3,})\s*$", text)
+            m_fact = re.search(r"(?im)^\s*Factuur\s*:\s*([A-Za-z0-9][A-Za-z0-9\-\/]{3,})\s*$", primary_text)
             if m_fact:
                 invoice_number = m_fact.group(1).strip()
                 invoice_number_source = "factuur_colon"
@@ -2606,20 +2727,20 @@ def extract_invoice_data(
             # Fallback for layouts like "Factuur 41107739".
             m_fact_plain = re.search(
                 r"(?im)^\s*Factuur\b\s+([A-Za-z0-9][A-Za-z0-9\-\/]{5,})\s*$",
-                text,
+                primary_text,
             )
             if m_fact_plain and re.search(r"\d", m_fact_plain.group(1) or ""):
                 invoice_number = m_fact_plain.group(1).strip()
                 invoice_number_source = "factuur_plain"
         if invoice_number is None:
             # OEG-like: ``Factuur HA 13451308`` op één regel.
-            m_pref = re.search(r"(?i)\bFactuur\s+([A-Za-z]{1,8})\s+(\d{6,})\b", text)
+            m_pref = re.search(r"(?i)\bFactuur\s+([A-Za-z]{1,8})\s+(\d{6,})\b", primary_text)
             if m_pref:
                 invoice_number = f"{str(m_pref.group(1)).upper()}{m_pref.group(2)}"
                 invoice_number_source = "factuur_prefixed_digits"
         if invoice_number is None:
             # Belgische referenties: ``26/1800001827`` (2 cijfers + lange serie).
-            m_yrslash = re.search(r"(?<![A-Za-z0-9./])(\d{2}/\d{7,})(?!\d)", text)
+            m_yrslash = re.search(r"(?<![A-Za-z0-9./])(\d{2}/\d{7,})(?!\d)", primary_text)
             if m_yrslash:
                 invoice_number = m_yrslash.group(1).strip()
                 invoice_number_source = "year_slash_ref"
@@ -2627,7 +2748,7 @@ def extract_invoice_data(
             # Miko-style table: "Nummer/Datum" + next row "9926106153 / 03.03.2026".
             m_nummer_datum = re.search(
                 r"(?is)\bNummer\s*/\s*Datum\b[\s:]*([A-Za-z0-9][A-Za-z0-9\-\/]{4,})\s*/\s*\d{1,2}[\./-]\d{1,2}[\./-]\d{2,4}\b",
-                text,
+                primary_text,
             )
             if m_nummer_datum:
                 invoice_number = m_nummer_datum.group(1).strip()
@@ -2666,7 +2787,7 @@ def extract_invoice_data(
     try:
         if customer_number is None:
             customer_number = _extract_labeled_field(
-                text, _CUSTOMER_LABEL_RE, min_value_len=2, require_digit=True
+                primary_text, _CUSTOMER_LABEL_RE, min_value_len=2, require_digit=True
             )
             if customer_number is not None:
                 customer_number_source = "label"
@@ -2680,23 +2801,56 @@ def extract_invoice_data(
         customer_number_source = "exception"
 
     customer_number = _sanitize_customer_number(customer_number)
+    customer_number = _reject_uw_referentie_as_customer(customer_number, primary_text)
 
     if customer_number is None:
         try:
-            m_kw = re.search(r"(?i)\bUw\s+(?:Klant\s*[:]?\s*)?(K\d{3,12})\b", text)
+            m_kc = re.search(
+                r"(?i)\bklantcode\s*[:#]?\s*((?:K)?\d{4,12})\b", primary_text
+            )
+            if m_kc:
+                customer_number = (
+                    _normalize_k_customer_code(m_kc.group(1)) or m_kc.group(1).strip()
+                )
+                customer_number_source = "klantcode_inline"
+        except Exception:
+            pass
+
+    if customer_number is None:
+        try:
+            m_kw = re.search(
+                r"(?i)\bUw\s+(?:Klant\s*[:]?\s*)?(K(?:\s*\d){3,12})\b", primary_text
+            )
             if m_kw:
-                customer_number = m_kw.group(1).strip()
+                customer_number = _normalize_k_customer_code(m_kw.group(1))
                 customer_number_source = "uw_klant_k_prefix"
             if customer_number is None:
-                mc = re.search(r"(?i)\bKlant[^\n]{0,48}\s*[:]?\s*(K\d{3,12})\b", text)
+                mc = re.search(
+                    r"(?i)\bKlant[^\n]{0,48}\s*[:]?\s*(K(?:\s*\d){3,12})\b",
+                    primary_text,
+                )
                 if mc:
-                    customer_number = mc.group(1).strip()
+                    customer_number = _normalize_k_customer_code(mc.group(1))
                     customer_number_source = "klant_line_k_prefix"
+            if customer_number is None:
+                mu = re.search(
+                    r"(?is)\bUw\s+klant\b[^\n]{0,40}\n\s*(0?\d{4,10})\s*(?:\n|$)",
+                    primary_text,
+                )
+                if mu:
+                    digits = mu.group(1).strip()
+                    customer_number = f"K{digits}"
+                    customer_number_source = "uw_klant_digits_composed"
+            if customer_number is None:
+                mk = re.search(r"(?is)(?<![a-z])k\s*\n\s*(0?\d{4,10})\b", primary_text)
+                if mk:
+                    customer_number = f"K{mk.group(1).strip()}"
+                    customer_number_source = "split_k_newline"
             if customer_number is None:
                 # Pipelife-achtig: eerste 6-cijferige ref vlak onder afleveradres-regelblok.
                 md = re.search(
                     r"(?is)\bAfleveradres\b[^\n]{0,88}(?:\n[^\n]*){1,10}?\s*(\d{6})(?!\d)",
-                    text,
+                    primary_text,
                 )
                 if md:
                     customer_number = md.group(1).strip()
@@ -2706,7 +2860,7 @@ def extract_invoice_data(
 
     if invoice_number and customer_number and str(invoice_number).strip() == str(customer_number).strip():
         # Suspicious: often caused by merged columns or label mis-detection.
-        lines = (text or "").splitlines()
+        lines = (primary_text or "").splitlines()
         suspect = []
         for ln in lines:
             low = (ln or "").lower()
@@ -2728,7 +2882,7 @@ def extract_invoice_data(
 
     # Factuurdatum (gelabeld; anders missing)
     try:
-        invoice_date, invoice_date_source = _extract_invoice_date_from_text(text)
+        invoice_date, invoice_date_source = _extract_invoice_date_from_text(primary_text)
         if invoice_date:
             logger.debug("Factuurdatum gevonden: %s", invoice_date)
         else:
@@ -2754,16 +2908,16 @@ def extract_invoice_data(
         {
             "invoice_number": invoice_number,
             "supplier_hint_preview": (str(supplier_hint or "")[:80] if supplier_hint is not None else ""),
-            "has_any_date_token_dmy": bool(_DD_MM_YYYY_RE.search(text)),
-            "has_any_date_token_iso": bool(_ISO_DATE_RE.search(text)),
-            "has_any_date_token_monthname": bool(_MONTH_NAME_DATE_RE.search(text)),
+                "has_any_date_token_dmy": bool(_DD_MM_YYYY_RE.search(primary_text)),
+                "has_any_date_token_iso": bool(_ISO_DATE_RE.search(primary_text)),
+                "has_any_date_token_monthname": bool(_MONTH_NAME_DATE_RE.search(primary_text)),
         },
     )
 
     # Restricted fallback: ``12345/9876`` betaal-/relatiereferenties (NIET het ``26/long`` PGB‑patroon).
     try:
         if customer_number is None or invoice_number is None:
-            m_ref = re.search(r"\b(?!\d{2}/\d{7})(\d{5,})\s*/\s*(\d{4,})\b", text)
+            m_ref = re.search(r"\b(?!\d{2}/\d{7})(\d{5,})\s*/\s*(\d{4,})\b", primary_text)
             if m_ref:
                 if invoice_number is None:
                     invoice_number = m_ref.group(1).strip()
@@ -2782,7 +2936,7 @@ def extract_invoice_data(
         if supplier_hint is None:
             from parser.supplier_rules import extract_supplier_name_hint
 
-            supplier_hint = extract_supplier_name_hint(text)
+            supplier_hint = extract_supplier_name_hint(ident_text)
             if supplier_hint:
                 logger.debug("Supplier hint gevonden: %s", supplier_hint)
             else:
@@ -2794,11 +2948,11 @@ def extract_invoice_data(
 
     # Extra supplier-identification signals (for diagnostics/review flow)
     try:
-        m_email = _EMAIL_RE.search(text)
+        m_email = _EMAIL_RE.search(ident_text)
         if m_email:
             email_domain = str(m_email.group(1) or "").strip().lower() or None
-        kvk_number = _pick_kvk_excluding_debtor(text, debtor_kvk_norm) or None
-        vat_candidates = _iter_supplier_vat_candidates(text)
+        kvk_number = _pick_kvk_excluding_debtor(ident_text, debtor_kvk_norm) or None
+        vat_candidates = _iter_supplier_vat_candidates(ident_text)
         vat_number = _pick_vat_excluding_debtor(vat_candidates, debtor_vat_norm)
     except Exception:
         email_domain = None
@@ -2810,7 +2964,7 @@ def extract_invoice_data(
     # Type
     try:
         # Matcht: `type`
-        if re.search(r"\b(creditnota|credit note|credit|CREN)\b", text, flags=re.IGNORECASE):
+        if re.search(r"\b(creditnota|credit note|credit|CREN)\b", primary_text, flags=re.IGNORECASE):
             doc_type = "credit_note"
         else:
             doc_type = "invoice"
@@ -2874,15 +3028,16 @@ def extract_invoice_data(
     )
 
     inv_result = extract_invoice_number_result(
-        text,
+        primary_text,
         resolved=invoice_number,
         resolved_source=invoice_number_source if invoice_number else None,
     )
     if inv_result.value:
         invoice_number = inv_result.value
         invoice_number_source = inv_result.source
+    # NOTE: customer codes can live in OCR-only layers; use ident_text (primary + OCR appended).
     cust_result = extract_customer_number_result(
-        text,
+        ident_text,
         resolved=customer_number,
         resolved_source=customer_number_source if customer_number else None,
     )
@@ -2898,6 +3053,7 @@ def extract_invoice_data(
     return {
         "iban": iban,
         "all_ibans": all_ibans,
+        "iban_result": iban_result.to_dict(),
         # Legacy amount fields (deprecated — use amount_result)
         "amount": amount,
         "amount_source": amount_source,
@@ -2918,7 +3074,7 @@ def extract_invoice_data(
         "kvk_number": kvk_number,
         "vat_number": vat_number,
         "payment_term_days": payment_term_days,
-        "raw_text": text,
+        "raw_text": primary_text,
     }
 
 def _ocr_pixmap_pytesseract(pix) -> str:

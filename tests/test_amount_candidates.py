@@ -515,6 +515,33 @@ class TestExtractInvoiceDataAmountResult:
         assert d["amount_confidence"] == "missing"
 
 
+class TestExtractInvoiceDataOcrAmountIsolation:
+    def test_ocr_text_never_degrades_confirmed_primary_amount(self):
+        primary = "Te betalen 76,33"
+        # OCR may contain unrelated totals (e.g. VAT line totals); must not affect primary decision.
+        ocr = "Te betalen 21,00\nBTW 21% 21,00"
+        d = extract_invoice_data(primary, ocr_text=ocr)
+        ar = d["amount_result"]
+        assert ar["status"] == "confirmed"
+        assert ar["value"] == "76.33"
+
+    def test_ocr_amount_can_override_only_when_primary_has_zero_candidates(self):
+        primary = ""
+        ocr = "Te betalen 10,00"
+        d = extract_invoice_data(primary, ocr_text=ocr)
+        ar = d["amount_result"]
+        assert ar["status"] in ("confirmed", "tentative")
+        assert ar["value"] == "10.00"
+
+    def test_ocr_amount_does_not_override_when_primary_is_ambiguous(self):
+        primary = "Factuurbedrag excl. btw 100,00"
+        ocr = "Te betalen 121,00"
+        d = extract_invoice_data(primary, ocr_text=ocr)
+        ar = d["amount_result"]
+        assert ar["status"] == "ambiguous"
+        assert ar["value"] is None
+
+
 # ---------------------------------------------------------------------------
 # Payment engine — ambiguous blocks, low_confidence warns
 # ---------------------------------------------------------------------------

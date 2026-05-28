@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 import pytest
 
-from parser.profile_extractor import learn_profile_from_confirmation
+from parser.profile_learner import learn_profile_from_confirmation
 from parser.supplier_db import SupplierDB
 from parser.supplier_matcher import match_suppliers
 from tests.test_profile_extractor import (

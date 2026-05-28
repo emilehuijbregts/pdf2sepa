@@ -1,0 +1,13 @@
+{
+  "source_file": "Pearl paint 2610I000151.pdf",
+  "invoice_number": "2610I000151",
+  "supplier_name": "PearlPaint B.V.",
+  "iban": "NL23INGB0008745902",
+  "amount": "1165.53",
+  "amount_status": "confirmed",
+  "customer_code": "K1628",
+  "description": "K1628 / 2610I000151",
+  "discount_percentage": "2.00",
+  "invoice_date": "2026-01-07",
+  "payment_terms_days": 21
+}

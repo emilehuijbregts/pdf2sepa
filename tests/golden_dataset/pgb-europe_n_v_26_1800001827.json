@@ -1,0 +1,13 @@
+{
+  "source_file": "PGB 1800001827.pdf",
+  "invoice_number": "26/1800001827",
+  "supplier_name": "pgb-Europe N.V.",
+  "iban": "BE78290016060086",
+  "amount": "624.13",
+  "amount_status": "confirmed",
+  "customer_code": "1016589",
+  "description": "1016589 / 26/1800001827",
+  "discount_percentage": "0.00",
+  "invoice_date": "2026-01-16",
+  "payment_terms_days": 30
+}
