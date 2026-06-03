@@ -160,17 +160,46 @@ def _db_core_matches(match_info: dict) -> list[str]:
         core.append("KvK")
     if match_info.get("vat_match"):
         core.append("BTW")
-    if match_info.get("email_domain_match"):
-        core.append("E-maildomein")
     return core
 
+
+def _has_strong_anchor(match_info: dict) -> bool:
+    return bool(
+        match_info.get("iban_match")
+        or match_info.get("customer_code_match")
+    )
+
+def _status_reason(match_info: dict, status: str) -> str:
+    core = _db_core_matches(match_info)
+    core_set = {c.casefold() for c in core}
+    has_anchor = _has_strong_anchor(match_info)
+    if status == "confirmed":
+        return f"core_matches={core}"
+    if "btw" in core_set and "kvk" in core_set and len(core_set) == 2:
+        return "vat_kvk_only_guard"
+    if len(core) >= 2 and not has_anchor:
+        return f"missing_strong_anchor_guard={core}"
+    if len(core) == 0:
+        return "weak_signal_only_guard"
+    if status == "needs_review":
+        return f"insufficient_core_matches={core}"
+    return "no_match_signals"
+
 def _determine_match_status(match_info: dict) -> str:
-    """Derive match status from kernkenmerken (IBAN, klantnummer, KvK, BTW, e-maildomein).
+    """Derive match status from kernkenmerken (IBAN, klantnummer, KvK, BTW).
 
     Bevestigd alleen bij 2+ kernkenmerken. Naam/alias telt niet mee als tweede kenmerk.
     """
-    if len(_db_core_matches(match_info)) >= 2:
+    core = _db_core_matches(match_info)
+    core_set = {c.casefold() for c in core}
+    has_anchor = _has_strong_anchor(match_info)
+    # Hard rule: VAT+KvK alone can never auto-confirm.
+    if "btw" in core_set and "kvk" in core_set and len(core_set) == 2:
+        return "needs_review"
+    if len(core) >= 2 and has_anchor:
         return "confirmed"
+    if len(core) >= 2 and not has_anchor:
+        return "needs_review"
 
     iban = match_info.get("iban_match", False)
     alias = match_info.get("alias_match", False)
@@ -225,10 +254,7 @@ def _is_unanchored_tax_only_match(match_info: dict) -> bool:
     return bool(
         match_info.get("vat_match")
         and match_info.get("kvk_match")
-        and not match_info.get("iban_match")
-        and not match_info.get("customer_code_match")
-        and not match_info.get("alias_match")
-        and not match_info.get("email_domain_match")
+        and not _has_strong_anchor(match_info)
     )
 
 def match_suppliers(invoices: list[dict], db: SupplierDB) -> list[dict]:
@@ -310,9 +336,28 @@ def match_suppliers(invoices: list[dict], db: SupplierDB) -> list[dict]:
             core_matches = _db_core_matches(match_info)
             invoice_copy["db_core_matches"] = core_matches
             invoice_copy["db_core_match_count"] = len(core_matches)
-            invoice_copy["db_core_match_confirmed"] = len(core_matches) >= 2
+            invoice_copy["db_core_match_confirmed"] = len(core_matches) >= 2 and _has_strong_anchor(match_info)
 
             status = _determine_match_status(match_info)
+            logger.info(
+                "Supplier match status init; supplier=%s status=%s reason=%s flags=%s",
+                str(supplier.get("name") or ""),
+                status,
+                _status_reason(match_info, status),
+                {
+                    k: bool(match_info.get(k))
+                    for k in (
+                        "iban_match",
+                        "customer_code_match",
+                        "alias_match",
+                        "fuzzy_match",
+                        "kvk_match",
+                        "vat_match",
+                        "email_domain_match",
+                        "ocr_confirmed",
+                    )
+                },
+            )
             try:
                 src = str(invoice.get("source_file") or "")
                 pdf = Path(src).name if src else ""
@@ -389,27 +434,30 @@ def match_suppliers(invoices: list[dict], db: SupplierDB) -> list[dict]:
             # This prevents cross-supplier misclassification when tax identifiers are
             # extracted from an unrelated section of the document.
             if status == "confirmed" and _is_unanchored_tax_only_match(match_info):
-                has_invoice_identity_signals = bool(
-                    str(invoice.get("supplier_hint") or "").strip()
-                    or str(invoice.get("email_domain") or "").strip()
-                    or str(invoice.get("iban") or "").strip()
-                    or str(invoice.get("customer_number") or "").strip()
+                status = "needs_review"
+                logger.info(
+                    "Supplier match downgraded; supplier=%s reason=vat_kvk_only_needs_review",
+                    str(supplier.get("name") or ""),
                 )
-                if has_invoice_identity_signals:
-                    status = "needs_review"
-                    _agent_log(
-                        "H1",
-                        "parser/supplier_matcher.py:match_suppliers",
-                        "tax-only guard downgraded confirmed→needs_review",
-                        {
-                            "supplier": str(supplier.get("name") or ""),
-                            "has_invoice_identity_signals": True,
-                            "core_matches": core_matches,
-                        },
-                    )
+                _agent_log(
+                    "H1",
+                    "parser/supplier_matcher.py:match_suppliers",
+                    "tax-only guard downgraded confirmed→needs_review",
+                    {
+                        "supplier": str(supplier.get("name") or ""),
+                        "core_matches": core_matches,
+                    },
+                )
 
             invoice_copy["match_status"] = status
             invoice_copy["discount"] = supplier.get("discount", 0.0) if status == "confirmed" else 0.0
+            logger.info(
+                "Supplier match status final; supplier=%s status=%s reason=%s core=%s",
+                str(supplier.get("name") or ""),
+                status,
+                _status_reason(match_info, status),
+                core_matches,
+            )
             _agent_log(
                 "H1",
                 "parser/supplier_matcher.py:match_suppliers",
@@ -560,12 +608,27 @@ def _try_ocr_upgrade(
 
         # --- Alias / name match ---
         if not match_info.get("alias_match"):
-            ocr_lower = ocr_text.lower()
+            ocr_clean_tokens = re.findall(r"[a-z]+", db._clean_name(ocr_text))
             aliases = supplier.get("aliases") or []
             names_to_check = [supplier.get("name") or "", *aliases]
             for name in names_to_check:
-                clean = name.strip().lower()
-                if clean and len(clean) >= 3 and clean in ocr_lower:
+                clean = db._clean_name(name)
+                toks = [t for t in clean.split() if t]
+                if not toks:
+                    continue
+                if len(toks) == 1:
+                    tok = toks[0]
+                    if len(tok) < 3:
+                        continue
+                    matched = tok in ocr_clean_tokens
+                else:
+                    matched = False
+                    span = len(toks)
+                    for i in range(0, len(ocr_clean_tokens) - span + 1):
+                        if ocr_clean_tokens[i : i + span] == toks:
+                            matched = True
+                            break
+                if matched:
                     logger.info("OCR bevestigde naam/alias '%s' voor %s", name, supplier.get("name"))
                     match_info["alias_match"] = True
                     match_info["ocr_confirmed"] = True

@@ -16,9 +16,11 @@ import pytest
 import parser.pdf_parser as pdf_parser
 from parser.pdf_parser import (
     AmountCandidate,
+    _amount_payable_score,
     _classify_candidate_amount_type,
     _extract_amount_candidates,
     _select_amount,
+    _PAYABLE_SCORE_MARGIN,
     extract_invoice_data,
     normalize_amount_decimal,
 )
@@ -106,6 +108,48 @@ class TestSelectAmountCertain:
         assert r.status == "confirmed"
         assert r.value == Decimal("10052.41")
         assert r.source == "TOTAL_LABEL_PAYABLE"
+
+
+class TestPhase2PayableSelectionRanking:
+    def test_payable_beats_subtotal_at_lower_value_with_margin(self):
+        payable = AmountCandidate(
+            Decimal("614.93"),
+            "total_label_payable",
+            95,
+            "Te betalen EUR 614,93",
+            "incl",
+        )
+        subtotal = AmountCandidate(
+            Decimal("10000.00"),
+            "total_label_sum",
+            98,
+            "Subtotaal EUR 10000,00",
+            "incl",
+        )
+        assert _amount_payable_score(payable) - _amount_payable_score(subtotal) >= _PAYABLE_SCORE_MARGIN
+        r = _select_amount([payable, subtotal])
+        assert r.status == "confirmed"
+        assert r.value == Decimal("614.93")
+
+    def test_close_payable_scores_stay_ambiguous_or_tentative(self):
+        a = AmountCandidate(
+            Decimal("100.00"),
+            "total_label_generic",
+            90,
+            "Totaal netto EUR 100,00",
+            "incl",
+        )
+        b = AmountCandidate(
+            Decimal("105.00"),
+            "total_label_sum",
+            90,
+            "Totaal EUR 105,00",
+            "incl",
+        )
+        gap = abs(_amount_payable_score(a) - _amount_payable_score(b))
+        assert gap < _PAYABLE_SCORE_MARGIN
+        r = _select_amount([a, b])
+        assert r.status in ("ambiguous", "tentative")
 
 
 class TestSelectAmountAmbiguous:

@@ -22,6 +22,10 @@ _HYBRID_FIELD_IDS: tuple[FieldId, ...] = (
     "invoice_number",
     "customer_number",
     "iban",
+    "vat_number",
+    "kvk_number",
+    "invoice_date",
+    "email_domain",
 )
 
 _RESULT_KEY: dict[FieldId, str] = {
@@ -29,6 +33,10 @@ _RESULT_KEY: dict[FieldId, str] = {
     "invoice_number": "invoice_number_result",
     "customer_number": "customer_number_result",
     "iban": "iban_result",
+    "vat_number": "vat_number_result",
+    "kvk_number": "kvk_number_result",
+    "invoice_date": "invoice_date_result",
+    "email_domain": "email_domain_result",
 }
 
 
@@ -150,6 +158,10 @@ def apply_hybrid_field_extraction(
         "invoice_number": None,
         "customer_number": None,
         "iban": None,
+        "vat_number": None,
+        "kvk_number": None,
+        "invoice_date": None,
+        "email_domain": None,
     }
     profile_validated = False
     if profile and raw:

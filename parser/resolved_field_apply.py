@@ -15,6 +15,10 @@ _RESULT_KEY_BY_FIELD: dict[FieldId, str] = {
     "invoice_number": "invoice_number_result",
     "customer_number": "customer_number_result",
     "iban": "iban_result",
+    "vat_number": "vat_number_result",
+    "kvk_number": "kvk_number_result",
+    "invoice_date": "invoice_date_result",
+    "email_domain": "email_domain_result",
 }
 
 _LEGACY_VALUE_KEY_BY_FIELD: dict[FieldId, str] = {
@@ -22,6 +26,10 @@ _LEGACY_VALUE_KEY_BY_FIELD: dict[FieldId, str] = {
     "invoice_number": "invoice_number",
     "customer_number": "customer_number",
     "iban": "iban",
+    "vat_number": "vat_number",
+    "kvk_number": "kvk_number",
+    "invoice_date": "invoice_date",
+    "email_domain": "email_domain",
 }
 
 

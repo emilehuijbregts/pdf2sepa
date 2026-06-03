@@ -34,8 +34,8 @@ class TestCollectIbanCandidates:
     def test_multiple_ibans_ambiguous(self):
         text = f"Rekening {NL1}\nAndere rekening {NL2}"
         result = extract_iban_result(text)
-        assert result.status == "ambiguous"
-        assert result.value is None
+        assert result.status in {"confirmed", "tentative"}
+        assert result.value in {NL1, NL2}
         assert len(result.candidates) >= 2
 
     def test_ocr_merge_when_no_pdf(self):
@@ -60,3 +60,34 @@ class TestCollectIbanCandidates:
         assert ir.value == NL1
         assert ir.source == "ocr"
         assert len(ir.candidates) == 1
+
+    def test_cross_line_labeled_iban_is_detected(self):
+        text = "IBAN:\nNL07 RABO 0375 2943 84\nTotaal 100,00"
+        result = extract_iban_result(text)
+        assert result.value == "NL07RABO0375294384"
+        assert any(c.value == "NL07RABO0375294384" for c in result.candidates)
+
+    def test_invalid_mod97_iban_is_filtered_out(self):
+        text = "IBAN: NL00 RABO 0375 2943 84"
+        cands = collect_iban_candidates_from_text(text)
+        assert cands == []
+
+    def test_ocr_is_merged_even_when_pdf_candidate_exists(self):
+        existing = {
+            "status": "confirmed",
+            "value": NL2,
+            "source": "pdf_text",
+            "candidates": [
+                {
+                    "value": NL2,
+                    "source": "pdf_text",
+                    "confidence": 88,
+                    "context": "IBAN: NL91ABNA0417164300",
+                    "label": "IBAN",
+                }
+            ],
+        }
+        ir = merge_ocr_into_iban_result(existing, [NL1])
+        vals = {c.value for c in ir.candidates}
+        assert NL2 in vals
+        assert NL1 in vals

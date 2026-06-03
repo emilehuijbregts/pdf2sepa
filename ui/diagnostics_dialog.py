@@ -23,12 +23,18 @@ from PySide6.QtWidgets import (
 
 from ui.field_review import (
     CUSTOMER_ABSENT_MENU_LABEL_NL,
+    candidate_menu_tooltip,
     make_customer_absent_pick_candidate,
     is_customer_absent_pick,
 )
+from ui.field_rendering import checkmark_prefix, confidence_color
 
 _DIAG_FIELD_BLOCKS: dict[str, str] = {
     "amount": "amount",
+    "vat_number": "vat_number",
+    "kvk_number": "kvk_number",
+    "invoice_date": "invoice_date",
+    "email_domain": "email_domain",
     "invoice_number": "invoice_number",
     "customer_number": "customer_number",
     "iban": "iban",
@@ -41,14 +47,6 @@ def section_icon(*, needs_attention: bool, is_error: bool) -> str:
     if needs_attention:
         return "⚠️"
     return "✅"
-
-
-def _confidence_color(confidence: int) -> QColor:
-    if confidence >= 85:
-        return QColor(0, 128, 0)
-    if confidence >= 50:
-        return QColor(200, 120, 0)
-    return QColor(180, 0, 0)
 
 
 def _lines_block(lines: list[str]) -> str:
@@ -76,7 +74,10 @@ class DiagnosticsDialog(QDialog):
         self._on_candidate_click = on_candidate_click
         self._on_confirm_selection = on_confirm_selection
         self._on_save_profile = on_save_profile
-        self._selected_by_field: dict[str, Any] = {}
+        self._diag: dict[str, Any] = {}
+        # Local preview selection (no writes). Confirm button commits via callback.
+        self._selected_candidates: dict[str, dict[str, Any]] = {}
+        self._selected_values: dict[str, Any] = {}
 
         root = QVBoxLayout(self)
 
@@ -127,12 +128,17 @@ class DiagnosticsDialog(QDialog):
 
     def set_diag(self, diag: dict, *, restore_scroll_y: int | None = None) -> None:
         """Replace dialog body with a new diagnostics dict (keeps dialog open)."""
+        self._diag = diag if isinstance(diag, dict) else {}
         body = QWidget()
         body_lay = QVBoxLayout(body)
         body_lay.setSpacing(10)
 
         supplier = diag.get("supplier") if isinstance(diag.get("supplier"), dict) else {}
         amount = diag.get("amount") if isinstance(diag.get("amount"), dict) else {}
+        vat_number = diag.get("vat_number") if isinstance(diag.get("vat_number"), dict) else {}
+        kvk_number = diag.get("kvk_number") if isinstance(diag.get("kvk_number"), dict) else {}
+        invoice_date = diag.get("invoice_date") if isinstance(diag.get("invoice_date"), dict) else {}
+        email_domain = diag.get("email_domain") if isinstance(diag.get("email_domain"), dict) else {}
         invoice_number = diag.get("invoice_number") if isinstance(diag.get("invoice_number"), dict) else {}
         customer_number = diag.get("customer_number") if isinstance(diag.get("customer_number"), dict) else {}
         iban = diag.get("iban") if isinstance(diag.get("iban"), dict) else {}
@@ -157,6 +163,50 @@ class DiagnosticsDialog(QDialog):
                     is_error=str(amount.get("status") or "") == "failed" or bool(load_error),
                 ),
                 extra=self._field_candidates_extra(amount, kind="amount", field_id="amount"),
+            )
+        )
+        body_lay.addWidget(
+            self._section_group(
+                title="BTW-nummer",
+                icon=section_icon(
+                    needs_attention=bool(vat_number.get("needs_attention")),
+                    is_error=False,
+                ),
+                lines=self._simple_value_lines(vat_number),
+                extra=self._field_candidates_extra(vat_number, kind="ident", field_id="vat_number"),
+            )
+        )
+        body_lay.addWidget(
+            self._section_group(
+                title="KvK-nummer",
+                icon=section_icon(
+                    needs_attention=bool(kvk_number.get("needs_attention")),
+                    is_error=False,
+                ),
+                lines=self._simple_value_lines(kvk_number),
+                extra=self._field_candidates_extra(kvk_number, kind="ident", field_id="kvk_number"),
+            )
+        )
+        body_lay.addWidget(
+            self._section_group(
+                title="Factuurdatum",
+                icon=section_icon(
+                    needs_attention=bool(invoice_date.get("needs_attention")),
+                    is_error=False,
+                ),
+                lines=self._simple_value_lines(invoice_date),
+                extra=self._field_candidates_extra(invoice_date, kind="ident", field_id="invoice_date"),
+            )
+        )
+        body_lay.addWidget(
+            self._section_group(
+                title="E-maildomein",
+                icon=section_icon(
+                    needs_attention=bool(email_domain.get("needs_attention")),
+                    is_error=False,
+                ),
+                lines=self._simple_value_lines(email_domain),
+                extra=self._field_candidates_extra(email_domain, kind="ident", field_id="email_domain"),
             )
         )
         body_lay.addWidget(
@@ -216,7 +266,6 @@ class DiagnosticsDialog(QDialog):
 
         body_lay.addStretch(1)
         self._scroll.setWidget(body)
-        self._sync_selected_from_diag(diag)
         if restore_scroll_y is not None:
             QTimer.singleShot(0, lambda y=restore_scroll_y: self._restore_scroll_y(y))
 
@@ -291,7 +340,7 @@ class DiagnosticsDialog(QDialog):
             if isinstance(block, dict) and self._refresh_field_extra_inplace(
                 field_id, block, kind=kind
             ):
-                self._sync_selected_from_diag(updated)
+                self._diag = updated if isinstance(updated, dict) else {}
                 self._restore_scroll_y(scroll_y)
                 return
             self.set_diag(updated, restore_scroll_y=scroll_y)
@@ -308,16 +357,18 @@ class DiagnosticsDialog(QDialog):
             return val
         return None
 
-    def _sync_selected_from_diag(self, diag: dict) -> None:
-        """Houd lokale selectie in sync met diagnostics-weergave."""
+    def selected_by_field(self) -> dict[str, Any]:
+        diag = self._diag if isinstance(self._diag, dict) else {}
+        out: dict[str, Any] = {}
         for field_id, block_key in _DIAG_FIELD_BLOCKS.items():
+            if field_id in self._selected_values:
+                out[field_id] = self._selected_values[field_id]
+                continue
             block = diag.get(block_key) if isinstance(diag.get(block_key), dict) else {}
             val = self._selected_value_from_block(block)
             if val is not None:
-                self._selected_by_field[field_id] = val
-
-    def selected_by_field(self) -> dict[str, Any]:
-        return dict(self._selected_by_field)
+                out[field_id] = val
+        return out
 
     def _schedule_set_diag(self, diag: dict, *, scroll_y: int | None = None) -> None:
         """Vernieuw UI na signaal-handler; niet synchroon tijdens itemClicked (Qt-crash)."""
@@ -394,28 +445,199 @@ class DiagnosticsDialog(QDialog):
         prev = section.get("previous_value")
         if prev is not None and str(prev).strip():
             lines.append(f"Vorige waarde: {prev}")
-        trace = section.get("decision_trace")
+        trace = section.get("decision_trace_human")
+        if not isinstance(trace, list) or not trace:
+            trace = section.get("decision_trace")
         if isinstance(trace, list) and trace:
-            lines.append("Beslissing:")
+            lines.append("Beslisspoor:")
             for entry in trace:
                 if not isinstance(entry, dict):
                     continue
-                src = str(entry.get("source") or "?")
+                if str(entry.get("kind") or "") == "final":
+                    reason = str(
+                        entry.get("final_decision_reason_nl") or ""
+                    ).strip()
+                    winner = entry.get("winner") if isinstance(entry.get("winner"), dict) else {}
+                    w_src = str(
+                        winner.get("source_nl") or ""
+                    ).strip() or "onbekende bron"
+                    w_val = winner.get("value")
+                    try:
+                        w_conf = int(winner.get("confidence") or 0)
+                    except (TypeError, ValueError):
+                        w_conf = 0
+                    lines.append(
+                        f"  • Eindkeuze: {reason or 'Gekozen op basis van beschikbare signalen'} ({w_conf}%)"
+                    )
+                    if w_val is not None and str(w_val).strip():
+                        lines.append(f"    Waarde: {w_val}")
+                    lines.append(f"    Bron: {w_src}")
+                    continue
+                src = str(entry.get("source_nl") or "").strip() or "bron in document"
                 try:
                     conf = int(entry.get("confidence") or 0)
                 except (TypeError, ValueError):
                     conf = 0
-                win = " ← gekozen" if entry.get("win") else ""
-                excl = ""
-                if entry.get("excluded_reason"):
-                    excl = f" ({entry['excluded_reason']})"
-                lines.append(f"  • {src} {conf}%{win}{excl}")
+                win = " (gekozen)" if entry.get("win") else ""
+                excl = str(
+                    entry.get("rejection_reason_nl")
+                    or entry.get("rejection_reason")
+                    or entry.get("excluded_reason")
+                    or ""
+                ).strip()
+                val = entry.get("value")
+                rank = entry.get("rank")
+                r_txt = f" #{int(rank)}" if isinstance(rank, int) or str(rank).isdigit() else ""
+                v_txt = f" ({val})" if val is not None and str(val).strip() else ""
+                lines.append(f"  • {src}{r_txt}: {conf}%{win}{v_txt}")
+                if excl and not entry.get("win"):
+                    lines.append(f"    Niet gekozen: {excl}")
+        return lines
+
+    @staticmethod
+    def _winner_candidate(field: dict) -> dict[str, Any] | None:
+        cands = field.get("candidates")
+        if not isinstance(cands, list):
+            return None
+        resolved = str(field.get("selected_value") or field.get("value") or "").strip()
+        for cand in cands:
+            if not isinstance(cand, dict):
+                continue
+            if cand.get("is_resolved"):
+                return cand
+            if resolved and str(cand.get("value") or "").strip() == resolved:
+                return cand
+        return None
+
+    @staticmethod
+    def _trace_maps(
+        field: dict,
+    ) -> tuple[dict[tuple[str, str], str], set[tuple[str, str]]]:
+        rej_by_key: dict[tuple[str, str], str] = {}
+        win_by_key: set[tuple[str, str]] = set()
+        trace = field.get("decision_trace_human")
+        if not isinstance(trace, list) or not trace:
+            trace = field.get("decision_trace")
+        if not isinstance(trace, list):
+            return rej_by_key, win_by_key
+        for entry in trace:
+            if not isinstance(entry, dict) or str(entry.get("kind") or "") == "final":
+                continue
+            src = str(entry.get("source") or "").strip()
+            val = str(entry.get("value") or "").strip()
+            if not (src and val):
+                continue
+            if entry.get("win"):
+                win_by_key.add((src, val))
+            reason = str(
+                entry.get("rejection_reason_nl")
+                or ""
+            ).strip()
+            if reason:
+                rej_by_key[(src, val)] = reason
+            elif entry.get("rejection_reason") or entry.get("excluded_reason"):
+                rej_by_key[(src, val)] = "Niet gekozen omdat een andere kandidaat sterker was"
+        return rej_by_key, win_by_key
+
+    @staticmethod
+    def _candidate_status_line(cand: dict[str, Any], *, is_resolved: bool, is_selected: bool) -> str:
+        disp = str(cand.get("value_display") or cand.get("value") or "?")
+        if is_resolved:
+            return f"{checkmark_prefix(is_selected=True)}{disp}"
+        if is_selected:
+            return f"🔵 Preview: {disp}"
+        return disp
+
+    @staticmethod
+    def _candidate_detail_lines(cand: dict[str, Any], *, conf: int, reason: str = "") -> list[str]:
+        lines = [f"Betrouwbaarheid: {conf}%"]
+        source = str(cand.get("label") or cand.get("source_nl") or "").strip()
+        if source:
+            lines.append(f"Bron: {source}")
+        hint = str(cand.get("context_hint_nl") or "").strip()
+        if hint:
+            lines.append(f"Locatie: {hint}")
+        method = str(cand.get("extraction_method_nl") or "").strip()
+        if method:
+            lines.append(method)
+        label_reason = str(cand.get("label_reason_nl") or "").strip()
+        if label_reason:
+            lines.append(label_reason)
+        if reason:
+            lines.append(f"Niet gekozen: {reason}")
+        return lines
+
+    def _why_chosen_lines(self, field: dict, *, field_id: str) -> list[str]:
+        lines: list[str] = []
+        winner = self._winner_candidate(field)
+        if winner is None:
+            return lines
+        conf = int(winner.get("confidence") or 0)
+        lines.append(
+            f"• {str(winner.get('value_display') or winner.get('value') or '?')} is nu de keuze ({conf}%)."
+        )
+        trace = field.get("decision_trace_human")
+        if not isinstance(trace, list) or not trace:
+            trace = field.get("decision_trace")
+        if isinstance(trace, list):
+            for entry in trace:
+                if isinstance(entry, dict) and str(entry.get("kind") or "") == "final":
+                    reason = str(
+                        entry.get("final_decision_reason_nl") or ""
+                    ).strip()
+                    if reason:
+                        lines.append(f"• {reason}.")
+                    break
+        src = str(winner.get("label") or winner.get("source_nl") or "").strip()
+        if src:
+            lines.append(f"• Bron: {src}.")
+        hint = str(winner.get("context_hint_nl") or "").strip()
+        if hint:
+            lines.append(f"• Waarde stond in de {hint}.")
+        method = str(winner.get("extraction_method_nl") or "").strip()
+        if method:
+            lines.append(f"• {method}.")
+        if field_id == "amount":
+            override_reason = str(field.get("override_reason_nl") or "").strip()
+            if override_reason:
+                lines.append(f"• {override_reason}.")
+        return lines
+
+    def _why_not_chosen_lines(self, field: dict, selected: dict[str, Any]) -> list[str]:
+        lines: list[str] = []
+        winner = self._winner_candidate(field)
+        selected_val = str(selected.get("value") or "").strip()
+        if winner is None or selected_val == str(winner.get("value") or "").strip():
+            return lines
+        sel_conf = int(selected.get("confidence") or 0)
+        win_conf = int(winner.get("confidence") or 0)
+        diff = max(win_conf - sel_conf, 0)
+        if diff > 0:
+            lines.append(
+                f"• Lagere betrouwbaarheid ({sel_conf}%) dan de huidige keuze ({win_conf}%, verschil {diff}%)."
+            )
+        rej_by_key, _ = self._trace_maps(field)
+        key = (str(selected.get("source") or "").strip(), selected_val)
+        reason = str(rej_by_key.get(key) or "").strip()
+        if reason:
+            lines.append(f"• {reason}.")
+        label_reason = str(selected.get("label_reason_nl") or "").strip()
+        if not label_reason:
+            lines.append("• Geen sterk labelsignaal gevonden.")
+        method = str(selected.get("extraction_method_nl") or "").strip()
+        if method:
+            lines.append(f"• Alleen via: {method.lower()}.")
+        hint = str(selected.get("context_hint_nl") or "").strip()
+        if hint:
+            lines.append(f"• Gevonden in {hint}.")
         return lines
 
     @staticmethod
     def _simple_value_lines(section: dict) -> list[str]:
         st = str(section.get("status_nl") or "").strip()
-        val = section.get("value")
+        val = section.get("value_display")
+        if val is None:
+            val = section.get("value")
         lines: list[str] = []
         if st:
             lines.append(st)
@@ -499,67 +721,60 @@ class DiagnosticsDialog(QDialog):
         *,
         kind: str,
         field_id: str,
-    ) -> None:
+    ) -> dict[str, Any] | None:
         lw.clear()
         lw.setAutoScroll(False)
         lw.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         lw.setObjectName(f"diag_candidates_{field_id}")
         cands = field.get("candidates")
         if not isinstance(cands, list):
-            return
+            return None
         resolved = str(field.get("selected_value") or field.get("value") or "").strip()
+        rej_by_key, win_by_key = self._trace_maps(field)
+
+        selected_val = self._selected_values.get(field_id)
+        selected_cand: dict[str, Any] | None = None
         for c in cands:
             if not isinstance(c, dict):
                 continue
-            disp = str(c.get("value_display") or c.get("value") or "?")
-            if kind == "ident":
-                lbl = str(c.get("label") or c.get("source_nl") or "")
-                try:
-                    conf = int(c.get("confidence") or 0)
-                except (TypeError, ValueError):
-                    conf = 0
-                raw_val = str(c.get("value") or "").strip()
-                is_resolved = bool(c.get("is_resolved")) or (
-                    resolved and (raw_val == resolved or disp == resolved)
-                )
-                text = f"{disp} — {lbl} ({conf}%)" if lbl else f"{disp} ({conf}%)"
-                if is_resolved:
-                    text = f"✓ {text}"
-                item = QListWidgetItem(text)
-                if is_resolved:
-                    item.setForeground(QColor(0, 128, 0))
-                    f = item.font()
-                    f.setBold(True)
-                    item.setFont(f)
-                else:
-                    item.setForeground(_confidence_color(conf))
+            try:
+                conf = int(c.get("confidence") or 0)
+            except (TypeError, ValueError):
+                conf = 0
+            raw_val = str(c.get("value") or "").strip()
+            is_resolved = bool(c.get("is_resolved")) or (
+                resolved and raw_val == resolved
+            )
+            is_selected = selected_val is not None and raw_val == str(selected_val).strip()
+            if is_selected:
+                selected_cand = c
+            src_key = str(c.get("source") or "").strip()
+            reason = ""
+            if src_key and raw_val:
+                reason = str(rej_by_key.get((src_key, raw_val)) or "").strip()
+
+            title = self._candidate_status_line(c, is_resolved=is_resolved, is_selected=is_selected)
+            details = self._candidate_detail_lines(c, conf=conf, reason=reason if not is_resolved else "")
+            item = QListWidgetItem("\n".join([title, *details]))
+            if is_resolved:
+                item.setForeground(QColor(0, 128, 0))
+            elif is_selected:
+                item.setForeground(QColor(20, 90, 180))
+                item.setBackground(QColor(225, 238, 255))
+            elif reason and (src_key, raw_val) not in win_by_key:
+                item.setForeground(QColor(130, 110, 70))
             else:
-                src_nl = str(c.get("source_nl") or c.get("source") or "")
-                try:
-                    conf = int(c.get("confidence") or 0)
-                except (TypeError, ValueError):
-                    conf = 0
-                item = QListWidgetItem(f"{disp} — {src_nl} ({conf}%)")
-                is_resolved = bool(c.get("is_resolved")) or (
-                    resolved and str(c.get("value") or "").strip() == resolved
-                )
-                if is_resolved:
-                    item.setText(f"✓ {item.text()}")
-                    item.setForeground(QColor(0, 128, 0))
-                    f = item.font()
-                    f.setBold(True)
-                    item.setFont(f)
-                else:
-                    item.setForeground(_confidence_color(conf))
-            preview = c.get("context_preview")
-            if preview:
-                item.setToolTip(str(preview))
+                item.setForeground(confidence_color(conf, missing=False))
+            tip = candidate_menu_tooltip(c, max_len=480)
+            if tip:
+                item.setToolTip(tip)
             item.setData(Qt.ItemDataRole.UserRole, c)
             lw.addItem(item)
         lw.itemClicked.connect(
             lambda item, fid=field_id: self._on_candidate_item_clicked(fid, item)
         )
-        lw.setMaximumHeight(min(120 + 24 * len(cands), 280))
+        lw.setMaximumHeight(min(140 + 40 * len(cands), 360))
+        return selected_cand
 
     def _field_extra(
         self,
@@ -596,10 +811,13 @@ class DiagnosticsDialog(QDialog):
                 lay.addWidget(QLabel(line))
 
         cands = field.get("candidates")
+        selected_candidate: dict[str, Any] | None = None
         if isinstance(cands, list) and cands:
-            lay.addWidget(QLabel("Kandidaten:"))
+            lay.addWidget(QLabel("<b>Kandidaten</b>"))
             lw = QListWidget()
-            self._populate_candidate_list(lw, field, kind=kind, field_id=field_id)
+            selected_candidate = self._populate_candidate_list(
+                lw, field, kind=kind, field_id=field_id
+            )
             lay.addWidget(lw)
             if field_id == "customer_number":
                 absent_btn = QPushButton(CUSTOMER_ABSENT_MENU_LABEL_NL)
@@ -608,34 +826,35 @@ class DiagnosticsDialog(QDialog):
                 )
                 lay.addWidget(absent_btn)
 
+        why_chosen = self._why_chosen_lines(field, field_id=field_id)
+        if why_chosen:
+            lay.addWidget(QLabel("<b>Waarom gekozen?</b>"))
+            for line in why_chosen:
+                lay.addWidget(QLabel(line))
+
+        if selected_candidate is not None:
+            why_not = self._why_not_chosen_lines(field, selected_candidate)
+            if why_not:
+                lay.addWidget(QLabel("<b>Waarom deze NIET gekozen is</b>"))
+                for line in why_not:
+                    lay.addWidget(QLabel(line))
+
         if lay.count() == 0:
             return None
         return container
 
     def _on_customer_absent_clicked(self, field_id: str) -> None:
-        if self._on_candidate_click is None:
-            return
-        scroll_y = self._scroll_y()
-        self._selected_by_field[field_id] = None
-        updated = self._on_candidate_click(
-            field_id, make_customer_absent_pick_candidate()
-        )
-        if isinstance(updated, dict):
-            self._apply_diag_pick_refresh(field_id, updated, scroll_y=scroll_y)
+        cand = make_customer_absent_pick_candidate()
+        self._selected_values[field_id] = cand
+        self._schedule_set_diag(self._diag)
 
     def _on_candidate_item_clicked(self, field_id: str, item: QListWidgetItem) -> None:
-        scroll_y = self._scroll_y()
-        if self._on_candidate_click is None:
-            return
         cand = item.data(Qt.ItemDataRole.UserRole)
         if not isinstance(cand, dict):
             return
         if field_id == "customer_number" and is_customer_absent_pick(cand):
             self._on_customer_absent_clicked(field_id)
             return
-        raw = cand.get("value")
-        if raw is not None and str(raw).strip():
-            self._selected_by_field[field_id] = raw
-        updated = self._on_candidate_click(field_id, cand)
-        if isinstance(updated, dict):
-            self._apply_diag_pick_refresh(field_id, updated, scroll_y=scroll_y)
+        # Local-only preview selection; commit happens via confirm button.
+        self._selected_values[field_id] = cand.get("value")
+        self._schedule_set_diag(self._diag)

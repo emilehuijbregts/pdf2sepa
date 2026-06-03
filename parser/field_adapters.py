@@ -165,24 +165,79 @@ def _parse_decimal(raw: object | None) -> Decimal | None:
         return None
 
 
+def _amount_candidate_payable_score(
+    *,
+    value: Decimal,
+    source: str,
+    context: str,
+    amount_type: str,
+) -> int:
+    from parser.pdf_parser import _amount_payable_score
+
+    return int(
+        _amount_payable_score(
+            AmountCandidate(
+                value=value,
+                source=source,
+                confidence=0,
+                context=context,
+                type=amount_type,  # type: ignore[arg-type]
+            )
+        )
+    )
+
+
+def _apply_parser_incl_scope_payable_scores(candidates: list[FieldCandidate]) -> None:
+    """Non-incl fallbacks are out of scope for _select_amount_core; keep their payable_score at 0."""
+    incl = [c for c in candidates if str((c.meta or {}).get("type") or "") == "incl"]
+    if not incl:
+        return
+    for cand in candidates:
+        if str((cand.meta or {}).get("type") or "") != "incl":
+            if isinstance(cand.meta, dict):
+                cand.meta["payable_score"] = 0
+
+
 def field_candidate_from_amount_dict(cand: dict[str, Any]) -> FieldCandidate:
     raw_v = cand.get("value")
     dec = _parse_decimal(raw_v)
+    ctype_raw = cand.get("type")
+    ctype = str(ctype_raw) if ctype_raw else "unknown"
+    source = str(cand.get("source") or "").strip()
+    context = str(cand.get("context") or "")
     meta: dict[str, Any] = {}
-    ctype = cand.get("type")
-    if ctype:
-        meta["type"] = str(ctype)
+    if ctype_raw:
+        meta["type"] = ctype
+    has_provenance = bool(source) and (
+        cand.get("confidence") is not None or bool(context)
+    )
+    if dec is not None and has_provenance:
+        meta["payable_score"] = _amount_candidate_payable_score(
+            value=dec,
+            source=source,
+            context=context,
+            amount_type=ctype,
+        )
     return FieldCandidate(
         value=dec if dec is not None else raw_v,
-        source=str(cand.get("source") or "").strip(),
+        source=source,
         confidence=int(cand.get("confidence") or 0),
-        context=str(cand.get("context") or ""),
+        context=context,
         meta=meta,
     )
 
 
 def field_candidate_from_amount(ac: AmountCandidate) -> FieldCandidate:
-    meta: dict[str, Any] = {"type": getattr(ac, "type", "unknown")}
+    ctype = str(getattr(ac, "type", "unknown") or "unknown")
+    meta: dict[str, Any] = {
+        "type": ctype,
+        "payable_score": _amount_candidate_payable_score(
+            value=ac.value,
+            source=str(ac.source or ""),
+            context=str(ac.context or ""),
+            amount_type=ctype,
+        ),
+    }
     return FieldCandidate(
         value=ac.value,
         source=ac.source,
@@ -192,6 +247,27 @@ def field_candidate_from_amount(ac: AmountCandidate) -> FieldCandidate:
     )
 
 
+_IDENT_CANDIDATE_SCALAR_KEYS = frozenset(
+    {"value", "source", "confidence", "context", "label", "meta"}
+)
+
+
+def _meta_from_ident_candidate_data(cand: dict[str, Any]) -> dict[str, Any]:
+    """Behoud ranking-meta (o.a. field_id) na IdentFieldCandidate.to_dict()."""
+    meta: dict[str, Any] = {}
+    nested = cand.get("meta")
+    if isinstance(nested, dict):
+        meta.update(nested)
+    for key, val in cand.items():
+        if key in _IDENT_CANDIDATE_SCALAR_KEYS:
+            continue
+        if val is None:
+            continue
+        if key not in meta:
+            meta[key] = val
+    return meta
+
+
 def field_candidate_from_ident_dict(cand: dict[str, Any]) -> FieldCandidate:
     return FieldCandidate(
         value=str(cand.get("value") or "").strip(),
@@ -199,6 +275,7 @@ def field_candidate_from_ident_dict(cand: dict[str, Any]) -> FieldCandidate:
         confidence=int(cand.get("confidence") or 0),
         context=str(cand.get("context") or ""),
         label=str(cand.get("label") or "").strip(),
+        meta=_meta_from_ident_candidate_data(cand),
     )
 
 
@@ -209,12 +286,24 @@ def field_candidate_from_ident(ic: IdentFieldCandidate) -> FieldCandidate:
         confidence=ic.confidence,
         context=ic.context,
         label=ic.label,
+        meta=dict(ic.meta or {}),
     )
+
+
+def _ensure_ident_candidates_field_id(
+    candidates: list[FieldCandidate],
+    field_id: FieldId,
+) -> None:
+    for cand in candidates:
+        if str(cand.meta.get("field_id") or "").strip():
+            continue
+        cand.meta = {**cand.meta, "field_id": field_id}
 
 
 def field_result_from_amount(ar: AmountResult | dict[str, Any]) -> FieldResult:
     if isinstance(ar, AmountResult):
         candidates = [field_candidate_from_amount(c) for c in ar.candidates]
+        _apply_parser_incl_scope_payable_scores(candidates)
         fr = FieldResult(
             field_id="amount",
             candidates=candidates,
@@ -231,6 +320,7 @@ def field_result_from_amount(ar: AmountResult | dict[str, Any]) -> FieldResult:
     for c in norm.get("candidates") or []:
         if isinstance(c, dict):
             candidates.append(field_candidate_from_amount_dict(c))
+    _apply_parser_incl_scope_payable_scores(candidates)
     val = _parse_decimal(norm.get("value"))
     user_sel = bool((ar or {}).get("user_selected")) if isinstance(ar, dict) else False
     fr = FieldResult(
@@ -284,6 +374,7 @@ def field_result_from_ident(
 ) -> FieldResult:
     if isinstance(fr, IdentFieldResult):
         candidates = [field_candidate_from_ident(c) for c in fr.candidates]
+        _ensure_ident_candidates_field_id(candidates, field_id)
         result = FieldResult(
             field_id=field_id,
             candidates=candidates,
@@ -301,6 +392,7 @@ def field_result_from_ident(
     for c in fr.get("candidates") or []:
         if isinstance(c, dict):
             candidates.append(field_candidate_from_ident_dict(c))
+    _ensure_ident_candidates_field_id(candidates, field_id)
     val = fr.get("selected_value")
     if val is None:
         val = fr.get("value")

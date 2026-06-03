@@ -1,182 +1,147 @@
-"""Tests voor hybride field_resolver."""
+"""Tests voor deterministische field_resolver."""
 
 from __future__ import annotations
 
-from decimal import Decimal
-
-import pytest
-
+from parser.field_candidates import IdentFieldCandidate, build_ident_field_result
 from parser.field_model import FieldCandidate, FieldResult
-from parser.field_resolver import (
-    HIGH_CONFIDENCE,
-    OVERRIDE_MARGIN,
-    resolve_field,
-)
+from parser.field_resolver import resolve_field
 
 
-def _generic(
-    *,
-    value: object,
-    confidence: int = 90,
-    status: str = "confirmed",
-    source: str = "total_label_payable",
-) -> FieldResult:
-    return FieldResult(
-        field_id="amount",
-        candidates=[
-            FieldCandidate(value=value, source=source, confidence=confidence, context="ctx"),
-        ],
-        selected_value=value,
-        confidence=confidence,
-        source=source,
-        status=status,
+def _to_field_candidate(c: IdentFieldCandidate) -> FieldCandidate:
+    return FieldCandidate(
+        value=c.value,
+        source=c.source,
+        confidence=c.confidence,
+        context=c.context,
+        label=c.label,
+        meta=dict(c.meta or {}),
     )
 
 
-class TestResolveFieldUserLocked:
-    def test_user_overridden_wins(self):
-        generic = FieldResult(
-            field_id="invoice_number",
-            selected_value="GEN-1",
-            confidence=50,
-            source="label",
-            status="tentative",
-            user_overridden=True,
-            previous_value="OLD",
-        )
-        user = FieldCandidate(value="USER-1", source="USER_PICKED", confidence=100, context="")
-        overrides = [
-            FieldCandidate(value="PROF-1", source="profile", confidence=90, context=""),
+def _generic_invoice(candidates: list[FieldCandidate]) -> FieldResult:
+    return FieldResult(
+        field_id="invoice_number",
+        candidates=candidates,
+        selected_value=None,
+        confidence=max((int(c.confidence or 0) for c in candidates), default=0),
+        source="UNKNOWN",
+        status="tentative",
+    )
+
+
+def _generic_iban(candidates: list[FieldCandidate]) -> FieldResult:
+    return FieldResult(
+        field_id="iban",
+        candidates=candidates,
+        selected_value=None,
+        confidence=max((int(c.confidence or 0) for c in candidates), default=0),
+        source="UNKNOWN",
+        status="tentative",
+    )
+
+
+class TestDeterministicResolverParity:
+    def test_identical_candidate_set_matches_field_candidates_winner(self):
+        ident_candidates = [
+            IdentFieldCandidate(
+                value="YEAR",
+                source="year_slash_ref",
+                confidence=82,
+                context="Factuur 26/1234567",
+                label="Factuur",
+            ),
+            IdentFieldCandidate(
+                value="COLON",
+                source="factuur_colon",
+                confidence=82,
+                context="Factuur: COLON",
+                label="Factuur",
+            ),
         ]
-        out = resolve_field("invoice_number", generic, overrides, user_pick=user)
-        assert out.selected_value == "USER-1"
+        ident_result = build_ident_field_result(ident_candidates, field_id="invoice_number")
+        generic = _generic_invoice([_to_field_candidate(c) for c in ident_candidates])
+        resolver_result = resolve_field("invoice_number", generic, [])
+        assert resolver_result.selected_value == ident_result.value
+
+    def test_resolver_deterministic_across_repeated_runs(self):
+        candidates = [
+            FieldCandidate(value="A", source="label", confidence=88, context="", label="Factuurnummer"),
+            FieldCandidate(value="B", source="factuur_plain", confidence=88, context="", label="Factuur"),
+        ]
+        generic = _generic_invoice(candidates)
+        winners = [resolve_field("invoice_number", generic, []).selected_value for _ in range(10)]
+        assert len(set(winners)) == 1
+
+    def test_user_pick_is_ranked_candidate_and_wins(self):
+        generic = _generic_invoice(
+            [FieldCandidate(value="GEN", source="label", confidence=90, context="", label="Factuurnummer")]
+        )
+        user_pick = FieldCandidate(value="USER", source="USER_PICKED", confidence=100, context="")
+        out = resolve_field("invoice_number", generic, [], user_pick=user_pick)
+        assert out.selected_value == "USER"
         assert out.override_reason == "user_locked"
-        assert out.user_overridden is True
-        assert out.previous_value == "OLD"
 
-
-class TestResolveFieldGenericStrong:
-    def test_strong_generic_beats_profile(self):
-        generic = _generic(value=Decimal("100.00"), confidence=90, status="confirmed")
-        overrides = [
-            FieldCandidate(value=Decimal("200.00"), source="profile", confidence=90, context=""),
-        ]
-        out = resolve_field("amount", generic, overrides)
-        assert out.selected_value == Decimal("100.00")
-        assert out.override_reason == "generic_strong"
-
-
-class TestResolveFieldProfileFillsGap:
-    def test_weak_generic_uses_profile(self):
-        generic = _generic(
-            value=None,
-            confidence=0,
-            status="failed",
-            source="UNKNOWN",
+    def test_trace_contains_rank_score_and_restricted_reasons(self):
+        generic = _generic_invoice(
+            [
+                FieldCandidate(value="A", source="label", confidence=88, context="", label="Factuurnummer"),
+                FieldCandidate(value="B", source="factuur_plain", confidence=88, context="", label="Factuur"),
+            ]
         )
-        generic.selected_value = None
-        overrides = [
-            FieldCandidate(value=Decimal("50.00"), source="profile", confidence=90, context=""),
-        ]
-        out = resolve_field("amount", generic, overrides)
-        assert out.selected_value == Decimal("50.00")
-        assert out.override_reason == "profile_fills_gap"
+        out = resolve_field("invoice_number", generic, [])
+        allowed = {
+            "higher_confidence",
+            "lower_confidence",
+            "stronger_label_match",
+            "weaker_label",
+            "field_keyword_match",
+            "weaker_field_type",
+            "better_context_proximity",
+            "worse_context_proximity",
+            "lower_source_priority",
+            "deterministic_tiebreak",
+            "cross_field_penalty",
+            "user_pick_override",
+            "pdf_labeled_priority_over_db",
+        }
+        entries = [e for e in out.decision_trace if isinstance(e, dict) and e.get("kind") != "final"]
+        assert entries
+        assert all("rank_score" in e for e in entries)
+        for e in entries:
+            reason = str(e.get("winner_reason") or e.get("excluded_reason") or "")
+            if reason:
+                assert reason in allowed
 
-    def test_ambiguous_generic_uses_profile(self):
-        generic = _generic(
-            value=Decimal("100.00"),
-            confidence=50,
-            status="ambiguous",
-        )
-        overrides = [
-            FieldCandidate(value=Decimal("120.00"), source="profile", confidence=90, context=""),
-        ]
-        out = resolve_field("amount", generic, overrides)
-        assert out.selected_value == Decimal("120.00")
-        assert out.override_reason == "profile_fills_gap"
-
-
-class TestResolveFieldConfidenceComparison:
-    def test_profile_higher_confidence_wins(self):
-        generic = _generic(
-            value=Decimal("100.00"),
-            confidence=80,
-            status="confirmed",
+    def test_labeled_pdf_iban_beats_conflicting_db_master(self):
+        pdf_iban = "NL20INGB0001234567"
+        db_iban = "NL91ABNA0417164300"
+        generic = _generic_iban(
+            [
+                FieldCandidate(
+                    value=pdf_iban,
+                    source="pdf_text",
+                    confidence=88,
+                    context="IBAN: NL20INGB0001234567",
+                    label="IBAN",
+                    meta={"match_type": "label", "label_source": "IBAN"},
+                )
+            ]
         )
         overrides = [
             FieldCandidate(
-                value=Decimal("110.00"),
-                source="profile",
-                confidence=80 + OVERRIDE_MARGIN + 1,
-                context="",
-            ),
+                value=db_iban,
+                source="db_master",
+                confidence=92,
+                context="Leveranciers-DB",
+            )
         ]
-        out = resolve_field("amount", generic, overrides)
-        assert out.selected_value == Decimal("110.00")
-        assert out.override_reason == "profile_higher_confidence"
-
-    def test_generic_preferred_when_close(self):
-        generic = _generic(
-            value=Decimal("100.00"),
-            confidence=80,
-            status="confirmed",
+        out = resolve_field("iban", generic, overrides)
+        assert out.selected_value == pdf_iban
+        assert any(
+            isinstance(e, dict)
+            and (
+                e.get("winner_reason") == "pdf_labeled_priority_over_db"
+                or e.get("excluded_reason") == "pdf_labeled_priority_over_db"
+            )
+            for e in out.decision_trace
         )
-        overrides = [
-            FieldCandidate(value=Decimal("110.00"), source="profile", confidence=85, context=""),
-        ]
-        out = resolve_field("amount", generic, overrides)
-        assert out.selected_value == Decimal("100.00")
-        assert out.override_reason == "generic_preferred"
-
-
-class TestResolveFieldNoOverrides:
-    def test_generic_only(self):
-        generic = _generic(value=Decimal("10.00"), confidence=70, status="tentative")
-        out = resolve_field("amount", generic, [])
-        assert out.selected_value == Decimal("10.00")
-        assert out.override_reason == "generic_only"
-
-
-class TestDbMasterConflict:
-    def test_db_wins_when_customer_differs(self):
-        generic = FieldResult(
-            field_id="customer_number",
-            selected_value="16003040",
-            confidence=95,
-            source="label",
-            status="confirmed",
-            candidates=[
-                FieldCandidate(value="16003040", source="label", confidence=95, context=""),
-            ],
-        )
-        overrides = [
-            FieldCandidate(value="3349", source="db_master", confidence=88, context="DB"),
-        ]
-        out = resolve_field("customer_number", generic, overrides)
-        assert out.selected_value == "3349"
-        assert out.override_reason == "db_master_conflict"
-
-    def test_db_skipped_when_same_value(self):
-        generic = FieldResult(
-            field_id="customer_number",
-            selected_value="3349",
-            confidence=95,
-            source="label",
-            status="confirmed",
-        )
-        overrides = [
-            FieldCandidate(value="3349", source="db_master", confidence=88, context="DB"),
-        ]
-        out = resolve_field("customer_number", generic, overrides)
-        assert out.override_reason == "generic_strong"
-
-
-class TestDecisionTrace:
-    def test_trace_populated(self):
-        generic = _generic(value=Decimal("1.00"), confidence=90, status="confirmed")
-        overrides = [
-            FieldCandidate(value=Decimal("2.00"), source="profile", confidence=90, context=""),
-        ]
-        out = resolve_field("amount", generic, overrides)
-        assert len(out.decision_trace) >= 1
-        assert any(e.get("win") for e in out.decision_trace)

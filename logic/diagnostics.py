@@ -143,8 +143,16 @@ _SNAPSHOT_FIELDS = (
     "amount_result",
     "invoice_number_result",
     "customer_number_result",
+    "vat_number_result",
+    "kvk_number_result",
+    "invoice_date_result",
+    "email_domain_result",
     "invoice_number",
     "customer_number",
+    "vat_number",
+    "kvk_number",
+    "invoice_date",
+    "email_domain",
     "invoice_date_source",
     "type",
     "extraction_source",
@@ -502,6 +510,10 @@ def build_diagnostics(
             "detail_nl": _supplier_detail_nl(snap, match_status),
         },
         "amount": amount_block,
+        "vat_number": build_ident_field_diag_block(snap, "vat_number"),
+        "kvk_number": build_ident_field_diag_block(snap, "kvk_number"),
+        "email_domain": build_ident_field_diag_block(snap, "email_domain"),
+        "invoice_date": _invoice_date_block(snap),
         "invoice_number": build_ident_field_diag_block(
             snap,
             "invoice_number",
@@ -520,3 +532,19 @@ def build_diagnostics(
         "action_suggestions": action_suggestions,
         "overall_status": overall_status,
     }
+
+
+def _invoice_date_block(snap: dict[str, Any]) -> dict[str, Any]:
+    from logic.payment_dates import format_date_nl_from_iso
+
+    block = build_ident_field_diag_block(snap, "invoice_date")
+    iso = str(block.get("value") or "").strip()
+    if iso:
+        try:
+            nl = format_date_nl_from_iso(iso)
+        except Exception:
+            nl = None
+        if nl:
+            block = dict(block)
+            block["value_display"] = nl
+    return block

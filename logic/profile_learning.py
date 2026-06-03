@@ -101,6 +101,15 @@ def _normalize_confirmed(confirmed: dict[str, Any]) -> dict[str, Any]:
     cust = str(confirmed.get("customer_number") or "").strip()
     if cust:
         out["customer_number"] = cust
+    vat = str(confirmed.get("vat_number") or "").strip()
+    if vat:
+        out["vat_number"] = vat
+    kvk = str(confirmed.get("kvk_number") or "").strip()
+    if kvk:
+        out["kvk_number"] = kvk
+    dom = str(confirmed.get("email_domain") or "").strip()
+    if dom:
+        out["email_domain"] = dom
     return out
 
 
@@ -226,7 +235,14 @@ def confirm_invoice_fields(
     cust = norm.get("customer_number")
     iban_s = str(iban or "").strip()
     if cust and iban_s:
-        db.merge_or_add_supplier(name, iban_s, str(cust))
+        db.merge_or_add_supplier(
+            name,
+            iban_s,
+            str(cust),
+            vat_number=str(norm.get("vat_number") or "").strip() or None,
+            kvk_number=str(norm.get("kvk_number") or "").strip() or None,
+            email_domain=str(norm.get("email_domain") or "").strip() or None,
+        )
 
     return ProfileLearnResult(
         saved=True,

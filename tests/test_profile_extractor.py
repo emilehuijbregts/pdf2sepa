@@ -109,7 +109,16 @@ class TestExtractWithProfile:
 
     def test_always_returns_four_keys(self):
         out = extract_with_profile("", {})
-        assert set(out.keys()) == {"amount", "invoice_number", "customer_number", "iban"}
+        assert set(out.keys()) == {
+            "amount",
+            "invoice_number",
+            "customer_number",
+            "iban",
+            "vat_number",
+            "kvk_number",
+            "invoice_date",
+            "email_domain",
+        }
 
     def test_totaal_label_skips_header_without_amount(self):
         """«Prijs totaal» in tabelkop mag niet vóór echte totalenregel winnen (Option Tape)."""

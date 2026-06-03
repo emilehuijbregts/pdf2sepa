@@ -280,6 +280,80 @@ class SupplierDB:
         except Exception:
             return ""
 
+    def _tokenize_clean_name(self, cleaned: str) -> list[str]:
+        try:
+            return [t for t in str(cleaned or "").split() if t]
+        except Exception:
+            return []
+
+    def _alias_token_match(self, hint_clean: str, alias_clean: str) -> bool:
+        """Token-based alias match, never substring-based.
+
+        Rules:
+        - Exact cleaned equality is always a match.
+        - Single-token aliases must match a full token in hint and be >= 3 chars.
+        - Multi-token aliases must appear as a contiguous token sequence in hint.
+        """
+        try:
+            h = str(hint_clean or "").strip()
+            a = str(alias_clean or "").strip()
+            if not h or not a:
+                return False
+            if h == a:
+                return True
+            h_toks = self._tokenize_clean_name(h)
+            a_toks = self._tokenize_clean_name(a)
+            if not h_toks or not a_toks:
+                return False
+            if len(a_toks) == 1:
+                tok = a_toks[0]
+                return len(tok) >= 3 and tok in h_toks
+            span = len(a_toks)
+            for i in range(0, len(h_toks) - span + 1):
+                if h_toks[i : i + span] == a_toks:
+                    return True
+            return False
+        except Exception:
+            return False
+
+    def _core_identity_count(self, match_info: dict) -> int:
+        """Core identity count used for hard gating and deterministic ranking."""
+        try:
+            return int(
+                bool(match_info.get("iban_match"))
+                + bool(match_info.get("customer_code_match"))
+                + bool(match_info.get("vat_match"))
+                + bool(match_info.get("kvk_match"))
+            )
+        except Exception:
+            return 0
+
+    def _selection_priority_key(self, match_info: dict, supplier_name: str) -> tuple:
+        """Deterministic priority key: IBAN > customer code > VAT+KvK > alias > fuzzy."""
+        try:
+            iban_match = int(bool(match_info.get("iban_match")))
+            code_match = int(bool(match_info.get("customer_code_match")))
+            vat_match = int(bool(match_info.get("vat_match")))
+            kvk_match = int(bool(match_info.get("kvk_match")))
+            vat_kvk_pair = int(bool(vat_match and kvk_match))
+            alias_match = int(bool(match_info.get("alias_match")))
+            fuzzy_score = float(match_info.get("fuzzy_score") or 0.0)
+            email_match = int(bool(match_info.get("email_domain_match")))
+            # Ascending sort with negatives gives us descending preference.
+            return (
+                -iban_match,
+                -code_match,
+                -vat_kvk_pair,
+                -alias_match,
+                -fuzzy_score,
+                -vat_match,
+                -kvk_match,
+                -email_match,
+                str(supplier_name or "").casefold(),
+            )
+        except Exception:
+            return (0, 0, 0, 0, 0.0, 0, 0, 0, str(supplier_name or "").casefold())
+
     def find_supplier_scored(
         self,
         supplier_hint: str | None,
@@ -316,23 +390,39 @@ class SupplierDB:
             inv_kvk = self._normalize_kvk_number(kvk_number or "")
             inv_dom = self._normalize_email_domain(email_domain or "")
 
-            scored: list[tuple[dict, dict, int]] = []
+            scored: list[tuple[dict, dict, dict]] = []
+            rejected: list[dict] = []
 
             for s in self.suppliers:
                 info = dict(empty_info)
+                reasons: list[str] = []
+                rejection_reasons: list[str] = []
 
                 if not isinstance(s.get("_clean_aliases"), list):
                     self._refresh_supplier_cache(s)
+                supplier_name = str(s.get("name") or "")
 
                 if iban_clean:
                     sup_iban = self._clean_iban(s.get("iban") or "")
+                    if sup_iban and iban_clean != sup_iban:
+                        rejection_reasons.append("iban_mismatch_reject")
+                        rejected.append(
+                            {
+                                "supplier": supplier_name,
+                                "reasons": rejection_reasons,
+                                "flags": dict(info),
+                            }
+                        )
+                        continue
                     if sup_iban and iban_clean == sup_iban:
                         info["iban_match"] = True
+                        reasons.append("iban_match")
 
                 if hint_clean:
                     for a in (s.get("_clean_aliases") or []):
-                        if a and (hint_clean == a or hint_clean in a or a in hint_clean):
+                        if a and self._alias_token_match(hint_clean, a):
                             info["alias_match"] = True
+                            reasons.append("alias_token_match")
                             break
 
                 if hint_clean and not info["alias_match"]:
@@ -348,29 +438,46 @@ class SupplierDB:
                     info["fuzzy_score"] = best
                     if best >= 0.85:
                         info["fuzzy_match"] = True
+                        reasons.append("fuzzy_match")
 
+                clean_codes = [cc for cc in (s.get("_clean_customer_codes") or []) if cc]
                 if inv_cc:
-                    for cc in (s.get("_clean_customer_codes") or []):
+                    for cc in clean_codes:
                         if cc and cc == inv_cc:
                             info["customer_code_match"] = True
+                            reasons.append("customer_code_match")
                             break
+                    if clean_codes and not info["customer_code_match"]:
+                        rejection_reasons.append("customer_code_mismatch_reject")
+                        rejected.append(
+                            {
+                                "supplier": supplier_name,
+                                "reasons": rejection_reasons,
+                                "flags": dict(info),
+                            }
+                        )
+                        continue
                 if inv_vat:
                     for v in (s.get("_clean_vat_numbers") or []):
                         if v and v == inv_vat:
                             info["vat_match"] = True
+                            reasons.append("vat_match")
                             break
                 if inv_kvk:
                     for k in (s.get("_clean_kvk_numbers") or []):
                         if k and k == inv_kvk:
                             info["kvk_match"] = True
+                            reasons.append("kvk_match")
                             break
                 if inv_dom:
                     for d in (s.get("_clean_email_domains") or []):
                         if d and d == inv_dom:
                             info["email_domain_match"] = True
+                            reasons.append("email_domain_match")
                             break
 
-                n = sum([
+                n = sum(
+                    [
                     info["iban_match"],
                     info["alias_match"],
                     info["customer_code_match"],
@@ -378,20 +485,78 @@ class SupplierDB:
                     info["vat_match"],
                     info["kvk_match"],
                     info["email_domain_match"],
-                ])
+                    ]
+                )
                 # Safety: ignore tax-only single hits (VAT-only or KvK-only).
                 # These identifiers can be extracted from unrelated sections (or debtor details),
                 # and are not strong enough alone to propose a supplier.
                 if n == 1 and (info["vat_match"] or info["kvk_match"]):
+                    rejection_reasons.append("single_tax_hit_reject")
+                    rejected.append(
+                        {
+                            "supplier": supplier_name,
+                            "reasons": rejection_reasons,
+                            "flags": dict(info),
+                        }
+                    )
                     continue
-                if n > 0:
-                    scored.append((s, info, n))
+                if n <= 0:
+                    rejection_reasons.append("no_match_signals")
+                    rejected.append(
+                        {
+                            "supplier": supplier_name,
+                            "reasons": rejection_reasons,
+                            "flags": dict(info),
+                        }
+                    )
+                    continue
+
+                core_count = self._core_identity_count(info)
+                if core_count <= 0:
+                    rejection_reasons.append("core_zero_reject")
+                    rejected.append(
+                        {
+                            "supplier": supplier_name,
+                            "reasons": rejection_reasons,
+                            "flags": dict(info),
+                        }
+                    )
+                    continue
+                rank_key = self._selection_priority_key(info, supplier_name)
+                scored.append(
+                    (
+                        s,
+                        info,
+                        {
+                            "supplier": supplier_name,
+                            "reasons": reasons,
+                            "core_count": core_count,
+                            "rank_key": rank_key,
+                            "flags": dict(info),
+                        },
+                    )
+                )
 
             if not scored:
+                logger.info(
+                    "Supplier match geen kandidaat; hints=%s iban=%s rejects=%s",
+                    str(supplier_hint or "").strip(),
+                    mask_iban_for_log(iban_clean) if iban_clean else "",
+                    rejected,
+                )
                 return None, dict(empty_info)
 
-            scored.sort(key=lambda x: (x[2], x[1].get("fuzzy_score", 0)), reverse=True)
-            best_supplier, best_info, _ = scored[0]
+            scored.sort(key=lambda x: x[2]["rank_key"])
+            best_supplier, best_info, best_detail = scored[0]
+            alternatives = [d for _, _, d in scored[1:4]]
+            logger.info(
+                "Supplier match geselecteerd; winner=%s rank=%s reasons=%s alternatives=%s rejected=%s",
+                best_detail["supplier"],
+                best_detail["rank_key"],
+                best_detail["reasons"],
+                alternatives,
+                rejected[:10],
+            )
             return best_supplier, best_info
 
         except Exception:
@@ -580,7 +745,6 @@ class SupplierDB:
                             or match_info.get("email_domain_match")
                         )
                     )
-                    or (match_info.get("vat_match") and match_info.get("kvk_match"))
                 )
                 if cand is not None and strong_identity:
                     existing = cand

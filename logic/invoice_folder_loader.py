@@ -296,42 +296,39 @@ def load_invoice_from_pdf_path(
     else:
         skipped_ocr_hint = True
 
-    if not data.get("iban"):
-        data["ocr_iban_attempted"] = True
-        data["ocr_iban_error"] = None
-        try:
-            from parser.iban_candidates import (
-                extract_iban_result,
-                iban_values_from_candidates,
-                merge_ocr_into_iban_result,
-            )
+    data["ocr_iban_attempted"] = True
+    data["ocr_iban_error"] = None
+    try:
+        from parser.iban_candidates import (
+            extract_iban_result,
+            iban_values_from_candidates,
+            merge_ocr_into_iban_result,
+        )
 
+        ocr_ibans = extract_ibans_from_images(str(path)) or []
+        if not ocr_ibans:
             ocr_ibans = extract_ibans_from_images(str(path)) or []
-            if not ocr_ibans:
-                ocr_ibans = extract_ibans_from_images(str(path)) or []
-            if ocr_ibans:
-                existing_ir = data.get("iban_result")
-                if isinstance(existing_ir, dict):
-                    ir = merge_ocr_into_iban_result(
-                        existing_ir,
-                        ocr_ibans,
-                        debtor_iban=debtor_iban,
-                    )
-                else:
-                    ir = extract_iban_result(
-                        "",
-                        debtor_iban=debtor_iban,
-                        ocr_ibans=ocr_ibans,
-                        resolved=ocr_ibans[0],
-                        resolved_source="ocr",
-                    )
-                data["iban_result"] = ir.to_dict()
-                data["iban"] = ir.value
-                data["all_ibans"] = iban_values_from_candidates(ir.candidates)
-        except Exception as exc:
-            data["ocr_iban_error"] = f"{type(exc).__name__}"
-    else:
-        skipped_ocr_iban = True
+        if ocr_ibans:
+            existing_ir = data.get("iban_result")
+            if isinstance(existing_ir, dict):
+                ir = merge_ocr_into_iban_result(
+                    existing_ir,
+                    ocr_ibans,
+                    debtor_iban=debtor_iban,
+                )
+            else:
+                ir = extract_iban_result(
+                    "",
+                    debtor_iban=debtor_iban,
+                    ocr_ibans=ocr_ibans,
+                    resolved=data.get("iban"),
+                    resolved_source="ocr",
+                )
+            data["iban_result"] = ir.to_dict()
+            data["iban"] = ir.value
+            data["all_ibans"] = iban_values_from_candidates(ir.candidates)
+    except Exception as exc:
+        data["ocr_iban_error"] = f"{type(exc).__name__}"
 
     # If key supplier-identification signals are missing, do a lightweight OCR enrichment pass.
     # This addresses invoices where VAT/KvK/email live only in a logo/header image even when IBAN is present.
@@ -480,6 +477,26 @@ def load_invoice_from_pdf_path(
                 data["invoice_date"] = ocr_date
                 data["invoice_date_source"] = "ocr"
     except Exception as exc:
+        pass
+
+    # Keep invoice_date snapshot in sync after OCR/date repair paths.
+    try:
+        from parser.pdf_parser import build_invoice_date_result_snapshot
+
+        synced_date = str(data.get("invoice_date") or "").strip() or None
+        date_dict = build_invoice_date_result_snapshot(
+            primary_text,
+            invoice_date=synced_date,
+            invoice_date_source=str(data.get("invoice_date_source") or "").strip() or None,
+        )
+        if synced_date and date_dict.get("selected_value") != synced_date:
+            date_dict["value"] = synced_date
+            date_dict["selected_value"] = synced_date
+            if str(data.get("invoice_date_source") or "").strip():
+                date_dict["source"] = str(data.get("invoice_date_source") or "").strip()
+            date_dict["status"] = "confirmed"
+        data["invoice_date_result"] = date_dict
+    except Exception:
         pass
 
     _dbg_935(

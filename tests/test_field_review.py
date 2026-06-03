@@ -7,6 +7,7 @@ from ui.field_review import (
     CUSTOMER_ABSENT_STATE,
     FIELD_REVIEW_SPECS,
     REVIEW_FIELD_IDS,
+    candidate_menu_tooltip,
     format_amount_candidate_menu_label,
     format_iban_candidate_menu_label,
     format_ident_candidate_menu_label,
@@ -16,7 +17,16 @@ from ui.field_review import (
 
 
 def test_review_field_ids() -> None:
-    assert REVIEW_FIELD_IDS == ("amount", "invoice_number", "customer_number", "iban")
+    assert REVIEW_FIELD_IDS == (
+        "amount",
+        "invoice_number",
+        "customer_number",
+        "iban",
+        "vat_number",
+        "kvk_number",
+        "invoice_date",
+        "email_domain",
+    )
     for fid in REVIEW_FIELD_IDS:
         assert fid in FIELD_REVIEW_SPECS
 
@@ -94,3 +104,27 @@ def test_format_amount_candidate_menu_label() -> None:
     assert "100.00" in label
     assert "Totaal te betalen" in label
     assert "80%" in label
+
+
+def test_candidate_menu_tooltip_is_human_readable_nl() -> None:
+    tip = candidate_menu_tooltip(
+        {
+            "context": "Factuurnummer: 26FC000498",
+            "extraction_method": "label_match",
+            "label_reason": "Gevonden direct na label",
+            "context_hint": "header",
+            "raw_detected": "26FC 000498",
+            "normalized_iso": "26FC000498",
+            "score_breakdown_nl": ["Basisscore: 90", "Bonus voor labelmatch: 8"],
+        },
+        max_len=500,
+    )
+    assert "PDF-context: Factuurnummer: 26FC000498" in tip
+    assert "Methode: Gevonden naast herkenbaar label" in tip
+    assert "Uitleg: Gevonden direct na label" in tip
+    assert "Locatie: header van document" in tip
+    assert "Originele waarde: 26FC 000498" in tip
+    assert "Genormaliseerde waarde: 26FC000498" in tip
+    assert "Score-opbouw: Basisscore: 90; Bonus voor labelmatch: 8" in tip
+    assert "method:" not in tip
+    assert "why:" not in tip

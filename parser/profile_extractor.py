@@ -11,7 +11,7 @@ from decimal import Decimal
 from typing import Any
 
 from logic.validation import clean_iban
-from parser.field_model import ALL_FIELD_IDS
+from parser.field_model import ALL_FIELD_IDS, normalize_field_value
 from parser.iban_candidates import _IBAN_LABEL_RE
 from parser.pdf_parser import (
     _AMOUNT_PROFILE_LABEL_RE,
@@ -43,6 +43,10 @@ _FIELD_LABEL_RES: dict[str, re.Pattern[str]] = {
     "invoice_number": _INVOICE_LABEL_RE,
     "customer_number": _CUSTOMER_LABEL_RE,
     "iban": _IBAN_LABEL_RE,
+    "vat_number": re.compile(r"(?i)\b(?:btw(?:-|\s*)nummer|btw|vat)\b"),
+    "kvk_number": re.compile(r"(?i)\b(?:kvk|k\.?v\.?k\.?)\b"),
+    "invoice_date": re.compile(r"(?i)\b(?:factuurdatum|factuur\s*datum|invoice\s*date|date\s*of\s*invoice|datum\s*factuur)\b"),
+    "email_domain": re.compile(r"(?i)\b(?:e-?mail|email)\b"),
 }
 
 
@@ -227,6 +231,10 @@ def extract_with_profile(raw_text: str, profile: dict[str, Any]) -> dict[str, fl
         "invoice_number": None,
         "customer_number": None,
         "iban": None,
+        "vat_number": None,
+        "kvk_number": None,
+        "invoice_date": None,
+        "email_domain": None,
     }
     for field in FIELD_KEYS:
         spec = _field_spec(profile, field)
@@ -243,6 +251,8 @@ def extract_with_profile(raw_text: str, profile: dict[str, Any]) -> dict[str, fl
                 val = float(dec)
         elif field == "iban" and val is not None:
             val = clean_iban(str(val)) or None
+        elif field in ("vat_number", "kvk_number", "invoice_date", "email_domain") and val is not None:
+            val = normalize_field_value(field, val)  # type: ignore[arg-type]
         if val is not None:
             out[field] = val
     return out

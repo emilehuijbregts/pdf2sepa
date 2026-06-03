@@ -75,6 +75,14 @@ class TestCustomerNumberExtraction:
         d = extract_invoice_data("Customer number: 1012146")
         assert d["customer_number"] == "1012146"
 
+    def test_debiteur_nr(self):
+        d = extract_invoice_data("Debiteur nr: 884422")
+        assert d["customer_number"] == "884422"
+
+    def test_factureren_aan_nr(self):
+        d = extract_invoice_data("Factureren aan nr: 556677")
+        assert d["customer_number"] == "556677"
+
     def test_relatienummer(self):
         d = extract_invoice_data("Relatienummer: 98765")
         assert d["customer_number"] == "98765"
@@ -131,6 +139,10 @@ class TestInvoiceNumberExtraction:
         d = extract_invoice_data("Factuurnr. 7012254003")
         assert d["invoice_number"] == "7012254003"
 
+    def test_factuurnr_without_dot(self):
+        d = extract_invoice_data("Factuurnr 7012254003")
+        assert d["invoice_number"] == "7012254003"
+
     def test_fact_nr_abbrev(self):
         d = extract_invoice_data("Fact. nr. 26012345")
         assert d["invoice_number"] == "26012345"
@@ -138,6 +150,14 @@ class TestInvoiceNumberExtraction:
     def test_invoice_number_english(self):
         d = extract_invoice_data("Invoice number: INV-2025-001")
         assert d["invoice_number"] == "INV-2025-001"
+
+    def test_invoice_no_english(self):
+        d = extract_invoice_data("Invoice No: INV-2025-002")
+        assert d["invoice_number"] == "INV-2025-002"
+
+    def test_rechnung_nr_german(self):
+        d = extract_invoice_data("Rechnung Nr: RE-2026-77")
+        assert d["invoice_number"] == "RE-2026-77"
 
     def test_documentnr_label(self):
         d = extract_invoice_data("Documentnr: 99887766")
@@ -243,6 +263,12 @@ class TestFallbackRestriction:
         assert d["invoice_number"] == "7012254003"
         assert d["customer_number"] == "1012146"
 
+    def test_ordernummer_does_not_override_labeled_invoice_number(self):
+        text = "Ordernummer: 202603\nInvoice No: INV-9901\nDebiteur nr: 12005"
+        d = extract_invoice_data(text)
+        assert d["invoice_number"] == "INV-9901"
+        assert d["customer_number"] == "12005"
+
 
 # ---------------------------------------------------------------------------
 # IBAN extraction
@@ -269,6 +295,30 @@ class TestIbanExtraction:
     def test_iban_with_spaces_is_normalized(self):
         d = extract_invoice_data("IBAN: NL25 CITI 0266 0754 52")
         assert d["iban"] == "NL25CITI0266075452"
+
+
+class TestInvoiceDateExtraction:
+    def test_prefers_recent_labeled_date_over_older_reference(self):
+        text = (
+            "Orderdatum: 05-02-2024\n"
+            "Factuurdatum\n"
+            "05-02-2026\n"
+            "Vervaldatum 05-03-2026\n"
+        )
+        d = extract_invoice_data(text)
+        assert d["invoice_date"] == "2026-02-05"
+
+    def test_factuur_dd_label_is_supported(self):
+        d = extract_invoice_data("Factuur d.d. 11-02-2026\nTotaal EUR 10,00")
+        assert d["invoice_date"] == "2026-02-11"
+
+    def test_table_header_prefers_factuurdatum_over_betaling_voor(self):
+        text = (
+            "klantnummer Factuurdatum Factuurnr Betalingstermijn Betaling vóór uw referentie\n"
+            "D3269 10-02-2026 VF-1094659 30 dgn. netto na factuurdatum 12-03-2026 230948\n"
+        )
+        d = extract_invoice_data(text)
+        assert d["invoice_date"] == "2026-02-10"
 
 
 # ---------------------------------------------------------------------------
@@ -438,6 +488,38 @@ class TestDebtorKvkVatExclusion:
         assert d["kvk_number"] == "34095053"
         assert d["email_domain"] == "polaris-werkvitaalverzekeren.nl"
         assert d["vat_number"] == "NL805301021B01"
+
+    def test_email_in_header_only(self):
+        text = (
+            "From: billing@acme-supply.nl\n"
+            "Factuur\n"
+            "Totaal te betalen EUR 121,00\n"
+            "IBAN: NL91 ABNA 0417 1643 00\n"
+        )
+        d = extract_invoice_data(text)
+        assert d["email_domain"] == "acme-supply.nl"
+        assert d["amount"] is not None
+        assert d["iban"] is not None
+        assert d["invoice_number"] is None
+        assert d["customer_number"] is None
+
+    def test_email_in_footer_only(self):
+        text = (
+            "Factuur 2026-001\n"
+            "Totaal EUR 99,00\n"
+            "IBAN NL20 RABO 0123 4567 89\n"
+            + "\n" * 15
+            + "Contact: orders@footer-shop.nl\n"
+        )
+        d = extract_invoice_data(text)
+        assert d["email_domain"] == "footer-shop.nl"
+        er = d.get("email_domain_result") or {}
+        cands = er.get("candidates") or []
+        assert any(
+            c.get("context_hint") == "footer" or c.get("extraction_method") == "footer_scan"
+            for c in cands
+            if c.get("value") == "footer-shop.nl"
+        )
 
 
 # ---------------------------------------------------------------------------

@@ -6,6 +6,8 @@ from decimal import Decimal
 
 from parser.field_adapters import (
     amount_result_from_field_result,
+    field_candidate_from_ident,
+    field_candidate_from_ident_dict,
     field_result_from_amount,
     field_result_from_iban,
     field_result_from_ident,
@@ -14,6 +16,7 @@ from parser.field_adapters import (
     ident_field_result_from_field_result,
     normalize_amount_result_dict,
 )
+from parser.field_resolver import _candidate_rank_tuple
 from parser.field_candidates import (
     IdentFieldCandidate,
     IdentFieldResult,
@@ -144,6 +147,38 @@ class TestIdentRoundtrip:
         assert fr.selected_value == "26FC000498"
         legacy = field_result_to_legacy_dict(fr)
         assert legacy["value"] == "26FC000498"
+
+    def test_ident_candidate_meta_preserved_for_resolver_ranking(self):
+        ic = IdentFieldCandidate(
+            value="1025995",
+            source="label_next_line",
+            confidence=68,
+            context="1210001330 24.03.2026 1025995",
+            label="Klant Nr",
+            meta={
+                "field_id": "customer_number",
+                "extraction_method": "label_match",
+                "label_source": "Klant Nr",
+            },
+        )
+        flat = ic.to_dict()
+        for fc in (
+            field_candidate_from_ident(ic),
+            field_candidate_from_ident_dict(flat),
+        ):
+            assert fc.meta.get("field_id") == "customer_number"
+            assert fc.meta.get("extraction_method") == "label_match"
+        inv_like = IdentFieldCandidate(
+            value="1210001330",
+            source="label_next_line",
+            confidence=68,
+            context="1210001330 24.03.2026 1025995",
+            label="Klant Nr",
+            meta={"field_id": "customer_number"},
+        )
+        cust_fc = field_candidate_from_ident(ic)
+        inv_fc = field_candidate_from_ident(inv_like)
+        assert _candidate_rank_tuple(cust_fc) > _candidate_rank_tuple(inv_fc)
 
 
 class TestCandidateCollection:

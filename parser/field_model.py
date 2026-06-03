@@ -3,10 +3,20 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import date
 from decimal import Decimal, InvalidOperation
 from typing import Any, Literal
 
-FieldId = Literal["amount", "invoice_number", "customer_number", "iban"]
+FieldId = Literal[
+    "amount",
+    "invoice_number",
+    "customer_number",
+    "iban",
+    "vat_number",
+    "kvk_number",
+    "invoice_date",
+    "email_domain",
+]
 FieldStatus = Literal["confirmed", "tentative", "ambiguous", "failed"]
 
 DecisionTraceEntry = dict[str, Any]
@@ -18,6 +28,10 @@ _RESULT_KEY_BY_FIELD: dict[FieldId, str] = {
     "invoice_number": "invoice_number_result",
     "customer_number": "customer_number_result",
     "iban": "iban_result",
+    "vat_number": "vat_number_result",
+    "kvk_number": "kvk_number_result",
+    "invoice_date": "invoice_date_result",
+    "email_domain": "email_domain_result",
 }
 
 _LEGACY_VALUE_KEY_BY_FIELD: dict[FieldId, str] = {
@@ -25,6 +39,10 @@ _LEGACY_VALUE_KEY_BY_FIELD: dict[FieldId, str] = {
     "invoice_number": "invoice_number",
     "customer_number": "customer_number",
     "iban": "iban",
+    "vat_number": "vat_number",
+    "kvk_number": "kvk_number",
+    "invoice_date": "invoice_date",
+    "email_domain": "email_domain",
 }
 
 ALL_FIELD_IDS: tuple[FieldId, ...] = (
@@ -32,6 +50,10 @@ ALL_FIELD_IDS: tuple[FieldId, ...] = (
     "invoice_number",
     "customer_number",
     "iban",
+    "vat_number",
+    "kvk_number",
+    "invoice_date",
+    "email_domain",
 )
 
 CORE_PROFILE_FIELD_KEYS: tuple[str, ...] = (
@@ -174,8 +196,73 @@ def normalize_field_value(field_id: FieldId, value: Any) -> Any | None:
 
         v = clean_iban(str(value))
         return v or None
+    if field_id == "vat_number":
+        s = str(value or "").upper()
+        s = "".join(s.split())
+        return s or None
+    if field_id == "kvk_number":
+        s = "".join(ch for ch in str(value or "") if ch.isdigit())
+        if len(s) in (7, 8):
+            return s
+        return None
+    if field_id == "email_domain":
+        s = str(value or "").strip().lower()
+        if not s:
+            return None
+        if "@" in s:
+            s = s.split("@", 1)[1].strip()
+        if s.startswith("www."):
+            s = s[4:]
+        s = s.strip(".")
+        return s or None
+    if field_id == "invoice_date":
+        iso = _normalize_invoice_date_to_iso(value)
+        return iso or None
     s = str(value).strip()
     return s or None
+
+
+def _normalize_invoice_date_to_iso(raw: Any) -> str | None:
+    """Parse common invoice date tokens and normalize to ISO (YYYY-MM-DD)."""
+    s = str(raw or "").strip()
+    if not s:
+        return None
+
+    # Common separators / OCR artifacts
+    s = s.replace("\\", "/")
+    s = " ".join(s.split())
+
+    # Already ISO
+    try:
+        if len(s) >= 10 and s[4] == "-" and s[7] == "-":
+            d = date.fromisoformat(s[:10])
+            return d.isoformat()
+    except ValueError:
+        pass
+
+    import re
+
+    m = re.search(r"\b(\d{1,2})[\./-](\d{1,2})[\./-](\d{4}|\d{2})\b", s)
+    if m:
+        dd = int(m.group(1))
+        mm = int(m.group(2))
+        yy_raw = m.group(3)
+        yy = int(yy_raw)
+        if len(yy_raw) == 2:
+            yy = 2000 + yy
+        try:
+            return date(yy, mm, dd).isoformat()
+        except ValueError:
+            return None
+
+    m2 = re.search(r"\b(\d{4})-(\d{2})-(\d{2})\b", s)
+    if m2:
+        try:
+            return date(int(m2.group(1)), int(m2.group(2)), int(m2.group(3))).isoformat()
+        except ValueError:
+            return None
+
+    return None
 
 
 def field_result_from_result_dict(
@@ -283,6 +370,18 @@ class CandidateCollection:
         br = inv.get("iban_result")
         if br is not None:
             fields["iban"] = field_result_from_iban(br)
+        vr = inv.get("vat_number_result")
+        if vr is not None:
+            fields["vat_number"] = field_result_from_ident(vr, field_id="vat_number")
+        kr = inv.get("kvk_number_result")
+        if kr is not None:
+            fields["kvk_number"] = field_result_from_ident(kr, field_id="kvk_number")
+        dr = inv.get("invoice_date_result")
+        if dr is not None:
+            fields["invoice_date"] = field_result_from_ident(dr, field_id="invoice_date")
+        er = inv.get("email_domain_result")
+        if er is not None:
+            fields["email_domain"] = field_result_from_ident(er, field_id="email_domain")
         return cls(fields=fields)
 
     def patch_invoice_dict(self, inv: dict[str, Any]) -> dict[str, Any]:
@@ -298,6 +397,8 @@ class CandidateCollection:
             if legacy_key and fr.selected_value is not None:
                 if field_id == "iban":
                     out[legacy_key] = clean_iban(str(fr.selected_value))
+                elif field_id == "invoice_date":
+                    out[legacy_key] = str(fr.selected_value).strip()
                 elif field_id != "amount":
                     out[legacy_key] = str(fr.selected_value).strip()
         return out

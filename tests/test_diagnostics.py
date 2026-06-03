@@ -10,6 +10,7 @@ from logic.diagnostics import (
     overlay_iban_result,
 )
 from logic.field_diagnostics import build_iban_diag_block
+from logic.field_diagnostics import map_field_candidate_for_diag
 
 
 def _base_invoice(**overrides: object) -> dict:
@@ -81,8 +82,16 @@ def test_snapshot_whitelist_and_deepcopy_amount_result() -> None:
             "iban_result",
             "invoice_number_result",
             "customer_number_result",
+            "vat_number_result",
+            "kvk_number_result",
+            "invoice_date_result",
+            "email_domain_result",
             "invoice_number",
             "customer_number",
+            "vat_number",
+            "kvk_number",
+            "invoice_date",
+            "email_domain",
             "invoice_date_source",
             "type",
             "extraction_source",
@@ -259,8 +268,22 @@ def test_hybrid_override_trace_in_amount_diag() -> None:
             "source": "total_label_payable",
             "override_reason": "generic_strong",
             "decision_trace": [
-                {"source": "total_label_payable", "confidence": 90, "considered": True, "win": True},
-                {"source": "profile", "confidence": 90, "considered": True, "win": False, "excluded_reason": "generic_strong"},
+                {
+                    "source": "total_label_payable",
+                    "confidence": 90,
+                    "considered": True,
+                    "win": True,
+                    "winner_reason": "higher_confidence",
+                    "rank_score": [90, 300, 100, "total_label_payable", "100.00"],
+                },
+                {
+                    "source": "profile",
+                    "confidence": 80,
+                    "considered": True,
+                    "win": False,
+                    "excluded_reason": "lower_confidence",
+                    "rank_score": [80, 100, 50, "profile", "100.00"],
+                },
             ],
             "candidates": [],
         },
@@ -270,6 +293,61 @@ def test_hybrid_override_trace_in_amount_diag() -> None:
     assert amount.get("override_reason") == "generic_strong"
     assert amount.get("override_reason_nl")
     assert len(amount.get("decision_trace") or []) == 2
+    assert len(amount.get("decision_trace_human") or []) == 2
+    trace_human = amount.get("decision_trace_human") or []
+    assert trace_human[1].get("rejection_reason_nl")
+    assert trace_human[1].get("excluded_reason_nl")
+    assert trace_human[0].get("winner_reason_nl")
+
+
+def test_diagnostics_can_render_final_trace_entry() -> None:
+    snap = _base_invoice(
+        amount_result={
+            "status": "confirmed",
+            "value": "100.00",
+            "confidence": 90,
+            "source": "total_label_payable",
+            "override_reason": "generic_only",
+            "decision_trace": [
+                {
+                    "value": "100.00",
+                    "source": "total_label_payable",
+                    "confidence": 90,
+                    "considered": True,
+                    "win": True,
+                    "rank": 1,
+                    "winner_reason": "higher_confidence",
+                },
+                {
+                    "kind": "final",
+                    "final_decision_reason": "highest_confidence",
+                    "winner": {
+                        "value": "100.00",
+                        "source": "total_label_payable",
+                        "confidence": 90,
+                        "winner_reason": "higher_confidence",
+                    },
+                },
+            ],
+            "candidates": [],
+        },
+    )
+    diag = build_diagnostics(snap)
+    assert diag["amount"].get("decision_trace")
+    assert any(
+        isinstance(e, dict) and e.get("kind") == "final"
+        for e in (diag["amount"].get("decision_trace") or [])
+    )
+    trace_human = diag["amount"].get("decision_trace_human") or []
+    assert any(
+        isinstance(e, dict)
+        and e.get("kind") == "final"
+        and str(e.get("final_decision_reason_nl") or "").strip()
+        for e in trace_human
+    )
+    final = next(e for e in trace_human if isinstance(e, dict) and e.get("kind") == "final")
+    assert isinstance(final.get("winner"), dict)
+    assert final["winner"].get("winner_reason_nl")
 
 
 def test_load_failed_error_status() -> None:
@@ -453,3 +531,33 @@ def test_matched_by_from_match_info_when_no_db_core() -> None:
     snap = build_invoice_diagnostics_snapshot(inv)
     diag = build_diagnostics(snap)
     assert diag["supplier"]["matched_by"] == ["IBAN", "KvK"]
+
+
+def test_map_field_candidate_for_diag_includes_explainability_fields() -> None:
+    mapped = map_field_candidate_for_diag(
+        {
+            "value": "26FC000498",
+            "source": "label_block_same_line",
+            "confidence": 92,
+            "context": "Factuurnummer: 26FC000498",
+            "label": "Factuurnummer",
+            "extraction_method": "label_match",
+            "label_source": "Factuurnummer",
+            "match_type": "label",
+            "label_reason": "Gevonden direct na label",
+            "context_hint": "header",
+            "score_breakdown": {"base": 90, "label_bonus": 8},
+            "raw_detected": "26FC 000498",
+            "normalized_iso": "26FC000498",
+            "parse_path": "line_parser",
+        },
+        field_id="invoice_number",
+    )
+    assert mapped["source_nl"] == "Waarde op dezelfde regel als label"
+    assert mapped["extraction_method_nl"] == "Gevonden naast herkenbaar label"
+    assert mapped["label_source"] == "Factuurnummer"
+    assert mapped["match_type"] == "label"
+    assert mapped["context_hint_nl"] == "header van document"
+    assert mapped["score_breakdown_nl"]
+    assert mapped["raw_detected"] == "26FC 000498"
+    assert mapped["normalized_iso"] == "26FC000498"

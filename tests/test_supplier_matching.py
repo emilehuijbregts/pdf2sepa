@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
@@ -96,14 +97,37 @@ class TestIbanMatch:
 
 class TestAliasMatch:
     def test_exact_alias(self, db_with_suppliers):
+        """Alias-only (no core identity) must not select a supplier (Sprint 5)."""
         inv = {"supplier_hint": "Wavin-Nederland", "iban": None, "customer_number": None}
         result = match_suppliers([inv], db_with_suppliers)[0]
-        assert result["supplier_name"] == "Wavin Nederland B.V."
+        assert result["supplier_name"] is None
+        assert result["match_status"] == "unmatched"
 
     def test_substring_alias(self, db_with_suppliers):
+        """Token/alias hint without core signals must not select a supplier (Sprint 5)."""
         inv = {"supplier_hint": "Wavin NL producten", "iban": None, "customer_number": None}
         result = match_suppliers([inv], db_with_suppliers)[0]
-        assert result["supplier_name"] == "Wavin Nederland B.V."
+        assert result["supplier_name"] is None
+        assert result["match_status"] == "unmatched"
+
+    def test_short_alias_no_substring_false_positive(self, tmp_path):
+        data = {
+            "suppliers": [
+                {
+                    "name": "2ba",
+                    "iban": "",
+                    "discount": 0.0,
+                    "aliases": ["2ba"],
+                    "customer_codes": [],
+                },
+            ]
+        }
+        p = tmp_path / "suppliers.json"
+        p.write_text(json.dumps(data), encoding="utf-8")
+        db = SupplierDB(path=str(p))
+        supplier, info = db.find_supplier_scored("Factuur Roba Metals B.V.", None, None)
+        assert supplier is None
+        assert info["alias_match"] is False
 
 
 class TestCustomerCodeMatch:
@@ -258,15 +282,15 @@ class TestUnmatched:
 
 
 class TestIbanMismatch:
-    def test_iban_mismatch_flagged(self, db_with_suppliers):
+    def test_iban_mismatch_hard_reject(self, db_with_suppliers):
         inv = {
             "supplier_hint": "Wavin NL",
             "iban": "NL99XXXX0000000001",
             "customer_number": None,
         }
         result = match_suppliers([inv], db_with_suppliers)[0]
-        assert result["match_status"] in ("needs_review", "confirmed")
-        assert result.get("iban_mismatch") is True
+        assert result["match_status"] == "unmatched"
+        assert result.get("supplier_name") is None
 
 
 class TestMatchInfo:
@@ -276,6 +300,99 @@ class TestMatchInfo:
         info = result.get("match_info", {})
         assert info["iban_match"] is True
         assert info["customer_code_match"] is True
+
+
+class TestScoringGuards:
+    def test_customer_code_mismatch_penalty_loses_to_code_match(self, tmp_path):
+        data = {
+            "suppliers": [
+                {
+                    "name": "Supplier A",
+                    "iban": "",
+                    "discount": 0.0,
+                    "aliases": ["Shared Supplier"],
+                    "customer_codes": ["111"],
+                    "vat_numbers": ["NL000000001B01"],
+                    "kvk_numbers": ["12345678"],
+                    "email_domains": ["shared-a.test"],
+                },
+                {
+                    "name": "Supplier B",
+                    "iban": "",
+                    "discount": 0.0,
+                    "aliases": ["Shared Supplier"],
+                    "customer_codes": ["222"],
+                    "vat_numbers": [],
+                    "kvk_numbers": [],
+                    "email_domains": [],
+                },
+            ]
+        }
+        p = tmp_path / "suppliers.json"
+        p.write_text(json.dumps(data), encoding="utf-8")
+        db = SupplierDB(path=str(p))
+        inv = {
+            "supplier_hint": "Shared Supplier",
+            "iban": None,
+            "customer_number": "222",
+            "vat_number": "NL000000001B01",
+            "kvk_number": "12345678",
+            "email_domain": "shared-a.test",
+        }
+        result = match_suppliers([inv], db)[0]
+        assert result["supplier_name"] == "Supplier B"
+        assert result["match_status"] == "needs_review"
+        info = result.get("match_info") or {}
+        assert info.get("customer_code_match") is True
+        assert info.get("vat_match") is False
+        assert info.get("kvk_match") is False
+
+    def test_vat_kvk_only_never_confirms(self, tmp_path):
+        data = {
+            "suppliers": [
+                {
+                    "name": "TaxOnly Supplier",
+                    "iban": "",
+                    "discount": 0.0,
+                    "aliases": ["TaxOnly Supplier"],
+                    "customer_codes": [],
+                    "vat_numbers": ["NL123456789B01"],
+                    "kvk_numbers": ["12345678"],
+                    "email_domains": [],
+                },
+            ]
+        }
+        p = tmp_path / "suppliers.json"
+        p.write_text(json.dumps(data), encoding="utf-8")
+        db = SupplierDB(path=str(p))
+        inv = {
+            "supplier_hint": None,
+            "iban": None,
+            "customer_number": None,
+            "vat_number": "NL123456789B01",
+            "kvk_number": "12345678",
+            "email_domain": None,
+        }
+        result = match_suppliers([inv], db)[0]
+        assert result["supplier_name"] == "TaxOnly Supplier"
+        assert result["match_status"] == "needs_review"
+        assert set(result.get("db_core_matches") or []) == {"BTW", "KvK"}
+
+
+class TestMatchDecisionLogging:
+    def test_logs_winner_and_alternatives(self, db_with_suppliers, caplog):
+        caplog.set_level(logging.INFO)
+        inv = {
+            "supplier_hint": "Wavin NL",
+            "iban": "NL25CITI0266075452",
+            "customer_number": "1012146",
+            "vat_number": None,
+            "kvk_number": None,
+            "email_domain": None,
+        }
+        _ = match_suppliers([inv], db_with_suppliers)[0]
+        assert any("Supplier match geselecteerd" in rec.message for rec in caplog.records)
+        assert any("Supplier match status final" in rec.message for rec in caplog.records)
 
 
 class TestSupplierVatRateOnInvoice:

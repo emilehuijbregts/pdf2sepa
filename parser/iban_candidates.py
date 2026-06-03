@@ -40,15 +40,28 @@ def collect_iban_candidates_from_text(
     debtor_iban: str | None = None,
 ) -> list[IdentFieldCandidate]:
     debtor_clean = clean_iban(debtor_iban) if debtor_iban else ""
+    lines = (text or "").split("\n")
     raw_ibans = _scan_sepa_ibans_in_text(text or "")
+    # Extra cross-line pass: label line + next line merge (OCR/PDF line breaks).
+    for i, line in enumerate(lines):
+        if not _has_label_on_line(line):
+            continue
+        if i + 1 >= len(lines):
+            continue
+        merged = f"{line}\n{lines[i + 1]}"
+        raw_ibans.extend(_scan_sepa_ibans_in_text(merged))
     cands: list[IdentFieldCandidate] = []
     pdf_rank = 0
+    seen_values: set[str] = set()
 
     for iban in raw_ibans:
         if not is_plausible_iban(iban):
             continue
         if debtor_clean and iban == debtor_clean:
             continue
+        if iban in seen_values:
+            continue
+        seen_values.add(iban)
 
         ctx = _context_for_iban_in_text(text, iban)
         has_label = any(
@@ -70,6 +83,11 @@ def collect_iban_candidates_from_text(
                 confidence=conf,
                 context=ctx,
                 label="IBAN" if has_label else "",
+                meta={
+                    "match_type": "label" if has_label else "fallback",
+                    "label_source": "IBAN" if has_label else "",
+                    "field_id": "iban",
+                },
             )
         )
         pdf_rank += 1
@@ -159,6 +177,7 @@ def extract_iban_result(
         merged,
         resolved_value=resolved_clean or None,
         resolved_source=resolved_source,
+        field_id="iban",
     )
 
 
@@ -194,4 +213,5 @@ def merge_ocr_into_iban_result(
         merged,
         resolved_value=resolved,
         resolved_source=resolved_source,
+        field_id="iban",
     )

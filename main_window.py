@@ -2700,6 +2700,15 @@ class MainWindow(QMainWindow):
             generic_snap = self._field_result_snapshot_for_row(row, field_id) or {}
             generic = field_result_from_legacy_dict(generic_snap, field_id=field_id)
             raw_target = selected_by_field.get(field_id)
+            if field_id == "customer_number" and is_customer_absent_pick(
+                raw_target if isinstance(raw_target, dict) else None
+            ):
+                self._apply_customer_absent_pick_to_row(
+                    row,
+                    pending_reason="diagnostics_confirm_selection",
+                    mark_pending=True,
+                )
+                continue
             if raw_target is not None:
                 target = normalize_field_value(field_id, raw_target)
             else:
@@ -2770,6 +2779,16 @@ class MainWindow(QMainWindow):
             cust = self._cell_text(row, PaymentColumn.CUSTOMER_CODE).strip()
         if cust:
             confirmed["customer_number"] = cust
+
+        vat = str(selected_by_field.get("vat_number") or "").strip()
+        if vat:
+            confirmed["vat_number"] = vat
+        kvk = str(selected_by_field.get("kvk_number") or "").strip()
+        if kvk:
+            confirmed["kvk_number"] = kvk
+        dom = str(selected_by_field.get("email_domain") or "").strip()
+        if dom:
+            confirmed["email_domain"] = dom
         return confirmed
 
     def _save_profile_from_row(
@@ -3573,6 +3592,31 @@ class MainWindow(QMainWindow):
         row_id: str | None = None,
         invoice_diagnostics_snapshot: dict | None = None,
     ) -> None:
+        def _field_result_tooltip(result: dict[str, Any] | None) -> str:
+            if not isinstance(result, dict):
+                return ""
+            parts: list[str] = []
+            src = str(result.get("source") or "").strip()
+            conf = result.get("confidence")
+            if src:
+                try:
+                    c = int(conf or 0)
+                except (TypeError, ValueError):
+                    c = 0
+                parts.append(f"source: {src} ({c}%)")
+            ov = str(result.get("override_reason") or "").strip()
+            if ov:
+                parts.append(f"override: {ov}")
+            trace = result.get("decision_trace")
+            if isinstance(trace, list):
+                for e in trace:
+                    if isinstance(e, dict) and str(e.get("kind") or "") == "final":
+                        fr = str(e.get("final_decision_reason") or "").strip()
+                        if fr:
+                            parts.append(f"final: {fr}")
+                        break
+            return "\n".join(parts).strip()
+
         r = self._table.rowCount()
         self._table.insertRow(r)
         sup_item = self._item_editable(supplier)
@@ -3604,7 +3648,9 @@ class MainWindow(QMainWindow):
         if isinstance(iban_result_snapshot, dict):
             iban_item.setData(_ROW_IBAN_RESULT_ROLE, deepcopy(iban_result_snapshot))
             if iban.strip() == "?":
-                iban_item.setToolTip("Klik om een IBAN-kandidaat te kiezen.")
+                base = "Klik om een IBAN-kandidaat te kiezen."
+                extra = _field_result_tooltip(iban_result_snapshot)
+                iban_item.setToolTip(base + (("\n" + extra) if extra else ""))
         self._table.setItem(r, PaymentColumn.IBAN, iban_item)
         amt_item = self._item_amount(amount_display)
         if base_amount_incl is not None:
@@ -3613,7 +3659,9 @@ class MainWindow(QMainWindow):
             amt_item.setData(_ROW_BASE_EXCL_ROLE, format_eur_xml(base_amount_excl))
         if isinstance(amount_result_snapshot, dict):
             amt_item.setData(_ROW_AMOUNT_RESULT_ROLE, deepcopy(amount_result_snapshot))
-            amt_item.setToolTip("Klik om een voorgesteld bedrag te kiezen (PDF-parser).")
+            base = "Klik om een voorgesteld bedrag te kiezen (PDF-parser)."
+            extra = _field_result_tooltip(amount_result_snapshot)
+            amt_item.setToolTip(base + (("\n" + extra) if extra else ""))
         self._table.setItem(r, PaymentColumn.AMOUNT, amt_item)
         cust_item = self._item_editable(customer_code)
         if isinstance(customer_number_result_snapshot, dict):
@@ -3622,7 +3670,9 @@ class MainWindow(QMainWindow):
                 deepcopy(customer_number_result_snapshot),
             )
             if customer_code.strip() == "?":
-                cust_item.setToolTip("Klik om een klantnummer-kandidaat te kiezen.")
+                base = "Klik om een klantnummer-kandidaat te kiezen."
+                extra = _field_result_tooltip(customer_number_result_snapshot)
+                cust_item.setToolTip(base + (("\n" + extra) if extra else ""))
         self._table.setItem(r, PaymentColumn.CUSTOMER_CODE, cust_item)
         if isinstance(invoice_number_result_snapshot, dict):
             sup_item.setData(

@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from logic.field_diagnostics import translate_context_hint, translate_extraction_method
 from parser.field_model import FieldId
 
 REVIEW_FIELD_IDS: tuple[FieldId, ...] = (
@@ -12,6 +13,10 @@ REVIEW_FIELD_IDS: tuple[FieldId, ...] = (
     "invoice_number",
     "customer_number",
     "iban",
+    "vat_number",
+    "kvk_number",
+    "invoice_date",
+    "email_domain",
 )
 
 _AMOUNT_SOURCE_NL: dict[str, str] = {
@@ -95,6 +100,38 @@ FIELD_REVIEW_SPECS: dict[FieldId, FieldReviewSpec] = {
         menu_no_candidates_nl="Geen meerdere IBAN-kandidaten om uit te kiezen.",
         pick_pending_reason="iban_picked",
     ),
+    "vat_number": FieldReviewSpec(
+        field_id="vat_number",
+        result_snapshot_key="vat_number_result",
+        legacy_value_key="vat_number",
+        menu_empty_title_nl="BTW-nummer kiezen",
+        menu_no_candidates_nl="Geen meerdere parser-kandidaten om uit te kiezen.",
+        pick_pending_reason="vat_number_picked",
+    ),
+    "kvk_number": FieldReviewSpec(
+        field_id="kvk_number",
+        result_snapshot_key="kvk_number_result",
+        legacy_value_key="kvk_number",
+        menu_empty_title_nl="KvK-nummer kiezen",
+        menu_no_candidates_nl="Geen meerdere parser-kandidaten om uit te kiezen.",
+        pick_pending_reason="kvk_number_picked",
+    ),
+    "invoice_date": FieldReviewSpec(
+        field_id="invoice_date",
+        result_snapshot_key="invoice_date_result",
+        legacy_value_key="invoice_date",
+        menu_empty_title_nl="Factuurdatum kiezen",
+        menu_no_candidates_nl="Geen meerdere parser-kandidaten om uit te kiezen.",
+        pick_pending_reason="invoice_date_picked",
+    ),
+    "email_domain": FieldReviewSpec(
+        field_id="email_domain",
+        result_snapshot_key="email_domain_result",
+        legacy_value_key="email_domain",
+        menu_empty_title_nl="E-maildomein kiezen",
+        menu_no_candidates_nl="Geen meerdere parser-kandidaten om uit te kiezen.",
+        pick_pending_reason="email_domain_picked",
+    ),
 }
 
 
@@ -166,7 +203,63 @@ def format_ident_candidate_menu_label(cand: dict[str, Any]) -> str:
 
 
 def candidate_menu_tooltip(cand: dict[str, Any], *, max_len: int = 200) -> str:
-    ctx = str(cand.get("context") or "")
-    if len(ctx) > max_len:
-        return ctx[: max_len - 3] + "..."
-    return ctx
+    parts: list[str] = []
+    ctx = str(cand.get("context") or "").strip()
+    if ctx:
+        parts.append(f"PDF-context: {ctx}")
+
+    extraction_method = str(
+        cand.get("extraction_method_nl") or cand.get("extraction_method") or ""
+    ).strip()
+    if extraction_method:
+        parts.append(
+            f"Methode: {translate_extraction_method(extraction_method)}"
+            if extraction_method == str(cand.get("extraction_method") or "").strip()
+            else f"Methode: {extraction_method}"
+        )
+
+    label_reason = str(cand.get("label_reason_nl") or cand.get("label_reason") or "").strip()
+    if label_reason:
+        parts.append(f"Uitleg: {label_reason}")
+
+    context_hint = str(cand.get("context_hint_nl") or cand.get("context_hint") or "").strip()
+    if context_hint:
+        parts.append(
+            f"Locatie: {translate_context_hint(context_hint)}"
+            if context_hint == str(cand.get("context_hint") or "").strip()
+            else f"Locatie: {context_hint}"
+        )
+
+    parse_path = str(cand.get("parse_path") or "").strip()
+    if parse_path:
+        parts.append(f"Parsepad: {parse_path}")
+
+    raw_detected = cand.get("raw_detected")
+    if raw_detected is not None and str(raw_detected).strip():
+        parts.append(f"Originele waarde: {str(raw_detected).strip()}")
+
+    normalized_iso = cand.get("normalized_iso")
+    if normalized_iso is not None and str(normalized_iso).strip():
+        parts.append(f"Genormaliseerde waarde: {str(normalized_iso).strip()}")
+
+    score_lines = cand.get("score_breakdown_nl")
+    if isinstance(score_lines, list):
+        clean_lines = [str(line).strip() for line in score_lines if str(line).strip()]
+        if clean_lines:
+            parts.append("Score-opbouw: " + "; ".join(clean_lines[:4]))
+    else:
+        sb = cand.get("score_breakdown")
+        if isinstance(sb, dict) and sb:
+            items = []
+            for k, v in sb.items():
+                ks = str(k).strip()
+                if not ks:
+                    continue
+                items.append(f"{ks}={v}")
+            if items:
+                parts.append("Score-opbouw: " + ", ".join(items[:6]))
+
+    tip = "\n".join(parts).strip()
+    if len(tip) > max_len:
+        return tip[: max_len - 3] + "..."
+    return tip

@@ -8,14 +8,33 @@ from typing import Any
 
 from parser.pdf_parser import (
     _CUSTOMER_LABEL_RE,
+    _DATE_EXCLUDE_HINT_RE,
     _DD_MM_YYYY_RE,
+    _DOMAIN_WWW_RE,
+    _EMAIL_CONTACT_LABEL_RE,
+    _EMAIL_RE,
     _FIELD_VALUE_RE,
     _INVOICE_LABEL_RE,
+    _INVOICE_DATE_LABEL_RE,
+    _INVOICE_NR_VAN_DATE_RE,
     _ISO_DATE_RE,
+    _KVK_BUSINESS_BLOCK_RE,
+    _KVK_LABEL_RE,
+    _KVK_RE,
+    _MONTHS,
+    _MONTH_NAME_DATE_RE,
+    _VAT_BTW_VALUE_RE,
+    _VAT_DEBTOR_HINT_RE,
+    _VAT_EU_FALLBACK_RE,
+    _VAT_LABEL_RE,
+    _VAT_RE,
+    _compact_nl_vat_token,
     _is_noise_value,
     _looks_like_date_token,
     _score_customer_candidate_token,
     collapse_stutter_chars,
+    _normalize_kvk_digits,
+    _normalize_vat_compact,
 )
 
 _POLIS_LABEL_RE = re.compile(
@@ -33,6 +52,24 @@ _FACTUUR_PLAIN_RE = re.compile(
 )
 _FACTUUR_PREFIXED_RE = re.compile(
     r"(?i)\bFactuur\s+([A-Za-z]{1,8})\s+(\d{6,})\b"
+)
+_FACTUUR_INLINE_PAGINA_RE = re.compile(
+    r"(?i)\bFactuur\s+([A-Za-z0-9][A-Za-z0-9\-\/]{4,})\s+Pagina\b"
+)
+_NUMMER_INV_RE = re.compile(r"(?i)\bNummer\s+(INV-[A-Za-z0-9\-]+)\b")
+_NUMMER_REG_INVOICE_RE = re.compile(
+    r"(?i)\bNummer\s+(REG[A-Z0-9][A-Z0-9\-\/]*\d+)\b"
+)
+_REG_INVOICE_ROW_RE = re.compile(
+    r"(?im)^\s*(REG[A-Z0-9][A-Z0-9\-\/]*\d+)\b"
+)
+_INVOICE_ONLY_LINE_RE = re.compile(
+    r"(?i)\bINVOICE\s+([A-Za-z0-9][A-Za-z0-9\-\/]+)"
+)
+_CUSTOMER_STANDALONE_LINE_RE = re.compile(r"(?im)^Customer\s+(\d{4,12})\b")
+_PIPE_SUFFIX_CUSTOMER_RE = re.compile(r"(?i)\|\s*([A-Z]\d{4,8})\b")
+_SANHA_KLANT_VALUE_RE = re.compile(
+    r"(?is)\bVerzendingswijze\s+Klant\b[^\n]{0,40}\n\s*\S+\s+(\d{5,12})\b"
 )
 _YEAR_SLASH_REF_RE = re.compile(r"(?<![A-Za-z0-9./])(\d{2}/\d{7,})(?!\d)")
 _NUMMER_DATUM_RE = re.compile(
@@ -58,7 +95,14 @@ _COLLAPSED_K_IN_TEXT_RE = re.compile(r"(?i)k0?\d{4,7}(?!\d)")
 # Labels voor klantnummer/klantcode (layout: label + cel ernaast/eronder).
 _CUSTOMER_FIELD_LABEL_RE = re.compile(
     r"(?i)\b(?:klantnummer|klant-nummer|klant\s*nummer|klantcode|klantnr\.?|klant-nr\.?|"
-    r"klantrekening|uw\s+klant)\b"
+    r"klantrekening|uw\s+klant|klant(?=\s+\d)|"
+    r"debiteur(?:en)?(?:\s*nummer|\s*nr\.?)|"
+    r"deb\.?\s*(?:nr\.?|nummer)|debnr\.?|debiteur|debtor(?:\s*(?:number|no\.?|nr\.?|id))?|"
+    r"betaler(?:\s*(?:nr\.?|nummer|no\.?|id))?|"
+    r"relatie(?:\s*nummer|\s*nr\.?)?|relatie|"
+    r"customer(?=\s+\d)|customer\s*(?:number|no\.?|code|nr\.?|id)|"
+    r"kunden(?:nummer|nr\.?|-\s*nr\.?)|"
+    r"factureren\s+aan(?:\s*(?:nr\.?|nummer|no\.?|id))?)\b"
 )
 _REFERENTIE_ONLY_LINE_RE = re.compile(
     r"(?i)\b(?:uw|onze|jullie|your)\s+referentie\b"
@@ -69,6 +113,56 @@ _KLANTCODE_INLINE_RE = re.compile(
 _UW_REFERENTIE_LINE_RE = re.compile(r"(?i)\buw\s+referentie\b")
 _ORDER_REF_TOKEN_RE = re.compile(r"^20\d{4,6}$")
 _REF_SLASH_CUSTOMER_RE = re.compile(r"\b(?!\d{2}/\d{7})(\d{5,})\s*/\s*(\d{4,})\b")
+_ORDER_HINT_RE = re.compile(
+    r"(?i)\b(?:ordernummer|order\s*(?:nr\.?|number|no\.?)|bestel(?:nummer|nr\.?)|purchase\s*order|po\s*number|uw\s+referentie|onze\s+referentie|referentie)\b"
+)
+_INVOICE_HINT_RE = re.compile(
+    r"(?i)\b(?:factuur|factuurnummer|factuurnr|invoice|invoice\s*no\.?|rechnung|"
+    r"rechnungsnummer|documentnr\.?|nummer)\b"
+)
+_EXPLICIT_INVOICE_LABEL_RE = re.compile(
+    r"(?i)\b(?:factuurnummer|factuurnr|factuur\s*nr\.?|invoice\s*(?:number|no\.?|nr\.?)?|\binvoice\b|"
+    r"rechnung|rechnungsnummer)\b"
+)
+_STRICT_ORDER_HINT_RE = re.compile(
+    r"(?i)\b(?:ordernummer|order\s*(?:nr\.?|number|no\.?)|bestel(?:nummer|nr\.?)|"
+    r"purchase\s*order|po\s*number)\b"
+)
+_CREDIT_INVOICE_HINT_RE = re.compile(
+    r"(?i)\b(?:creditnota|credit\s*note|verkoopcredit|creditfactuur|creditnota)\b"
+)
+_ORDER_VS_INVOICE_PENALTY = 60
+_LABEL_SOURCE_PREFIXES = (
+    "label",
+    "extra",
+    "klantcode",
+)
+_REGEX_SOURCE_PREFIXES = (
+    "factuur",
+    "year_slash",
+    "nummer_datum",
+    "date_invoice",
+    "header_table",
+    "nummer_inv",
+    "nummer_reg",
+    "invoice_only",
+    "customer_standalone",
+    "pipe_customer",
+    "sanha_klant",
+    "split_k",
+    "standalone",
+    "spaced_k",
+    "line_only_k",
+    "collapsed",
+    "uw_klant",
+    "klant_line",
+    "delivery_block",
+    "ref_slash",
+)
+# NL-BTW na label (spaties/punten tussen cijfergroepen, OCR).
+_VAT_RELAXED_VALUE_RE = re.compile(
+    r"(?i)\b(?:NL\s*)?([\d][\d.\s]{8,22}B[\d.\s]{1,4})\b"
+)
 
 @dataclass
 class IdentFieldCandidate:
@@ -77,15 +171,21 @@ class IdentFieldCandidate:
     confidence: int
     context: str
     label: str = ""
+    meta: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        d: dict[str, Any] = {
             "value": self.value,
             "source": self.source,
             "confidence": self.confidence,
             "context": self.context,
             "label": self.label,
         }
+        if self.meta:
+            for k, v in self.meta.items():
+                if k not in d:
+                    d[k] = v
+        return d
 
 
 @dataclass
@@ -97,6 +197,7 @@ class IdentFieldResult:
     status: str = "failed"
     user_selected: bool = False
     absence_state: str | None = None
+    decision_trace: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -106,7 +207,7 @@ class IdentFieldResult:
             "confidence": self.confidence,
             "source": self.source,
             "status": self.status,
-            "decision_trace": [],
+            "decision_trace": list(self.decision_trace),
             "override_reason": "",
             "resolver_finalized": False,
         }
@@ -115,6 +216,601 @@ class IdentFieldResult:
         if self.user_selected:
             d["user_selected"] = True
         return d
+
+
+def _candidate_explain_meta(
+    *,
+    extraction_method: str,
+    label_reason: str = "",
+    context_hint: str = "",
+    score_breakdown: dict[str, Any] | None = None,
+    **extra: Any,
+) -> dict[str, Any]:
+    meta: dict[str, Any] = {"extraction_method": extraction_method}
+    if label_reason:
+        meta["label_reason"] = label_reason
+    if context_hint:
+        meta["context_hint"] = context_hint
+    if score_breakdown is not None:
+        meta["score_breakdown"] = score_breakdown
+    for k, v in extra.items():
+        if v is not None:
+            meta[k] = v
+    return meta
+
+
+def _infer_match_type(source: str) -> str:
+    src = str(source or "").strip().lower()
+    if not src:
+        return "fallback"
+    if src.startswith(_LABEL_SOURCE_PREFIXES):
+        return "label"
+    if src in {
+        "datum_nummer_table",
+        "nummer_datum_table",
+        "header_table_invoice",
+        "header_table_customer",
+        "nummer_inv",
+        "nummer_reg",
+        "tabular",
+    }:
+        return "label"
+    if src.startswith(_REGEX_SOURCE_PREFIXES):
+        return "regex"
+    if src in {"fallback_missing", "resolved", "not_found", "ambiguous"}:
+        return "fallback"
+    return "fallback"
+
+
+def _candidate_match_type(cand: IdentFieldCandidate) -> str:
+    meta = cand.meta if isinstance(cand.meta, dict) else {}
+    mt = str(meta.get("match_type") or "").strip().lower()
+    if mt in {"label", "regex", "fallback"}:
+        return mt
+    return _infer_match_type(cand.source)
+
+
+def _ensure_candidate_explainability(
+    cands: list[IdentFieldCandidate],
+) -> list[IdentFieldCandidate]:
+    for cand in cands:
+        meta = dict(cand.meta or {})
+        match_type = str(meta.get("match_type") or "").strip().lower()
+        if match_type not in {"label", "regex", "fallback"}:
+            match_type = _infer_match_type(cand.source)
+            meta["match_type"] = match_type
+        label_source = str(meta.get("label_source") or "").strip()
+        if not label_source:
+            label_source = str(cand.label or "").strip() or str(cand.source or "").strip()
+            meta["label_source"] = label_source
+        cand.meta = meta
+    return cands
+
+
+def _is_preferred_customer_label(label: str) -> bool:
+    lbl = str(label or "").strip().lower()
+    if not lbl:
+        return False
+    return any(
+        key in lbl
+        for key in (
+            "debiteur",
+            "deb.",
+            "debtor",
+            "klant",
+            "customer",
+            "betaler",
+            "relatie",
+            "factureren aan",
+        )
+    )
+
+
+_MATCH_TYPE_PRIORITY = {
+    "label": 3,
+    "regex": 2,
+    "fallback": 1,
+}
+
+_SPECIFIC_LABEL_HINT_RE = re.compile(
+    r"(?i)\b(?:factuurnummer|factuurnr|factuur\s*nr\.?|invoice\s*(?:number|no\.?|nr\.?)?|\binvoice\b|"
+    r"rechnungsnummer|nummer|"
+    r"klantnummer|klantcode|betaler|relatie|customer\s*(?:number|code|id)?|"
+    r"polisnummer|relatienummer|contractnummer|"
+    r"creditnota|verkoopcredit|creditfactuur|"
+    r"btw|vat|kvk|iban|e-?mail)\b"
+)
+
+_GENERIC_LABEL_HINT_RE = re.compile(
+    r"(?i)\b(?:factuur|invoice|klant|debiteur|customer|nummer|nr\.?|code)\b"
+)
+
+_SOURCE_PRIORITY_EXACT: dict[str, int] = {
+    "label_block_same_line": 130,
+    "label": 126,
+    "label_block_next_line": 124,
+    "label_next_line": 122,
+    "label_block_uw_klant_digits": 120,
+    "tabular": 118,
+    "extra": 116,
+    "datum_nummer_table": 110,
+    "header_table_invoice": 109,
+    "header_table_customer": 108,
+    "nummer_datum_table": 107,
+    "nummer_inv": 106,
+    "nummer_reg": 105,
+    "factuur_inline_pagina": 104,
+    "invoice_only_line": 103,
+    "customer_standalone_line": 102,
+    "pipe_customer": 101,
+    "sanha_klant": 100,
+    "invoice_nr_van_date": 107,
+    "invoice_date_label_same_line": 106,
+    "invoice_date_label_next_line": 104,
+    "factuur_colon": 98,
+    "factuur_plain": 97,
+    "factuur_prefixed_digits": 96,
+    "date_invoice_line": 95,
+    "year_slash_ref": 94,
+    "uw_klant_k_prefix": 93,
+    "klant_line_k_prefix": 92,
+    "standalone_k_token": 91,
+    "spaced_k_token": 90,
+    "line_only_k_code": 89,
+    "split_k_line": 88,
+    "split_k_newline": 87,
+    "collapsed_k_near_label": 86,
+    "collapsed_klantcode_fused": 85,
+    "collapsed_k_token": 84,
+    "delivery_block_six_digit": 82,
+    "ref_slash_customer": 81,
+    "fallback_missing": 1,
+    "resolved": 2,
+}
+
+_SOURCE_PRIORITY_PREFIXES: tuple[tuple[str, int], ...] = (
+    ("label_block", 124),
+    ("label", 122),
+    ("extra", 116),
+    ("klantcode", 114),
+    ("factuur", 98),
+)
+
+FIELD_CONFLICT_RULES: dict[str, tuple[str, ...]] = {
+    "invoice_number": ("order_number", "reference_number"),
+    "customer_number": ("invoice_number", "order_number"),
+}
+_CROSS_FIELD_CONFIDENCE_PENALTY = 35
+
+
+def _candidate_label_haystack(cand: IdentFieldCandidate) -> str:
+    meta = cand.meta if isinstance(cand.meta, dict) else {}
+    return " ".join(
+        (
+            str(cand.label or ""),
+            str(meta.get("label_source") or ""),
+            str(cand.context or ""),
+        )
+    )
+
+
+def _has_explicit_invoice_label(cand: IdentFieldCandidate) -> bool:
+    return bool(_EXPLICIT_INVOICE_LABEL_RE.search(_candidate_label_haystack(cand)))
+
+
+def _has_invoice_labeled_peer(cands: list[IdentFieldCandidate]) -> bool:
+    return any(_has_explicit_invoice_label(c) for c in cands)
+
+
+def _field_type_match_score(cand: IdentFieldCandidate, *, field_id: str) -> int:
+    """Invoice field: invoice > credit_invoice > reference > order (within same field)."""
+    if field_id == "customer_number":
+        conflict = _candidate_conflict_type(cand, field_id=field_id)
+        if conflict == "invoice_number":
+            return 15
+        if conflict == "order_number":
+            return 20
+        digits = re.sub(r"\D", "", str(cand.value or ""))
+        if len(digits) >= 10:
+            return 25
+        score = 50
+        if _is_preferred_customer_label(str(cand.label or "")):
+            score = 90
+        elif _CUSTOMER_LABEL_RE.search(_candidate_label_haystack(cand)):
+            score = 75
+        if 5 <= len(digits) <= 8:
+            score = max(score, 88)
+        return score
+    if field_id != "invoice_number":
+        return 50
+    hay = f"{_candidate_label_haystack(cand)} {str(cand.source or '')}"
+    value = str(cand.value or "").strip().upper()
+    if re.fullmatch(r"NL\d{2}", value) or re.fullmatch(r"[A-Z]{2}\d{2}", value):
+        return 12
+    conflict = _candidate_conflict_type(cand, field_id=field_id)
+    if conflict == "order_number":
+        return 15
+    if conflict == "reference_number":
+        return 25
+    if _CREDIT_INVOICE_HINT_RE.search(hay) or value.startswith("VCR"):
+        return 95
+    if _has_explicit_invoice_label(cand):
+        return 90
+    if _INVOICE_HINT_RE.search(hay):
+        return 75
+    return 45
+
+
+def _context_proximity_score(cand: IdentFieldCandidate) -> int:
+    src = str(cand.source or "").strip().lower()
+    meta = cand.meta if isinstance(cand.meta, dict) else {}
+    method = str(meta.get("extraction_method") or "").strip().lower()
+    label_reason = str(meta.get("label_reason") or "").lower()
+    if src in {"label_block_same_line", "label"} or "same_line" in src:
+        return 100
+    if method == "label_match" and "same" in label_reason:
+        return 98
+    if src in {"label_block_next_line", "label_next_line"} or "next_line" in src:
+        return 85
+    if src.startswith("header_table"):
+        return 92
+    if src.startswith("label_block") or src.startswith("label"):
+        return 78
+    if method == "proximity":
+        return 72
+    if src.startswith("factuur") or method == "regex":
+        return 50
+    return 35
+
+
+def _label_strength(cand: IdentFieldCandidate) -> int:
+    mt = _candidate_match_type(cand)
+    strength = _MATCH_TYPE_PRIORITY.get(mt, 1) * 100
+    if mt != "label":
+        return strength
+    meta = cand.meta if isinstance(cand.meta, dict) else {}
+    label_src = str(meta.get("label_source") or cand.label or cand.source or "").strip()
+    if _SPECIFIC_LABEL_HINT_RE.search(label_src):
+        strength += 30
+    elif _GENERIC_LABEL_HINT_RE.search(label_src):
+        strength += 10
+    meta = cand.meta if isinstance(cand.meta, dict) else {}
+    field_id = str(meta.get("field_id") or "").strip().lower()
+    if field_id == "invoice_number" and re.search(
+        r"(?i)\b(?:relatie\w*|contract\w*)\b", label_src
+    ):
+        strength -= 40
+    return strength
+
+
+def _source_priority(cand: IdentFieldCandidate, *, prefer_k_prefix: bool = False) -> int:
+    src = str(cand.source or "").strip().lower()
+    if src in _SOURCE_PRIORITY_EXACT:
+        base = _SOURCE_PRIORITY_EXACT[src]
+    else:
+        base = 0
+        for prefix, score in _SOURCE_PRIORITY_PREFIXES:
+            if src.startswith(prefix):
+                base = score
+                break
+        if base == 0:
+            mt = _candidate_match_type(cand)
+            if mt == "label":
+                base = 110
+            elif mt == "regex":
+                base = 90
+            else:
+                base = 20
+    if prefer_k_prefix and _is_k_customer_code(cand.value):
+        base += 3
+    return base
+
+
+def _candidate_rank_components(
+    cand: IdentFieldCandidate,
+    *,
+    prefer_k_prefix: bool = False,
+) -> tuple[int, int, int, int, int]:
+    meta = cand.meta if isinstance(cand.meta, dict) else {}
+    field_id = str(meta.get("field_id") or "").strip().lower()
+    return (
+        _label_strength(cand),
+        _field_type_match_score(cand, field_id=field_id),
+        _context_proximity_score(cand),
+        int(cand.confidence or 0),
+        _source_priority(cand, prefer_k_prefix=prefer_k_prefix),
+    )
+
+
+def candidate_rank_key(
+    cand: IdentFieldCandidate,
+    *,
+    prefer_k_prefix: bool = False,
+) -> tuple[int, int, int, int, int, str, str]:
+    lbl, ft, prox, conf, src_prio = _candidate_rank_components(
+        cand, prefer_k_prefix=prefer_k_prefix
+    )
+    return (
+        lbl,
+        ft,
+        prox,
+        conf,
+        src_prio,
+        str(cand.source or "").strip().lower(),
+        _stable_tiebreak_value(cand),
+    )
+
+
+def _candidate_rank_key(
+    cand: IdentFieldCandidate,
+    *,
+    prefer_k_prefix: bool = False,
+) -> tuple[int, int, int, int, int, str, str]:
+    return candidate_rank_key(cand, prefer_k_prefix=prefer_k_prefix)
+
+
+def _raw_confidence(cand: IdentFieldCandidate) -> int:
+    meta = cand.meta if isinstance(cand.meta, dict) else {}
+    raw = meta.get("raw_confidence")
+    if raw is None:
+        return int(cand.confidence or 0)
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return int(cand.confidence or 0)
+
+
+def _stable_tiebreak_value(cand: IdentFieldCandidate) -> str:
+    value = str(cand.value or "").strip()
+    meta = cand.meta if isinstance(cand.meta, dict) else {}
+    field_id = str(meta.get("field_id") or "").strip().lower()
+    if field_id == "invoice_number":
+        return value.casefold()
+    if field_id == "invoice_date":
+        m = re.fullmatch(r"(\d{4})-(\d{2})-(\d{2})", value)
+        if m:
+            y, mo, d = int(m.group(1)), int(m.group(2)), int(m.group(3))
+            date_num = (y * 10000) + (mo * 100) + d
+            # Newer dates win on full ties (deterministic recency rule).
+            return f"{date_num:08d}:{value}"
+    return value.casefold()
+
+
+def _candidate_conflict_type(
+    cand: IdentFieldCandidate,
+    *,
+    field_id: str,
+) -> str | None:
+    src = str(cand.source or "").strip().lower()
+    label = str(cand.label or "").strip().lower()
+    context = str(cand.context or "").strip().lower()
+    value = str(cand.value or "").strip().lower()
+    hay = " ".join((src, label, context, value))
+
+    if field_id == "invoice_number":
+        if _STRICT_ORDER_HINT_RE.search(hay) or (
+            _ORDER_HINT_RE.search(hay)
+            and re.search(r"(?i)\b(?:ordernummer|bestel|purchase\s*order|po\s*number)\b", hay)
+        ):
+            return "order_number"
+        if src in {"ref_slash", "year_slash_ref"} and _STRICT_ORDER_HINT_RE.search(hay):
+            return "order_number"
+        if _REFERENTIE_ONLY_LINE_RE.search(hay):
+            return "reference_number"
+    if field_id == "customer_number":
+        val = str(cand.value or "").strip()
+        if src.startswith("header_table"):
+            if re.fullmatch(r"(?i)(?:VF-?\d{4,}|F\d{5,}|[A-Z]{1,3}-\d{4,})", val):
+                return "invoice_number"
+            return None
+        if src.startswith(("factuur", "date_invoice")):
+            return "invoice_number"
+        if re.fullmatch(r"(?i)(?:VF-?\d{4,}|F\d{5,}|[A-Z]{1,3}-\d{4,})", val):
+            return "invoice_number"
+        order_hay = f"{label} {context}"
+        if _STRICT_ORDER_HINT_RE.search(order_hay) or (
+            re.search(r"(?i)\b(?:ordernummer|bestel|purchase\s*order|po\s*number)\b", order_hay)
+            and src in {"ref_slash", "year_slash_ref"}
+        ):
+            return "order_number"
+    return None
+
+
+def _apply_cross_field_penalties(
+    cands: list[IdentFieldCandidate],
+    *,
+    field_id: str | None,
+) -> list[IdentFieldCandidate]:
+    if not field_id:
+        return cands
+    conflicts = FIELD_CONFLICT_RULES.get(field_id)
+    if not conflicts:
+        return cands
+    has_inv_peer = field_id == "invoice_number" and _has_invoice_labeled_peer(cands)
+    out: list[IdentFieldCandidate] = []
+    for cand in cands:
+        meta = dict(cand.meta or {})
+        raw_conf = int(cand.confidence or 0)
+        meta.setdefault("raw_confidence", raw_conf)
+        conflict_type = _candidate_conflict_type(cand, field_id=field_id)
+        if conflict_type and conflict_type in conflicts:
+            penalty = _CROSS_FIELD_CONFIDENCE_PENALTY
+            if has_inv_peer and conflict_type == "order_number":
+                penalty = _ORDER_VS_INVOICE_PENALTY
+            cand.confidence = max(0, raw_conf - penalty)
+            meta["cross_field_penalty_applied"] = True
+            meta["cross_field_conflict_type"] = conflict_type
+        cand.meta = meta
+        out.append(cand)
+    return out
+
+
+def _winner_reason(
+    winner: IdentFieldCandidate,
+    runner_up: IdentFieldCandidate | None,
+    *,
+    prefer_k_prefix: bool = False,
+) -> str:
+    if runner_up is None:
+        return "deterministic_tiebreak"
+    w = _candidate_rank_components(winner, prefer_k_prefix=prefer_k_prefix)
+    r = _candidate_rank_components(runner_up, prefer_k_prefix=prefer_k_prefix)
+    if w[0] != r[0]:
+        return "stronger_label_match"
+    if w[1] != r[1]:
+        return "field_keyword_match"
+    if w[2] != r[2]:
+        return "better_context_proximity"
+    if w[3] != r[3]:
+        return "higher_confidence"
+    if w[4] != r[4]:
+        return "lower_source_priority"
+    return "deterministic_tiebreak"
+
+
+def _loser_reason(
+    winner: IdentFieldCandidate,
+    loser: IdentFieldCandidate,
+    *,
+    prefer_k_prefix: bool = False,
+) -> str:
+    w = _candidate_rank_components(winner, prefer_k_prefix=prefer_k_prefix)
+    l = _candidate_rank_components(loser, prefer_k_prefix=prefer_k_prefix)
+    loser_raw = _raw_confidence(loser)
+    winner_raw = _raw_confidence(winner)
+    loser_meta = loser.meta if isinstance(loser.meta, dict) else {}
+    if (
+        bool(loser_meta.get("cross_field_penalty_applied"))
+        and loser_raw >= winner_raw
+        and l[3] < loser_raw
+    ):
+        return "cross_field_penalty"
+    if w[0] != l[0]:
+        return "weaker_label"
+    if w[1] != l[1]:
+        return "weaker_field_type"
+    if w[2] != l[2]:
+        return "worse_context_proximity"
+    if w[3] != l[3]:
+        return "lower_confidence"
+    if w[4] != l[4]:
+        return "lower_source_priority"
+    return "deterministic_tiebreak"
+
+
+def _selection_trace(
+    ordered: list[IdentFieldCandidate],
+    winner: IdentFieldCandidate,
+    *,
+    final_reason: str,
+    status: str,
+    prefer_k_prefix: bool = False,
+) -> list[dict[str, Any]]:
+    trace: list[dict[str, Any]] = []
+    rank_map = {
+        (str(c.source or ""), str(c.value or "")): idx + 1
+        for idx, c in enumerate(ordered)
+    }
+    runner_up = next(
+        (c for c in ordered if c is not winner and str(c.value or "").strip()),
+        None,
+    )
+    winner_reason = _winner_reason(
+        winner,
+        runner_up,
+        prefer_k_prefix=prefer_k_prefix,
+    )
+    for cand in ordered:
+        is_win = (
+            str(cand.value or "").strip().casefold()
+            == str(winner.value or "").strip().casefold()
+            and str(cand.source or "") == str(winner.source or "")
+        )
+        entry: dict[str, Any] = {
+            "value": cand.value,
+            "source": cand.source,
+            "confidence": int(cand.confidence or 0),
+            "label_strength": _label_strength(cand),
+            "source_priority": _source_priority(cand, prefer_k_prefix=prefer_k_prefix),
+            "rank_score": list(
+                _candidate_rank_key(cand, prefer_k_prefix=prefer_k_prefix)
+            ),
+            "considered": True,
+            "win": is_win,
+            "rank": rank_map.get((str(cand.source or ""), str(cand.value or ""))),
+        }
+        if is_win:
+            entry["winner_reason"] = winner_reason
+        else:
+            lost_reason = _loser_reason(
+                winner,
+                cand,
+                prefer_k_prefix=prefer_k_prefix,
+            )
+            entry["excluded_reason"] = lost_reason
+            entry["rejection_reason"] = lost_reason
+        trace.append(entry)
+    trace.append(
+        {
+            "kind": "final",
+            "final_decision_reason": final_reason,
+            "winner": {
+                "value": winner.value,
+                "source": winner.source,
+                "confidence": int(winner.confidence or 0),
+                "winner_reason": winner_reason,
+            },
+            "status": status,
+        }
+    )
+    return trace
+
+
+def _ambiguous_tie_trace(
+    ordered: list[IdentFieldCandidate],
+    *,
+    final_reason: str,
+) -> list[dict[str, Any]]:
+    trace: list[dict[str, Any]] = []
+    for idx, cand in enumerate(ordered, start=1):
+        trace.append(
+            {
+                "value": cand.value,
+                "source": cand.source,
+                "confidence": int(cand.confidence or 0),
+                "considered": True,
+                "win": False,
+                "rank": idx,
+                "excluded_reason": "deterministic_tiebreak",
+                "rejection_reason": "deterministic_tiebreak",
+            }
+        )
+    trace.append(
+        {
+            "kind": "final",
+            "final_decision_reason": final_reason,
+            "winner": {},
+            "status": "ambiguous",
+        }
+    )
+    return trace
+
+
+def _missing_candidate() -> IdentFieldCandidate:
+    return IdentFieldCandidate(
+        value="",
+        source="fallback_missing",
+        confidence=5,
+        context="",
+        label="Not found in structured extraction",
+        meta=_candidate_explain_meta(
+            extraction_method="fallback_missing",
+            label_reason="No structured candidates produced",
+            score_breakdown={"base": 5, "note": "explicit missing candidate"},
+            label_source="fallback_missing",
+            match_type="fallback",
+        ),
+    )
 
 
 def _normalize_ident_value(raw: str, *, join_spaced_digits: bool = False) -> str | None:
@@ -126,6 +822,17 @@ def _normalize_ident_value(raw: str, *, join_spaced_digits: bool = False) -> str
         if len(compact) >= 4:
             return compact
     return s
+
+
+def _normalize_customer_token(raw: str) -> str:
+    token = str(raw or "").strip()
+    compact = re.sub(r"\s+", "", token)
+    if re.fullmatch(r"(?i)K[O0]\d{3,12}", compact):
+        return "K0" + compact[2:]
+    m = re.fullmatch(r"(?i)(?:nr|no)\W*(\d{3,})", token)
+    if m:
+        return m.group(1)
+    return token
 
 
 def _tokens_after_label(line: str, end: int, *, join_spaced_digits: bool) -> list[str]:
@@ -170,11 +877,193 @@ def _line_context_at(text: str, pos: int) -> str:
     return re.sub(r"\s+", " ", text[start:end]).strip()[:160]
 
 
+def _line_index_at(text: str, pos: int) -> int:
+    return (text or "")[: max(0, pos)].count("\n")
+
+
+def _context_hint_at(text: str, pos: int) -> str:
+    lines = (text or "").splitlines()
+    if not lines:
+        return "body"
+    idx = min(_line_index_at(text, pos), len(lines) - 1)
+    line = lines[idx]
+    n = len(lines)
+    raw_cut = max(12, int(n * 0.2))
+    header_cut = min(raw_cut, max(1, (n + 1) // 2))
+    footer_cut = min(raw_cut, max(1, n - header_cut))
+    if idx < header_cut:
+        return "header"
+    if footer_cut and idx >= n - footer_cut:
+        return "footer"
+    if "|" in line or "\t" in line or len(re.findall(r"\S+", line)) >= 6:
+        return "table"
+    return "body"
+
+
+def _header_segment(text: str) -> str:
+    lines = (text or "").splitlines()
+    if not lines:
+        return ""
+    n = len(lines)
+    cut = min(max(12, int(n * 0.2)), max(1, (n + 1) // 2))
+    return "\n".join(lines[:cut])
+
+
+def _footer_segment(text: str) -> str:
+    lines = (text or "").splitlines()
+    if not lines:
+        return ""
+    n = len(lines)
+    raw_cut = max(12, int(n * 0.2))
+    header_cut = min(raw_cut, max(1, (n + 1) // 2))
+    cut = min(raw_cut, max(1, n - header_cut))
+    return "\n".join(lines[max(0, n - cut) :])
+
+
+def _line_at_pos(text: str, pos: int) -> str:
+    return _line_context_at(text, pos)
+
+
+_INVOICE_CUSTOMER_LINE_RE = re.compile(
+    r"(?i)\b(?:factuur(?:nummer|nr)?|klant(?:nummer|nr)?|customer\s*(?:no|number)?)\b"
+)
+_AMOUNT_ON_LINE_RE = re.compile(
+    r"(?i)(?:\b(?:eur|€)\b.*\d+[.,]\d{2}|\d+[.,]\d{2}.*\b(?:eur|€)\b|"
+    r"\b(?:totaal|te\s+betalen|bedrag)\b.*\d+[.,]\d{2})"
+)
+
+
+def _line_has_plausible_iban(line: str) -> bool:
+    from logic.validation import clean_iban, is_plausible_iban
+
+    for m in re.finditer(r"\b[A-Z]{2}[\dA-Z\s]{13,40}\b", line or "", flags=re.IGNORECASE):
+        if is_plausible_iban(clean_iban(m.group(0))):
+            return True
+    return False
+
+
+def _normalize_eu_vat_fallback(country: str, body: str) -> str | None:
+    cc = str(country or "").upper()
+    if len(cc) != 2:
+        return None
+    compact = re.sub(r"[^0-9A-Z]", "", str(body or "").upper())
+    if cc == "NL":
+        nl = _compact_nl_vat_token(f"NL{compact}" if not compact.startswith("NL") else compact)
+        if nl:
+            return nl
+        return _compact_nl_vat_token(compact)
+    full = cc + compact
+    if not re.fullmatch(r"[A-Z]{2}[0-9A-Z]{8,14}", full):
+        return None
+    if cc == "NL":
+        return _compact_nl_vat_token(full)
+    return _normalize_vat_compact(full) or None
+
+
+def _should_reject_ident_candidate(
+    value: str,
+    *,
+    field_id: str,
+    line: str = "",
+) -> bool:
+    """True = verwerp kandidaat (cross-field contamination)."""
+    from logic.validation import clean_iban, is_plausible_iban
+
+    val = str(value or "").strip()
+    if not val:
+        return True
+    ln = str(line or "")
+    if _line_has_plausible_iban(ln):
+        compact_line = re.sub(r"\s+", "", ln.upper())
+        if val.upper() in compact_line and field_id in ("kvk_number", "vat_number"):
+            if field_id == "kvk_number" and val.isdigit() and len(val) == 8:
+                if re.search(rf"\b[A-Z]{{2}}\d+{re.escape(val)}\b", compact_line):
+                    return True
+    if field_id == "vat_number":
+        v = _normalize_vat_compact(val)
+        if not v:
+            return True
+        if is_plausible_iban(v):
+            return True
+        if _compact_nl_vat_token(v):
+            return False
+        if re.fullmatch(r"[A-Z]{2}[0-9A-Z]{8,14}", v):
+            return False
+        return True
+    if field_id == "kvk_number":
+        digits = _normalize_kvk_digits(val)
+        if not digits:
+            return True
+        if is_plausible_iban(digits) or is_plausible_iban(f"NL{digits}"):
+            return True
+        if _INVOICE_CUSTOMER_LINE_RE.search(ln) and not _KVK_BUSINESS_BLOCK_RE.search(ln):
+            return True
+        return False
+    if field_id == "email_domain":
+        if "@" in val:
+            return True
+        if "." not in val:
+            return True
+        return False
+    return False
+
+
+def _filter_ident_contamination(
+    cands: list[IdentFieldCandidate],
+    *,
+    field_id: str,
+    body: str,
+) -> list[IdentFieldCandidate]:
+    out: list[IdentFieldCandidate] = []
+    for c in cands:
+        pos = (body or "").find(c.value)
+        if pos < 0 and c.context:
+            pos = (body or "").find(c.context[:40])
+        line = _line_at_pos(body, pos) if pos >= 0 else (c.context or "")
+        if _should_reject_ident_candidate(c.value, field_id=field_id, line=line):
+            continue
+        if field_id == "email_domain" and _AMOUNT_ON_LINE_RE.search(line):
+            if not _EMAIL_RE.search(line) and not _EMAIL_CONTACT_LABEL_RE.search(line):
+                continue
+        out.append(c)
+    return out
+
+
+def _kvk_in_business_context(text: str, pos: int) -> bool:
+    lines = (text or "").splitlines()
+    if not lines:
+        return False
+    idx = _line_index_at(text, pos)
+    window = []
+    for j in (idx - 1, idx, idx + 1):
+        if 0 <= j < len(lines):
+            window.append(lines[j])
+    block = "\n".join(window)
+    if _KVK_BUSINESS_BLOCK_RE.search(block):
+        return True
+    hint = _context_hint_at(text, pos)
+    if hint in ("header", "footer") and re.search(
+        r"(?i)\b(?:kvk|btw|vat|iban|handelsregister|chamber)\b", block
+    ):
+        return True
+    return False
+
+
 def _invoice_candidate_ok(value: str) -> bool:
+    raw = str(value or "")
+    compact = re.sub(r"[\s.\-_/]+", "", raw).upper()
+    if re.fullmatch(r"20\d{2}", raw.strip()):
+        return False
+    if re.fullmatch(r"(?:NL)?\d{9,12}B\d{2}", compact):
+        return False
+    if re.fullmatch(r"NL\d{2}[A-Z]{4}\d{10,20}", compact):
+        return False
+    digits = re.sub(r"\D", "", raw)
     return bool(
-        re.search(r"\d", value)
-        and len(value) >= 4
-        and not _is_noise_value(value)
+        re.search(r"\d", raw)
+        and len(raw) >= 4
+        and (not raw.isdigit() or len(digits) <= 14)
+        and not _is_noise_value(raw)
     )
 
 
@@ -186,6 +1075,48 @@ def _token_from_date_invoice_line(line: str) -> str | None:
     if re.fullmatch(r"\d{1,2}/\d{1,2}", val):
         return None
     return val if _invoice_candidate_ok(val) else None
+
+
+def _looks_like_order_context(cand: IdentFieldCandidate) -> bool:
+    if _candidate_match_type(cand) == "label":
+        return False
+    ctx = str(cand.context or "")
+    if not ctx:
+        return False
+    if _INVOICE_HINT_RE.search(ctx):
+        return False
+    if _ORDER_HINT_RE.search(ctx):
+        return True
+    return False
+
+
+def _looks_like_order_token(value: str) -> bool:
+    digits = re.sub(r"\D", "", str(value or ""))
+    if not digits:
+        return False
+    return bool(_ORDER_REF_TOKEN_RE.fullmatch(digits))
+
+
+def _filter_order_like_invoice_candidates(
+    cands: list[IdentFieldCandidate],
+) -> list[IdentFieldCandidate]:
+    if not _has_invoice_labeled_peer(cands):
+        return cands
+    out: list[IdentFieldCandidate] = []
+    for cand in cands:
+        if _candidate_match_type(cand) != "label" and _looks_like_order_context(cand):
+            continue
+        if (
+            _candidate_match_type(cand) != "label"
+            and cand.source in {"ref_slash", "year_slash_ref", "date_invoice_line"}
+            and _looks_like_order_token(cand.value)
+            and not _INVOICE_HINT_RE.search(
+                f"{cand.label or ''}\n{cand.context or ''}"
+            )
+        ):
+            continue
+        out.append(cand)
+    return out
 
 
 def _collect_datum_nummer_table_candidates(text: str) -> list[IdentFieldCandidate]:
@@ -211,6 +1142,11 @@ def _collect_datum_nummer_table_candidates(text: str) -> list[IdentFieldCandidat
                     confidence=87 - j * 2,
                     context=ctx,
                     label=label,
+                    meta=_candidate_explain_meta(
+                        extraction_method="proximity",
+                        label_reason="table: Datum/Nummer header + first data row token",
+                        score_breakdown={"base": 87 - j * 2, "table_bonus": 2},
+                    ),
                 )
             )
     return cands
@@ -231,8 +1167,435 @@ def _collect_date_invoice_line_candidates(text: str) -> list[IdentFieldCandidate
                 confidence=79,
                 context=ctx,
                 label="",
+                meta=_candidate_explain_meta(
+                    extraction_method="proximity",
+                    label_reason="line starts with date, next token treated as reference",
+                    score_breakdown={"base": 79},
+                ),
             )
         )
+    return cands
+
+
+def _line_looks_like_postcode_row(line: str) -> bool:
+    return bool(re.search(r"\b\d{4}\s+[A-Z]{2}\b", line or ""))
+
+
+def _line_looks_like_label_not_value(line: str) -> bool:
+    """Volgende regel is zelf een label, geen tabelwaarde."""
+    ln = str(line or "")
+    if re.search(
+        r"(?i)\b(?:factuurnummer|factuurnr|invoice\s*no|debiteur|klant\s*nr|"
+        r"ordernummer|betaler|relatie)\b",
+        ln,
+    ):
+        return True
+    if re.search(r"(?i)\b(?:totaal|te\s+betalen)\b", ln) and re.search(
+        r"(?i)\b(?:eur|€)\b", ln
+    ):
+        return True
+    return False
+
+
+def _table_header_field_count(hdr: str) -> int:
+    """Aantal herkende kolomkoppen op één regel (tabular vereist ≥2)."""
+    n = 0
+    for pat in (
+        r"(?i)\b(?:factuurnr|factuurnummer|factuur\s*nr|fact\.?\s*nr|invoice|nummer)\b",
+        r"(?i)\b(?:betaler|klant|deb|relatie|customer)\b",
+        r"(?i)\b(?:datum|facturatiedatum|procedure)\b",
+        r"(?i)\bordernummer\b",
+    ):
+        if re.search(pat, hdr or ""):
+            n += 1
+    return n
+
+
+def _parse_table_row_tokens(val_line: str) -> list[str]:
+    """Tokens uit tabelwaarderegel (datum/BTW weg, slash-refs behouden)."""
+    raw_tokens = [t for t in re.split(r"\s+", (val_line or "").strip()) if t]
+    filtered: list[str] = []
+    for tok in raw_tokens:
+        if _DD_MM_YYYY_RE.fullmatch(tok) or _ISO_DATE_RE.fullmatch(tok):
+            continue
+        if re.fullmatch(r"(?i)NL\d{9}B\d{2}", tok.replace(" ", "")):
+            continue
+        filtered.append(tok)
+    vals: list[str] = []
+    for tok in filtered:
+        clean_tok = re.sub(r"^[\W_]+|[\W_]+$", "", tok)
+        if not clean_tok:
+            continue
+        if re.search(r"[A-Za-z]", clean_tok) and re.search(r"\d", clean_tok):
+            if len(clean_tok) >= 4:
+                vals.append(clean_tok)
+            continue
+        digits = re.sub(r"\D", "", clean_tok)
+        if len(digits) >= 4:
+            vals.append(clean_tok)
+    if vals and re.fullmatch(r"20\d{6}", vals[0]):
+        vals = vals[1:]
+    return vals
+
+
+def _shift_leading_phone_token(vals: list[str], hdr: str) -> list[str]:
+    """Rexel e.d.: vestigingstelefoon vóór factuurnr/betaler-kolommen."""
+    if len(vals) >= 3 and vals[0].isdigit() and len(vals[0]) >= 10 and vals[0].startswith("0"):
+        if re.search(r"(?i)\bfactuurnr\b", hdr) and re.search(r"(?i)\bbetaler\b", hdr):
+            return vals[1:]
+    return vals
+
+
+def _header_word_indices(hdr: str) -> tuple[int | None, int | None]:
+    """Index van factuur- en klant-kolom in kopregel (op woordvolgorde)."""
+    words = [w.lower() for w in re.findall(r"[A-Za-z]+", hdr or "")]
+    inv_i: int | None = None
+    cust_i: int | None = None
+    for i, w in enumerate(words):
+        if inv_i is None and (
+            "factuurnr" in w
+            or w in ("factuurnummer", "faktuurnr", "faktuurnummer")
+            or (w == "factuur" and any(x in words for x in ("relatie", "datum", "nummer", "nr")))
+            or (w == "nummer" and "datum" not in words)
+            or w == "invoice"
+        ):
+            inv_i = i
+        if cust_i is None and w in (
+            "betaler",
+            "klant",
+            "debiteur",
+            "debnr",
+            "deb",
+            "customer",
+            "relatie",
+            "client",
+        ):
+            cust_i = i
+    return inv_i, cust_i
+
+
+def _collect_header_value_table_candidates(
+    text: str,
+    *,
+    field_kind: str,
+) -> list[IdentFieldCandidate]:
+    """Kopregel + waarderegel (Rexel, Ubbink, Sanha-nummer)."""
+    body = text or ""
+    lines = body.splitlines()
+    cands: list[IdentFieldCandidate] = []
+
+    def _append(
+        val: str,
+        *,
+        source: str,
+        confidence: int,
+        ctx: str,
+        label: str,
+    ) -> None:
+        v = str(val or "").strip()
+        if field_kind == "invoice_number":
+            if not _invoice_candidate_ok(v):
+                return
+        else:
+            v = _normalize_customer_token(v)
+            if not _customer_value_ok(v, label_line=label, candidate_line=ctx):
+                return
+        cands.append(
+            IdentFieldCandidate(
+                value=v,
+                source=source,
+                confidence=confidence,
+                context=ctx[:160],
+                label=label,
+                meta=_candidate_explain_meta(
+                    extraction_method="proximity",
+                    label_reason=f"header table: {label}",
+                    score_breakdown={"base": confidence, "table_bonus": 3},
+                ),
+            )
+        )
+
+    for i, hdr in enumerate(lines):
+        h_low = (hdr or "").lower()
+        inv_i, cust_i = _header_word_indices(hdr)
+        has_inv_hdr = (
+            not re.search(r"(?i)\bdatum\s+nummer\b", hdr)
+            and (
+                inv_i is not None
+                or re.search(r"(?i)\b(?:factuurnr|factuurnummer|factuur\s*nr)\b", hdr)
+                or (
+                    re.search(r"(?i)\bfactuur\b", hdr)
+                    and re.search(r"(?i)\b(?:relatie|datum)\b", hdr)
+                )
+                or (
+                    re.search(r"(?i)\bnummer\b", hdr)
+                    and re.search(r"(?i)\b(?:procedure|facturatiedatum)\b", hdr)
+                )
+            )
+        )
+        has_cust_hdr = cust_i is not None or re.search(
+            r"(?i)\b(?:betaler|relatie|klant|debiteur|customer)\b", hdr
+        )
+        if field_kind == "invoice_number":
+            if not has_inv_hdr:
+                continue
+        elif not has_cust_hdr:
+            continue
+        if _table_header_field_count(hdr) < 2:
+            continue
+        label = re.sub(r"\s+", " ", (hdr or "")).strip()[:80]
+        for j in range(1, 5):
+            if i + j >= len(lines):
+                break
+            val_line = lines[i + j] or ""
+            if (
+                not val_line.strip()
+                or _line_looks_like_postcode_row(val_line)
+                or _line_looks_like_label_not_value(val_line)
+            ):
+                continue
+            vals = _shift_leading_phone_token(_parse_table_row_tokens(val_line), hdr)
+            if len(vals) < 1:
+                continue
+            ctx = re.sub(r"\s+", " ", val_line).strip()[:160]
+            inv_i2, cust_i2 = inv_i, cust_i
+            if inv_i2 is None and has_inv_hdr:
+                inv_i2 = 0
+            if field_kind == "invoice_number" and inv_i2 is not None and inv_i2 < len(vals):
+                _append(
+                    vals[inv_i2],
+                    source="header_table_invoice",
+                    confidence=90 - j,
+                    ctx=ctx,
+                    label=label,
+                )
+            if field_kind == "customer_number" and cust_i2 is not None and cust_i2 < len(vals):
+                _append(
+                    vals[cust_i2],
+                    source="header_table_customer",
+                    confidence=89 - j,
+                    ctx=ctx,
+                    label=label,
+                )
+            if field_kind == "invoice_number" or field_kind == "customer_number":
+                break
+    return cands
+
+
+def _collect_inline_factuur_pagina_candidates(text: str) -> list[IdentFieldCandidate]:
+    cands: list[IdentFieldCandidate] = []
+    body = text or ""
+    for m in _FACTUUR_INLINE_PAGINA_RE.finditer(body):
+        val = m.group(1).strip()
+        if _invoice_candidate_ok(val):
+            cands.append(
+                IdentFieldCandidate(
+                    value=val,
+                    source="factuur_inline_pagina",
+                    confidence=86,
+                    context=_line_context_at(body, m.start()),
+                    label="Factuur",
+                    meta=_candidate_explain_meta(
+                        extraction_method="regex",
+                        label_reason="regex: Factuur <id> Pagina",
+                        score_breakdown={"base": 86},
+                    ),
+                )
+            )
+    return cands
+
+
+def _collect_reg_invoice_row_candidates(text: str) -> list[IdentFieldCandidate]:
+    cands: list[IdentFieldCandidate] = []
+    body = text or ""
+    for m in _REG_INVOICE_ROW_RE.finditer(body):
+        val = m.group(1).strip()
+        if _invoice_candidate_ok(val):
+            cands.append(
+                IdentFieldCandidate(
+                    value=val,
+                    source="reg_invoice_row",
+                    confidence=86,
+                    context=_line_context_at(body, m.start()),
+                    label="Nummer",
+                    meta=_candidate_explain_meta(
+                        extraction_method="regex",
+                        label_reason="regex: REG… invoice row",
+                        score_breakdown={"base": 86},
+                    ),
+                )
+            )
+    return cands
+
+
+def _collect_nummer_prefixed_invoice_candidates(text: str) -> list[IdentFieldCandidate]:
+    cands: list[IdentFieldCandidate] = []
+    body = text or ""
+    for rx, src in (
+        (_NUMMER_INV_RE, "nummer_inv"),
+        (_NUMMER_REG_INVOICE_RE, "nummer_reg"),
+    ):
+        for m in rx.finditer(body):
+            val = m.group(1).strip()
+            if _invoice_candidate_ok(val):
+                cands.append(
+                    IdentFieldCandidate(
+                        value=val,
+                        source=src,
+                        confidence=88,
+                        context=_line_context_at(body, m.start()),
+                        label="Nummer",
+                        meta=_candidate_explain_meta(
+                            extraction_method="regex",
+                            label_reason=f"regex match: {src}",
+                            score_breakdown={"base": 88},
+                        ),
+                    )
+                )
+    return cands
+
+
+def _collect_invoice_only_line_candidates(text: str) -> list[IdentFieldCandidate]:
+    cands: list[IdentFieldCandidate] = []
+    body = text or ""
+    for m in _INVOICE_ONLY_LINE_RE.finditer(body):
+        val = m.group(1).strip()
+        if _invoice_candidate_ok(val):
+            cands.append(
+                IdentFieldCandidate(
+                    value=val,
+                    source="invoice_only_line",
+                    confidence=87,
+                    context=_line_context_at(body, m.start()),
+                    label="INVOICE",
+                    meta=_candidate_explain_meta(
+                        extraction_method="regex",
+                        label_reason="regex: INVOICE <ref>",
+                        score_breakdown={"base": 87},
+                    ),
+                )
+            )
+    return cands
+
+
+def _collect_customer_standalone_line_candidates(text: str) -> list[IdentFieldCandidate]:
+    cands: list[IdentFieldCandidate] = []
+    body = text or ""
+    for m in _CUSTOMER_STANDALONE_LINE_RE.finditer(body):
+        val = _normalize_customer_token(m.group(1).strip())
+        if _customer_value_ok(val, label_line="Customer", candidate_line=m.group(0)):
+            cands.append(
+                IdentFieldCandidate(
+                    value=val,
+                    source="customer_standalone_line",
+                    confidence=91,
+                    context=re.sub(r"\s+", " ", m.group(0))[:160],
+                    label="Customer",
+                    meta=_candidate_explain_meta(
+                        extraction_method="regex",
+                        label_reason="regex: Customer <digits> at line start",
+                        score_breakdown={"base": 91},
+                    ),
+                )
+            )
+    return cands
+
+
+def _collect_pipe_suffix_customer_candidates(text: str) -> list[IdentFieldCandidate]:
+    cands: list[IdentFieldCandidate] = []
+    body = text or ""
+    for m in _PIPE_SUFFIX_CUSTOMER_RE.finditer(body):
+        val = _normalize_customer_token(m.group(1).strip())
+        ctx = _line_context_at(body, m.start())
+        if _customer_value_ok(val, label_line="", candidate_line=ctx):
+            cands.append(
+                IdentFieldCandidate(
+                    value=val,
+                    source="pipe_customer",
+                    confidence=85,
+                    context=ctx,
+                    label="",
+                    meta=_candidate_explain_meta(
+                        extraction_method="regex",
+                        label_reason="regex: | <customer code>",
+                        score_breakdown={"base": 85},
+                    ),
+                )
+            )
+    return cands
+
+
+def _collect_sanha_klant_line_candidates(text: str) -> list[IdentFieldCandidate]:
+    cands: list[IdentFieldCandidate] = []
+    body = text or ""
+    for m in _SANHA_KLANT_VALUE_RE.finditer(body):
+        val = _normalize_customer_token(m.group(1).strip())
+        if _customer_value_ok(val, label_line="Klant", candidate_line=m.group(0)):
+            cands.append(
+                IdentFieldCandidate(
+                    value=val,
+                    source="sanha_klant",
+                    confidence=90,
+                    context=re.sub(r"\s+", " ", m.group(0))[:160],
+                    label="Klant",
+                    meta=_candidate_explain_meta(
+                        extraction_method="proximity",
+                        label_reason="Sanha: value after Verzendingswijze Klant",
+                        score_breakdown={"base": 90},
+                    ),
+                )
+            )
+    lines = body.splitlines()
+    for i, line in enumerate(lines):
+        if not re.search(r"(?i)\bverzendingswijze\b", line or ""):
+            continue
+        if not re.search(r"(?i)\bklant\b", line or ""):
+            continue
+        for j in range(1, 3):
+            if i + j >= len(lines):
+                break
+            nxt = (lines[i + j] or "").strip()
+            parts = nxt.split()
+            if len(parts) >= 2 and parts[-1].isdigit():
+                val = _normalize_customer_token(parts[-1])
+                ctx = re.sub(r"\s+", " ", nxt)[:160]
+                if _customer_value_ok(val, label_line="Klant", candidate_line=ctx):
+                    cands.append(
+                        IdentFieldCandidate(
+                            value=val,
+                            source="sanha_klant",
+                            confidence=88 - j,
+                            context=ctx,
+                            label="Klant",
+                            meta=_candidate_explain_meta(
+                                extraction_method="proximity",
+                                label_reason="Sanha: digits after Klant header row",
+                                score_breakdown={"base": 88 - j},
+                            ),
+                        )
+                    )
+                break
+    return cands
+
+
+def _collect_invoice_layout_fallback_candidates(text: str) -> list[IdentFieldCandidate]:
+    body = text or ""
+    cands: list[IdentFieldCandidate] = []
+    cands.extend(_collect_inline_factuur_pagina_candidates(body))
+    cands.extend(_collect_nummer_prefixed_invoice_candidates(body))
+    cands.extend(_collect_reg_invoice_row_candidates(body))
+    cands.extend(_collect_invoice_only_line_candidates(body))
+    cands.extend(_collect_header_value_table_candidates(body, field_kind="invoice_number"))
+    return cands
+
+
+def _collect_customer_layout_fallback_candidates(text: str) -> list[IdentFieldCandidate]:
+    body = text or ""
+    cands: list[IdentFieldCandidate] = []
+    cands.extend(_collect_customer_standalone_line_candidates(body))
+    cands.extend(_collect_pipe_suffix_customer_candidates(body))
+    cands.extend(_collect_sanha_klant_line_candidates(body))
+    cands.extend(_collect_header_value_table_candidates(body, field_kind="customer_number"))
     return cands
 
 
@@ -242,6 +1605,7 @@ def _collect_invoice_fallback_candidates(text: str) -> list[IdentFieldCandidate]
     body = text or ""
 
     cands.extend(_collect_datum_nummer_table_candidates(body))
+    cands.extend(_collect_invoice_layout_fallback_candidates(body))
 
     for m in _FACTUUR_COLON_RE.finditer(body):
         val = m.group(1).strip()
@@ -253,6 +1617,11 @@ def _collect_invoice_fallback_candidates(text: str) -> list[IdentFieldCandidate]
                     confidence=84,
                     context=_line_context_at(body, m.start()),
                     label="Factuur",
+                    meta=_candidate_explain_meta(
+                        extraction_method="regex",
+                        label_reason="regex match: _FACTUUR_COLON_RE",
+                        score_breakdown={"base": 84, "regex_bonus": 2},
+                    ),
                 )
             )
 
@@ -266,6 +1635,11 @@ def _collect_invoice_fallback_candidates(text: str) -> list[IdentFieldCandidate]
                     confidence=83,
                     context=_line_context_at(body, m.start()),
                     label="Factuur",
+                    meta=_candidate_explain_meta(
+                        extraction_method="regex",
+                        label_reason="regex match: _FACTUUR_PLAIN_RE",
+                        score_breakdown={"base": 83, "regex_bonus": 2},
+                    ),
                 )
             )
 
@@ -279,6 +1653,11 @@ def _collect_invoice_fallback_candidates(text: str) -> list[IdentFieldCandidate]
                     confidence=81,
                     context=_line_context_at(body, m.start()),
                     label="Factuur",
+                    meta=_candidate_explain_meta(
+                        extraction_method="regex",
+                        label_reason="regex match: _FACTUUR_PREFIXED_RE",
+                        score_breakdown={"base": 81, "regex_bonus": 1},
+                    ),
                 )
             )
 
@@ -292,6 +1671,11 @@ def _collect_invoice_fallback_candidates(text: str) -> list[IdentFieldCandidate]
                     confidence=78,
                     context=_line_context_at(body, m.start()),
                     label="",
+                    meta=_candidate_explain_meta(
+                        extraction_method="regex",
+                        label_reason="regex match: _YEAR_SLASH_REF_RE",
+                        score_breakdown={"base": 78},
+                    ),
                 )
             )
 
@@ -305,6 +1689,11 @@ def _collect_invoice_fallback_candidates(text: str) -> list[IdentFieldCandidate]
                     confidence=80,
                     context=_line_context_at(body, m.start()),
                     label="Nummer/Datum",
+                    meta=_candidate_explain_meta(
+                        extraction_method="regex",
+                        label_reason="regex match: _NUMMER_DATUM_RE",
+                        score_breakdown={"base": 80},
+                    ),
                 )
             )
 
@@ -430,14 +1819,31 @@ def _same_line_plausible_customer_values(
     """Kolomkoppen (MAGAZIJN, CODE) zijn geen klantnummer op dezelfde regel als ``Klantcode``."""
     out: list[str] = []
     for val in vals:
-        if not _customer_value_ok(val, label_line=label_line):
+        val = _normalize_customer_token(val)
+        if not _customer_value_ok(val, label_line=label_line, candidate_line=label_line):
             continue
         if not re.search(r"\d", val):
             continue
         if re.fullmatch(r"(?i)[a-z]+", val):
             continue
         out.append(val)
+    out.sort(key=_customer_token_rank, reverse=True)
     return out
+
+
+def _customer_token_rank(val: str) -> tuple[int, int, int, int, int]:
+    v = str(val or "").strip()
+    bonus = 0
+    if re.fullmatch(r"(?i)[A-Za-z]\d{3,8}", v):
+        bonus += 5
+    if re.fullmatch(r"20\d{6,}", v):
+        bonus -= 4
+    if re.fullmatch(r"20(?:2[5-9]|[3-9]\d)\d{4,}", v):
+        bonus -= 3
+    if re.fullmatch(r"(?i)V[FO]-?\d{4,}", v):
+        bonus -= 6
+    s = _score_customer_candidate_token(v)
+    return (bonus, s[0], s[1], s[2], s[3])
 
 
 def _drop_kvk_smear_k_candidates(
@@ -490,12 +1896,52 @@ def _text_has_k_customer_code(text: str) -> bool:
     return bool(_COLLAPSED_K_IN_TEXT_RE.search(collapsed))
 
 
-def _customer_value_ok(value: str, *, label_line: str = "") -> bool:
-    v = str(value or "").strip()
+def _has_customer_label_context(*, label_line: str = "", candidate_line: str = "") -> bool:
+    block = f"{label_line}\n{candidate_line}"
+    if _CUSTOMER_FIELD_LABEL_RE.search(block):
+        return True
+    return _is_preferred_customer_label(label_line)
+
+
+def _customer_value_ok(
+    value: str,
+    *,
+    label_line: str = "",
+    candidate_line: str = "",
+) -> bool:
+    v = _normalize_customer_token(str(value or "").strip())
     if not _customer_candidate_ok(v):
         return False
+    labeled = _has_customer_label_context(
+        label_line=label_line, candidate_line=candidate_line
+    )
     if _is_order_or_reference_token(v, line=label_line):
         return False
+    if str(v).upper().startswith(("VF", "VO")) and re.search(r"\d", str(v)):
+        return False
+    if re.fullmatch(r"(?i)F\d{5,}", v):
+        return False
+    if re.fullmatch(r"(?i)NL[0-9A-Z]{2,6}", v):
+        return False
+    if re.fullmatch(r"\d{9,}", v) and not labeled:
+        return False
+    if _is_k_customer_code(v):
+        digits = str(v or "").strip()[1:]
+        if len(digits) > 6 and not labeled:
+            return False
+    if re.fullmatch(r"20\d{2}", v):
+        return False
+    compact = re.sub(r"[\s.\-_/]+", "", v).upper()
+    if re.fullmatch(r"(?:NL)?\d{9,12}B\d{2}", compact):
+        return False
+    if re.fullmatch(r"NL\d{2}[A-Z]{4}\d{6,20}", compact):
+        return False
+    if re.fullmatch(r"(?i)\d{4}[a-z]{2}", v):
+        return False
+    if re.fullmatch(r"\d{4}", v):
+        line = str(candidate_line or "")
+        if re.search(rf"\b{re.escape(v)}\s+[A-Za-z]{{2}}\b", line):
+            return False
     if re.fullmatch(r"(?i)klant(?:nummer|code|nr)?", v):
         return False
     return True
@@ -521,15 +1967,20 @@ def _collect_customer_label_block_candidates(text: str) -> list[IdentFieldCandid
             _tokens_after_label(line, m.end(), join_spaced_digits=False),
             label_line=line,
         )
-        for val in same_line_vals:
+        for idx, val in enumerate(same_line_vals):
             norm = _normalize_k_customer_code(val) or val
             cands.append(
                 IdentFieldCandidate(
                     value=norm,
                     source="label_block_same_line",
-                    confidence=94,
+                    confidence=max(70, 94 - idx),
                     context=ctx,
                     label=label_span,
+                    meta=_candidate_explain_meta(
+                        extraction_method="proximity",
+                        label_reason=f"after label: {label_span} (same line)",
+                        score_breakdown={"base": 94, "label_bonus": 8},
+                    ),
                 )
             )
         if same_line_vals:
@@ -546,10 +1997,18 @@ def _collect_customer_label_block_candidates(text: str) -> list[IdentFieldCandid
                 continue
             nxt_ctx = re.sub(r"\s+", " ", nxt_line).strip()[:160]
             got = False
-            for val in _tokens_after_label(nxt_line, 0, join_spaced_digits=False):
-                if not _customer_value_ok(val, label_line=line):
-                    continue
+            next_vals = [
+                _normalize_customer_token(v)
+                for v in _tokens_after_label(nxt_line, 0, join_spaced_digits=False)
+                if _customer_value_ok(v, label_line=line, candidate_line=nxt_line)
+            ]
+            next_vals.sort(key=_customer_token_rank, reverse=True)
+            if next_vals:
+                val = next_vals[0]
                 norm = _normalize_k_customer_code(val) or val
+                conf_next = 93 - j
+                if re.fullmatch(r"20(?:2[5-9]|[3-9]\d)\d{4,}", val):
+                    conf_next = max(40, conf_next - 30)
                 if re.search(r"(?i)\buw\s+klant\b", line or "") and re.fullmatch(
                     r"0?\d{4,10}", val
                 ):
@@ -558,13 +2017,17 @@ def _collect_customer_label_block_candidates(text: str) -> list[IdentFieldCandid
                     IdentFieldCandidate(
                         value=norm,
                         source="label_block_next_line",
-                        confidence=93 - j,
+                        confidence=conf_next,
                         context=nxt_ctx,
                         label=label_span,
+                        meta=_candidate_explain_meta(
+                            extraction_method="proximity",
+                            label_reason=f"after label: {label_span} (next line +{j})",
+                            score_breakdown={"base": conf_next, "label_bonus": 7, "distance_penalty": j},
+                        ),
                     )
                 )
                 got = True
-                break
             if got:
                 break
             if re.search(r"(?i)\buw\s+klant\b", line or "") and re.fullmatch(
@@ -579,6 +2042,11 @@ def _collect_customer_label_block_candidates(text: str) -> list[IdentFieldCandid
                             confidence=91 - j,
                             context=nxt_ctx,
                             label=label_span,
+                            meta=_candidate_explain_meta(
+                                extraction_method="proximity",
+                                label_reason=f"digits under label: {label_span} (next line +{j})",
+                                score_breakdown={"base": 91 - j, "label_bonus": 6, "distance_penalty": j},
+                            ),
                         )
                     )
                     break
@@ -609,6 +2077,11 @@ def _collect_collapsed_customer_layout_candidates(text: str) -> list[IdentFieldC
                         confidence=92,
                         context="",
                         label=label,
+                        meta=_candidate_explain_meta(
+                            extraction_method="regex",
+                            label_reason=f"collapsed layout near '{label}'",
+                            score_breakdown={"base": 92, "layout_bonus": 4},
+                        ),
                     )
                 )
             for m in re.finditer(r"(?<!kv)k(\d{4,7})(?!\d)", tail):
@@ -621,6 +2094,11 @@ def _collect_collapsed_customer_layout_candidates(text: str) -> list[IdentFieldC
                             confidence=88,
                             context="",
                             label=label,
+                            meta=_candidate_explain_meta(
+                                extraction_method="regex",
+                                label_reason=f"collapsed K-code near '{label}'",
+                                score_breakdown={"base": 88, "layout_bonus": 2},
+                            ),
                         )
                     )
             start = pos + 1
@@ -648,6 +2126,11 @@ def _collect_split_k_line_candidates(text: str) -> list[IdentFieldCandidate]:
                         confidence=88 - j,
                         context=nxt[:160],
                         label="K",
+                        meta=_candidate_explain_meta(
+                            extraction_method="proximity",
+                            label_reason="line 'K' + digits on next line",
+                            score_breakdown={"base": 88 - j, "distance_penalty": j},
+                        ),
                     )
                 )
     for m in _K_NEWLINE_DIGITS_RE.finditer(body):
@@ -660,6 +2143,11 @@ def _collect_split_k_line_candidates(text: str) -> list[IdentFieldCandidate]:
                     confidence=87,
                     context=_line_context_at(body, m.start()),
                     label="K",
+                    meta=_candidate_explain_meta(
+                        extraction_method="regex",
+                        label_reason="regex match: _K_NEWLINE_DIGITS_RE",
+                        score_breakdown={"base": 87},
+                    ),
                 )
             )
     return cands
@@ -695,6 +2183,11 @@ def _collect_klantcode_table_candidates(text: str) -> list[IdentFieldCandidate]:
                         confidence=92,
                         context=ctx,
                         label=label,
+                        meta=_candidate_explain_meta(
+                            extraction_method="regex",
+                            label_reason="regex match: _KLANTCODE_INLINE_RE",
+                            score_breakdown={"base": 92, "label_bonus": 4},
+                        ),
                     )
                 )
                 continue
@@ -708,6 +2201,11 @@ def _collect_klantcode_table_candidates(text: str) -> list[IdentFieldCandidate]:
                             confidence=93,
                             context=ctx,
                             label=label,
+                            meta=_candidate_explain_meta(
+                                extraction_method="proximity",
+                                label_reason="table: KLANTCODE column token",
+                                score_breakdown={"base": 93, "table_bonus": 3},
+                            ),
                         )
                     )
     for m in _KLANTCODE_INLINE_RE.finditer(body):
@@ -721,6 +2219,11 @@ def _collect_klantcode_table_candidates(text: str) -> list[IdentFieldCandidate]:
                     confidence=92,
                     context=_line_context_at(body, m.start()),
                     label="Klantcode",
+                    meta=_candidate_explain_meta(
+                        extraction_method="regex",
+                        label_reason="regex match: _KLANTCODE_INLINE_RE (global scan)",
+                        score_breakdown={"base": 92},
+                    ),
                 )
             )
     return cands
@@ -742,6 +2245,11 @@ def _collect_customer_fallback_candidates(text: str) -> list[IdentFieldCandidate
                 confidence=confidence,
                 context=_line_context_at(body, pos),
                 label=label,
+                meta=_candidate_explain_meta(
+                    extraction_method="regex",
+                    label_reason=f"fallback scan ({source})",
+                    score_breakdown={"base": confidence},
+                ),
             )
         )
 
@@ -805,17 +2313,33 @@ def _merge_resolved_into_candidates(
     candidates: list[IdentFieldCandidate],
     resolved_value: str | None,
     resolved_source: str | None,
+    *,
+    field_id: str | None = None,
 ) -> list[IdentFieldCandidate]:
     rv = str(resolved_value or "").strip()
     if not rv:
         return candidates
     if any(c.value.casefold() == rv.casefold() for c in candidates):
+        if field_id == "invoice_date":
+            for c in candidates:
+                if c.value.casefold() != rv.casefold():
+                    continue
+                if int(c.confidence or 0) >= 70:
+                    continue
+                c.confidence = 70
+                meta = dict(c.meta or {})
+                meta["resolved_hint_boost"] = True
+                c.meta = meta
         return candidates
+    hint_confidence = 70
+    if field_id == "customer_number" and "/" in rv:
+        # Preserve explicit compound customer codes from legacy parsing as strong hint.
+        hint_confidence = 96
     return candidates + [
         IdentFieldCandidate(
             value=rv,
             source=str(resolved_source or "resolved"),
-            confidence=92,
+            confidence=hint_confidence,
             context="",
             label="",
         )
@@ -841,10 +2365,68 @@ def _drop_redundant_k_suffix_candidates(
     return [c for c in cands if str(c.value or "").strip().casefold() not in drop]
 
 
+def _prefer_slashed_customer_candidates(
+    cands: list[IdentFieldCandidate],
+) -> list[IdentFieldCandidate]:
+    slashed: dict[str, IdentFieldCandidate] = {}
+    for c in cands:
+        val = str(c.value or "").strip()
+        if "/" not in val:
+            continue
+        canon = re.sub(r"[^A-Za-z0-9]", "", val).upper()
+        if canon:
+            slashed.setdefault(canon, c)
+    if not slashed:
+        return cands
+    out: list[IdentFieldCandidate] = []
+    for c in cands:
+        val = str(c.value or "").strip()
+        canon = re.sub(r"[^A-Za-z0-9]", "", val).upper()
+        if (
+            canon in slashed
+            and "/" not in val
+            and str(c.source or "").startswith("collapsed_")
+        ):
+            continue
+        out.append(c)
+    return out
+
+
+def _drop_short_suffix_customer_candidates(
+    cands: list[IdentFieldCandidate],
+) -> list[IdentFieldCandidate]:
+    numeric_vals = [
+        str(c.value or "").strip()
+        for c in cands
+        if re.fullmatch(r"\d{6,12}", str(c.value or "").strip())
+    ]
+    if not numeric_vals:
+        return cands
+    suffixes = {
+        long_v[-4:]
+        for long_v in numeric_vals
+        if len(long_v) >= 8
+    }
+    if not suffixes:
+        return cands
+    out: list[IdentFieldCandidate] = []
+    for c in cands:
+        v = str(c.value or "").strip()
+        if (
+            re.fullmatch(r"\d{4}", v)
+            and v in suffixes
+            and str(c.source or "") in {"ref_slash_customer", "label_next_line", "label_block_next_line"}
+        ):
+            continue
+        out.append(c)
+    return out
+
+
 def _dedupe_candidates(cands: list[IdentFieldCandidate]) -> list[IdentFieldCandidate]:
+    cands = _ensure_candidate_explainability(cands)
     seen: set[str] = set()
     out: list[IdentFieldCandidate] = []
-    for c in sorted(cands, key=lambda x: (-x.confidence, -len(x.value))):
+    for c in sorted(cands, key=_candidate_rank_key, reverse=True):
         key = c.value.casefold()
         if key in seen:
             continue
@@ -882,7 +2464,17 @@ def collect_ident_field_candidates(
                         nxt = lines[i + j]
                         ctx_n = re.sub(r"\s+", " ", (nxt or "")).strip()[:160]
                         for val in _tokens_after_label(nxt, 0, join_spaced_digits=join_digits):
+                            if field_kind == "customer_number":
+                                val = _normalize_customer_token(val)
+                                if not _customer_value_ok(
+                                    val, label_line=line, candidate_line=nxt
+                                ):
+                                    continue
                             conf = 72 - j * 8
+                            if field_kind == "customer_number" and _is_preferred_customer_label(
+                                label_span
+                            ):
+                                conf += 4
                             cands.append(
                                 IdentFieldCandidate(
                                     value=val,
@@ -890,11 +2482,30 @@ def collect_ident_field_candidates(
                                     confidence=conf,
                                     context=ctx_n or ctx,
                                     label=label_span,
+                                    meta=_candidate_explain_meta(
+                                        extraction_method="proximity",
+                                        label_reason=f"after label: {label_span} (next line +{j})",
+                                        score_breakdown={
+                                            "base": conf,
+                                            "label_bonus": 4 if src_kind == "label" else 3,
+                                            "distance_penalty": j,
+                                        },
+                                    ),
                                 )
                             )
                         continue
                     for val in vals:
+                        if field_kind == "customer_number":
+                            val = _normalize_customer_token(val)
+                            if not _customer_value_ok(
+                                val, label_line=line, candidate_line=line
+                            ):
+                                continue
                         conf = 88 if src_kind == "label" else 85
+                        if field_kind == "customer_number" and _is_preferred_customer_label(
+                            label_span
+                        ):
+                            conf += 4
                         cands.append(
                             IdentFieldCandidate(
                                 value=val,
@@ -902,35 +2513,27 @@ def collect_ident_field_candidates(
                                 confidence=conf,
                                 context=ctx,
                                 label=label_span,
+                                meta=_candidate_explain_meta(
+                                    extraction_method="proximity",
+                                    label_reason=f"after label: {label_span} (same line)",
+                                    score_breakdown={
+                                        "base": conf,
+                                        "label_bonus": 4 if src_kind == "label" else 3,
+                                    },
+                                ),
                             )
                         )
     if field_kind == "invoice_number":
+        cands = [c for c in cands if _invoice_candidate_ok(c.value)]
+    elif field_kind == "customer_number":
         cands = [
             c
             for c in cands
-            if re.search(r"\d", c.value) and len(c.value) >= 4 and not _is_noise_value(c.value)
+            if _customer_value_ok(c.value, label_line=c.label or "", candidate_line=c.context or "")
+            and re.search(r"\d", c.value)
+            and len(c.value) >= 3
         ]
-    elif field_kind == "customer_number":
-        cands = [c for c in cands if re.search(r"\d", c.value) and len(c.value) >= 3]
     return _dedupe_candidates(cands)
-
-
-def _prefer_polis_candidate(
-    candidates: list[IdentFieldCandidate],
-    resolved_value: str | None,
-) -> IdentFieldCandidate | None:
-    polis = [
-        c
-        for c in candidates
-        if re.search(r"(?i)polis", c.label or "") or c.source == "extra"
-    ]
-    if not polis:
-        return None
-    best = max(polis, key=lambda c: (len(c.value), c.confidence))
-    rv = str(resolved_value or "").strip()
-    if not rv or (rv.isdigit() and best.value.isdigit() and rv in best.value and rv != best.value):
-        return best
-    return None
 
 
 def build_ident_field_result(
@@ -939,34 +2542,54 @@ def build_ident_field_result(
     resolved_value: str | None = None,
     resolved_source: str | None = None,
     prefer_k_prefix: bool = False,
+    prefer_label_over_resolved: bool = False,
+    field_id: str | None = None,
 ) -> IdentFieldResult:
-    """Selecteer status; ``resolved_value`` van legacy extractie heeft voorrang."""
-    polis_best = _prefer_polis_candidate(candidates, resolved_value)
-    if polis_best is not None:
-        resolved_value = polis_best.value
-        resolved_source = polis_best.source
+    """Selecteer winnaar via een enkele deterministische ranking."""
+    _ = prefer_label_over_resolved  # legacy param, intentionally unused
     candidates = _merge_resolved_into_candidates(
-        candidates, resolved_value, resolved_source
+        candidates, resolved_value, resolved_source, field_id=field_id
     )
-    if resolved_value and str(resolved_value).strip():
-        val = str(resolved_value).strip()
+    candidates = _apply_cross_field_penalties(candidates, field_id=field_id)
+    candidates = _ensure_candidate_explainability(candidates)
+    if field_id:
+        for cand in candidates:
+            meta = dict(cand.meta or {})
+            meta["field_id"] = field_id
+            cand.meta = meta
+    if not candidates and not (resolved_value and str(resolved_value).strip()):
+        # Always expose at least one explicit candidate, but keep the field unresolved.
+        miss = _missing_candidate()
         return IdentFieldResult(
-            candidates=candidates,
-            value=val,
-            confidence=95,
-            source=str(resolved_source or "resolved"),
-            status="confirmed",
+            candidates=[miss],
+            value=None,
+            confidence=miss.confidence,
+            source="NOT_FOUND",
+            status="failed",
+            decision_trace=[
+                {
+                    "value": miss.value,
+                    "source": miss.source,
+                    "confidence": miss.confidence,
+                    "considered": True,
+                    "win": False,
+                    "excluded_reason": "no_candidates",
+                    "rejection_reason": "no_candidates",
+                    "rank": 1,
+                },
+                {"kind": "final", "final_decision_reason": "not_found", "winner": {}},
+            ],
         )
+    if resolved_value and str(resolved_value).strip():
+        # resolved_value is candidate/hint only; no bypass winner path.
+        pass
     if not candidates:
         return IdentFieldResult(status="failed", source="NOT_FOUND")
-    ordered = list(candidates)
-    if prefer_k_prefix:
-        k_cands = [c for c in ordered if _is_k_customer_code(c.value)]
-        other = [c for c in ordered if not _is_k_customer_code(c.value)]
-        if k_cands:
-            ordered = sorted(k_cands, key=lambda x: (-x.confidence, -len(x.value))) + sorted(
-                other, key=lambda x: (-x.confidence, -len(x.value))
-            )
+    ordered = sorted(
+        candidates,
+        key=lambda c: _candidate_rank_key(c, prefer_k_prefix=prefer_k_prefix),
+        reverse=True,
+    )
     if len(ordered) == 1:
         c = ordered[0]
         st = "confirmed" if c.confidence >= 80 else "tentative"
@@ -976,23 +2599,35 @@ def build_ident_field_result(
             confidence=c.confidence,
             source=c.source,
             status=st,
+            decision_trace=_selection_trace(
+                ordered,
+                c,
+                final_reason="single_candidate",
+                status=st,
+                prefer_k_prefix=prefer_k_prefix,
+            ),
         )
     top = ordered[0]
     second = ordered[1]
-    if top.confidence >= 85 and top.confidence - second.confidence >= 12:
-        return IdentFieldResult(
-            candidates=candidates,
-            value=top.value,
-            confidence=top.confidence,
-            source=top.source,
-            status="tentative",
-        )
+    st = "confirmed" if top.confidence >= 80 else "tentative"
+    final_reason = (
+        "highest_confidence"
+        if int(top.confidence or 0) != int(second.confidence or 0)
+        else "deterministic_tiebreak"
+    )
     return IdentFieldResult(
         candidates=candidates,
-        value=None,
-        confidence=max(c.confidence for c in candidates),
-        source="AMBIGUOUS",
-        status="ambiguous",
+        value=top.value,
+        confidence=top.confidence,
+        source=top.source,
+        status=st,
+        decision_trace=_selection_trace(
+            ordered,
+            top,
+            final_reason=final_reason,
+            status=st,
+            prefer_k_prefix=prefer_k_prefix,
+        ),
     )
 
 
@@ -1009,11 +2644,13 @@ def extract_invoice_number_result(
         extra_label_res=(_POLIS_LABEL_RE, _RELATIE_LABEL_RE),
     )
     cands.extend(_collect_invoice_fallback_candidates(text))
+    cands = _filter_order_like_invoice_candidates(cands)
     cands = _dedupe_candidates(cands)
     result = build_ident_field_result(
         cands,
         resolved_value=resolved,
         resolved_source=resolved_source,
+        field_id="invoice_number",
     )
     return result
 
@@ -1037,16 +2674,23 @@ def extract_customer_number_result(
     )
     collapsed_cands = _collect_collapsed_customer_layout_candidates(body)
     fallback_cands = _collect_customer_fallback_candidates(body)
+    layout_cands = _collect_customer_layout_fallback_candidates(body)
     cands = _drop_kvk_smear_k_candidates(
         _drop_false_k_glue_candidates(
             _drop_redundant_k_suffix_candidates(
                 _dedupe_candidates(
-                    block_cands + label_cands + collapsed_cands + fallback_cands
+                    block_cands
+                    + label_cands
+                    + collapsed_cands
+                    + fallback_cands
+                    + layout_cands
                 )
             )
         ),
         body,
     )
+    cands = _prefer_slashed_customer_candidates(cands)
+    cands = _drop_short_suffix_customer_candidates(cands)
     cands = _filter_weak_customer_fallbacks(cands)
     resolved, resolved_source = _reject_weak_resolved_against_candidates(
         resolved, resolved_source, cands
@@ -1058,6 +2702,7 @@ def extract_customer_number_result(
         resolved_value=resolved,
         resolved_source=resolved_source,
         prefer_k_prefix=_text_has_k_customer_code(body),
+        field_id="customer_number",
     )
     has_value = bool(str(result.value or "").strip())
     if not cands and not has_value:
@@ -1069,3 +2714,746 @@ def extract_customer_number_result(
             result.source = "NOT_FOUND"
         result.status = "failed"
     return result
+
+
+def _normalize_email_domain(domain_or_email: str) -> str | None:
+    s = re.sub(r"\s+", "", str(domain_or_email or "").strip().lower())
+    if not s:
+        return None
+    if "@" in s:
+        s = s.split("@", 1)[1]
+    s = re.sub(r"^www\.", "", s)
+    s = s.strip(".")
+    if "." not in s:
+        return None
+    return s or None
+
+
+def _vat_candidate_from_token(
+    body: str,
+    pos: int,
+    vat: str,
+    *,
+    extraction_method: str,
+    label_reason: str,
+    confidence: int,
+    label: str = "BTW/VAT",
+) -> IdentFieldCandidate:
+    ctx_hint = _context_hint_at(body, pos)
+    return IdentFieldCandidate(
+        value=vat,
+        source="vat",
+        confidence=confidence,
+        context=_line_context_at(body, pos),
+        label=label,
+        meta=_candidate_explain_meta(
+            extraction_method=extraction_method,
+            label_reason=label_reason,
+            context_hint=ctx_hint,
+        ),
+    )
+
+
+def _collect_vat_candidates_primary(
+    body: str,
+    *,
+    debtor_norm: str,
+) -> list[IdentFieldCandidate]:
+    cands: list[IdentFieldCandidate] = []
+    line_starts: list[int] = []
+    pos = 0
+    for line in body.splitlines():
+        line_starts.append(pos)
+        pos += len(line) + 1
+
+    for line_idx, line in enumerate(body.splitlines()):
+        if _VAT_DEBTOR_HINT_RE.search(line):
+            continue
+        line_pos = line_starts[line_idx] if line_idx < len(line_starts) else 0
+
+        for lm in _VAT_LABEL_RE.finditer(line):
+            after = line[lm.end() :]
+            m_nl = _VAT_RE.search(after)
+            vat: str | None = None
+            tok_start = 0
+            if m_nl:
+                vat = _normalize_vat_compact(m_nl.group(0))
+                tok_start = m_nl.start()
+            else:
+                m_relaxed = _VAT_RELAXED_VALUE_RE.search(after)
+                if m_relaxed:
+                    vat = _compact_nl_vat_token(f"NL{m_relaxed.group(1)}")
+                    tok_start = m_relaxed.start()
+            if vat and (not debtor_norm or vat != debtor_norm):
+                abs_pos = line_pos + lm.end() + tok_start
+                cands.append(
+                    _vat_candidate_from_token(
+                        body,
+                        abs_pos,
+                        vat,
+                        extraction_method="label_match",
+                        label_reason=f"after label: {lm.group(0).strip()}",
+                        confidence=90,
+                    )
+                )
+            m_btw = _VAT_BTW_VALUE_RE.search(line)
+            if m_btw:
+                compact = _compact_nl_vat_token(m_btw.group(1))
+                if compact and (not debtor_norm or compact != debtor_norm):
+                    cands.append(
+                        _vat_candidate_from_token(
+                            body,
+                            line_pos + m_btw.start(),
+                            compact,
+                            extraction_method="label_match",
+                            label_reason="btw/vat colon value on labeled line",
+                            confidence=89,
+                        )
+                    )
+
+        for m in _VAT_RE.finditer(line):
+            vat = _normalize_vat_compact(m.group(0))
+            if not vat or (debtor_norm and vat == debtor_norm):
+                continue
+            abs_pos = line_pos + m.start()
+            cands.append(
+                _vat_candidate_from_token(
+                    body,
+                    abs_pos,
+                    vat,
+                    extraction_method="regex_fallback",
+                    label_reason="NL VAT pattern on line",
+                    confidence=89,
+                )
+            )
+
+        if not _VAT_LABEL_RE.search(line):
+            m_btw = re.search(
+                r"(?i)\b(?:btw|vat)\s*:\s*([\d.\s]+B[\d.\s]+)",
+                line,
+            )
+            if m_btw:
+                compact = _compact_nl_vat_token(m_btw.group(1))
+                if compact and (not debtor_norm or compact != debtor_norm):
+                    cands.append(
+                        _vat_candidate_from_token(
+                            body,
+                            line_pos + m_btw.start(),
+                            compact,
+                            extraction_method="label_match",
+                            label_reason="btw/vat colon value",
+                            confidence=88,
+                        )
+                    )
+
+    return cands
+
+
+def _collect_vat_candidates_fallback(
+    body: str,
+    *,
+    debtor_norm: str,
+) -> list[IdentFieldCandidate]:
+    cands: list[IdentFieldCandidate] = []
+    for m in _VAT_EU_FALLBACK_RE.finditer(body):
+        vat = _normalize_eu_vat_fallback(m.group(1), m.group(2))
+        if not vat or (debtor_norm and vat == debtor_norm):
+            continue
+        if _VAT_DEBTOR_HINT_RE.search(_line_at_pos(body, m.start())):
+            continue
+        cands.append(
+            _vat_candidate_from_token(
+                body,
+                m.start(),
+                vat,
+                extraction_method="regex_fallback",
+                label_reason="EU VAT pattern without explicit label",
+                confidence=72,
+            )
+        )
+    return cands
+
+
+def _kvk_candidate_from_digits(
+    body: str,
+    pos: int,
+    digits: str,
+    *,
+    extraction_method: str,
+    label_reason: str,
+    confidence: int,
+) -> IdentFieldCandidate:
+    return IdentFieldCandidate(
+        value=digits,
+        source="kvk",
+        confidence=confidence,
+        context=_line_context_at(body, pos),
+        label="KvK",
+        meta=_candidate_explain_meta(
+            extraction_method=extraction_method,
+            label_reason=label_reason,
+            context_hint=_context_hint_at(body, pos),
+        ),
+    )
+
+
+def _collect_kvk_candidates_primary(
+    body: str,
+    *,
+    debtor_norm: str,
+) -> list[IdentFieldCandidate]:
+    cands: list[IdentFieldCandidate] = []
+    for m in _KVK_RE.finditer(body):
+        digits = _normalize_kvk_digits(m.group(1))
+        if not digits or (debtor_norm and digits == debtor_norm):
+            continue
+        label_reason = "kvk label pattern"
+        lm = _KVK_LABEL_RE.search(_line_at_pos(body, m.start()))
+        if lm:
+            extraction_method = "label_match"
+            label_reason = f"near label: {lm.group(0)}"
+        else:
+            extraction_method = "regex_fallback"
+        cands.append(
+            _kvk_candidate_from_digits(
+                body,
+                m.start(),
+                digits,
+                extraction_method=extraction_method,
+                label_reason=label_reason,
+                confidence=88 if extraction_method == "label_match" else 85,
+            )
+        )
+
+    line_starts: list[int] = []
+    pos = 0
+    for line in body.splitlines():
+        line_starts.append(pos)
+        pos += len(line) + 1
+    for line_idx, line in enumerate(body.splitlines()):
+        for lm in _KVK_LABEL_RE.finditer(line):
+            after = line[lm.end() :]
+            m_digits = re.search(r"(\d[\d\s]{6,11})", after)
+            if not m_digits:
+                continue
+            digits = _normalize_kvk_digits(m_digits.group(1))
+            if not digits or (debtor_norm and digits == debtor_norm):
+                continue
+            line_pos = line_starts[line_idx] if line_idx < len(line_starts) else 0
+            abs_pos = line_pos + lm.end() + m_digits.start()
+            if any(c.value == digits for c in cands):
+                continue
+            cands.append(
+                _kvk_candidate_from_digits(
+                    body,
+                    abs_pos,
+                    digits,
+                    extraction_method="label_match",
+                    label_reason=f"after label: {lm.group(0).strip()}",
+                    confidence=88,
+                )
+            )
+    return cands
+
+
+_KVK_8DIGIT_FALLBACK_RE = re.compile(r"\b(\d[\d\s]{6,11})\b")
+
+
+def _collect_kvk_candidates_fallback(
+    body: str,
+    *,
+    debtor_norm: str,
+) -> list[IdentFieldCandidate]:
+    cands: list[IdentFieldCandidate] = []
+    for m in _KVK_8DIGIT_FALLBACK_RE.finditer(body):
+        digits = _normalize_kvk_digits(m.group(1))
+        if not digits or len(digits) not in (7, 8):
+            continue
+        if debtor_norm and digits == debtor_norm:
+            continue
+        if not _kvk_in_business_context(body, m.start()):
+            continue
+        cands.append(
+            _kvk_candidate_from_digits(
+                body,
+                m.start(),
+                digits,
+                extraction_method="regex_fallback",
+                label_reason="8-digit in business registration context",
+                confidence=75,
+            )
+        )
+    return cands
+
+
+def _email_candidate_from_match(
+    body: str,
+    m: re.Match[str],
+    *,
+    extraction_method: str,
+    label_reason: str,
+    confidence: int,
+    abs_pos: int | None = None,
+) -> IdentFieldCandidate | None:
+    pos = abs_pos if abs_pos is not None else m.start()
+    raw_email = re.sub(r"\s+", "", m.group(0))
+    dom = _normalize_email_domain(m.group(1))
+    if not dom:
+        return None
+    return IdentFieldCandidate(
+        value=dom,
+        source="email",
+        confidence=confidence,
+        context=_line_context_at(body, pos),
+        label="E-mail",
+        meta=_candidate_explain_meta(
+            extraction_method=extraction_method,
+            label_reason=label_reason,
+            context_hint=_context_hint_at(body, pos),
+            source_email=raw_email,
+        ),
+    )
+
+
+def _collect_email_domain_candidates_primary(body: str) -> list[IdentFieldCandidate]:
+    cands: list[IdentFieldCandidate] = []
+    for m in _EMAIL_RE.finditer(body):
+        c = _email_candidate_from_match(
+            body,
+            m,
+            extraction_method="regex_fallback",
+            label_reason="email address in text",
+            confidence=86,
+        )
+        if c:
+            cands.append(c)
+
+    line_starts: list[int] = []
+    pos_acc = 0
+    for line in body.splitlines():
+        line_starts.append(pos_acc)
+        pos_acc += len(line) + 1
+    for line_idx, line in enumerate(body.splitlines()):
+        if not _EMAIL_CONTACT_LABEL_RE.search(line):
+            continue
+        line_pos = line_starts[line_idx] if line_idx < len(line_starts) else 0
+        for m in _EMAIL_RE.finditer(line):
+            c = _email_candidate_from_match(
+                body,
+                m,
+                extraction_method="label_match",
+                label_reason="email on contact/from/reply line",
+                confidence=88,
+                abs_pos=line_pos + m.start(),
+            )
+            if c:
+                cands.append(c)
+    return cands
+
+
+def _collect_email_domain_candidates_region(
+    body: str,
+    segment: str,
+    segment_offset: int,
+    *,
+    extraction_method: str,
+) -> list[IdentFieldCandidate]:
+    cands: list[IdentFieldCandidate] = []
+    ctx_hint = extraction_method.replace("_scan", "")
+    for m in _EMAIL_RE.finditer(segment):
+        abs_start = segment_offset + m.start()
+        raw_email = re.sub(r"\s+", "", m.group(0))
+        dom = _normalize_email_domain(m.group(1))
+        if not dom:
+            continue
+        cands.append(
+            IdentFieldCandidate(
+                value=dom,
+                source="email",
+                confidence=87,
+                context=_line_context_at(body, abs_start),
+                label="E-mail",
+                meta=_candidate_explain_meta(
+                    extraction_method=extraction_method,
+                    label_reason=f"email in {extraction_method.replace('_', ' ')}",
+                    context_hint=ctx_hint,
+                    source_email=raw_email,
+                ),
+            )
+        )
+    return cands
+
+
+def _collect_email_domain_candidates_fallback(body: str) -> list[IdentFieldCandidate]:
+    cands: list[IdentFieldCandidate] = []
+    contact_hint = re.compile(r"(?i)\b(?:mail|contact|support|www\.|http)\b")
+    for line_idx, line in enumerate(body.splitlines()):
+        if not contact_hint.search(line):
+            continue
+        hint = _context_hint_at(body, sum(len(ln) + 1 for ln in body.splitlines()[:line_idx]))
+        if hint not in ("header", "footer", "body"):
+            continue
+        for m in _DOMAIN_WWW_RE.finditer(line):
+            dom = _normalize_email_domain(m.group(0))
+            if not dom:
+                continue
+            line_pos = sum(len(ln) + 1 for ln in body.splitlines()[:line_idx])
+            cands.append(
+                IdentFieldCandidate(
+                    value=dom,
+                    source="email",
+                    confidence=70,
+                    context=_line_context_at(body, line_pos + m.start()),
+                    label="E-mail",
+                    meta=_candidate_explain_meta(
+                        extraction_method="regex_fallback",
+                        label_reason="domain on contact line without @",
+                        context_hint=hint,
+                    ),
+                )
+            )
+    return cands
+
+
+def extract_email_domain_result(
+    text: str,
+    *,
+    resolved: str | None = None,
+    resolved_source: str | None = None,
+) -> IdentFieldResult:
+    body = text or ""
+    cands = _collect_email_domain_candidates_primary(body)
+
+    header = _header_segment(body)
+    if header:
+        off = 0
+        cands.extend(
+            _collect_email_domain_candidates_region(
+                body, header, off, extraction_method="header_scan"
+            )
+        )
+    footer = _footer_segment(body)
+    if footer:
+        off = len(body) - len(footer)
+        if off < 0:
+            off = 0
+        cands.extend(
+            _collect_email_domain_candidates_region(
+                body, footer, off, extraction_method="footer_scan"
+            )
+        )
+
+    if not cands:
+        cands = _collect_email_domain_candidates_fallback(body)
+
+    cands = _filter_ident_contamination(cands, field_id="email_domain", body=body)
+    cands = _dedupe_candidates(cands)
+    return build_ident_field_result(
+        cands,
+        resolved_value=_normalize_email_domain(resolved or "") if resolved else None,
+        resolved_source=resolved_source,
+    )
+
+
+def extract_kvk_number_result(
+    text: str,
+    *,
+    resolved: str | None = None,
+    resolved_source: str | None = None,
+    debtor_kvk: str | None = None,
+) -> IdentFieldResult:
+    body = text or ""
+    debtor_norm = _normalize_kvk_digits(debtor_kvk) if debtor_kvk else ""
+    cands = _collect_kvk_candidates_primary(body, debtor_norm=debtor_norm)
+    if not cands:
+        cands = _collect_kvk_candidates_fallback(body, debtor_norm=debtor_norm)
+    cands = _filter_ident_contamination(cands, field_id="kvk_number", body=body)
+    cands = _dedupe_candidates(cands)
+    resolved_norm = _normalize_kvk_digits(resolved) if resolved else None
+    return build_ident_field_result(
+        cands,
+        resolved_value=resolved_norm,
+        resolved_source=resolved_source,
+    )
+
+
+def extract_vat_number_result(
+    text: str,
+    *,
+    resolved: str | None = None,
+    resolved_source: str | None = None,
+    debtor_vat: str | None = None,
+) -> IdentFieldResult:
+    body = text or ""
+    debtor_norm = _normalize_vat_compact(debtor_vat) if debtor_vat else ""
+    cands = _collect_vat_candidates_primary(body, debtor_norm=debtor_norm)
+    if not cands:
+        cands = _collect_vat_candidates_fallback(body, debtor_norm=debtor_norm)
+    cands = _filter_ident_contamination(cands, field_id="vat_number", body=body)
+    cands = _dedupe_candidates(cands)
+    resolved_norm = _normalize_vat_compact(resolved) if resolved else None
+    return build_ident_field_result(
+        cands,
+        resolved_value=resolved_norm,
+        resolved_source=resolved_source,
+    )
+
+
+def _month_name_to_int(name: str) -> int | None:
+    key = re.sub(r"[^a-z]", "", str(name or "").strip().lower())
+    if not key:
+        return None
+    return _MONTHS.get(key)
+
+
+def _date_token_to_iso(token: str) -> str | None:
+    from parser.field_model import normalize_field_value
+
+    iso = normalize_field_value("invoice_date", token)
+    if isinstance(iso, str) and iso:
+        return iso
+
+    m = _MONTH_NAME_DATE_RE.search(token or "")
+    if not m:
+        return None
+    dd = int(m.group(1))
+    mm = _month_name_to_int(m.group(2))
+    yy = int(m.group(3))
+    if not mm:
+        return None
+    try:
+        from datetime import date
+
+        return date(yy, mm, dd).isoformat()
+    except ValueError:
+        return None
+
+
+def _date_token_to_iso_explain(token: str) -> tuple[str | None, dict[str, Any]]:
+    """Return (iso, meta) without affecting parsing behavior."""
+    raw = str(token or "")
+    from parser.field_model import normalize_field_value
+
+    try:
+        iso = normalize_field_value("invoice_date", raw)
+    except Exception:
+        iso = None
+    if isinstance(iso, str) and iso:
+        meta = _candidate_explain_meta(
+            extraction_method="regex",
+            label_reason="date token normalized via field_model.normalize_field_value(invoice_date)",
+            score_breakdown={"base": 90, "normalization_bonus": 2},
+            raw_detected=raw,
+            normalized_iso=iso,
+            parse_path="normalize_field_value",
+        )
+        return iso, meta
+
+    m = _MONTH_NAME_DATE_RE.search(raw)
+    if not m:
+        meta = _candidate_explain_meta(
+            extraction_method="regex",
+            label_reason="date token did not match supported patterns",
+            score_breakdown={"base": 0},
+            raw_detected=raw,
+            normalized_iso=None,
+            parse_path="unparsed",
+        )
+        return None, meta
+
+    dd = int(m.group(1))
+    mm = _month_name_to_int(m.group(2))
+    yy = int(m.group(3))
+    if not mm:
+        meta = _candidate_explain_meta(
+            extraction_method="regex",
+            label_reason="month name not recognized",
+            score_breakdown={"base": 0},
+            raw_detected=raw,
+            normalized_iso=None,
+            parse_path="month_name_unrecognized",
+        )
+        return None, meta
+    try:
+        from datetime import date
+
+        iso2 = date(yy, mm, dd).isoformat()
+        meta = _candidate_explain_meta(
+            extraction_method="regex",
+            label_reason="month-name date parsed via _MONTH_NAME_DATE_RE + datetime.date",
+            score_breakdown={"base": 88, "normalization_bonus": 1},
+            raw_detected=raw,
+            normalized_iso=iso2,
+            parse_path="month_name_date",
+        )
+        return iso2, meta
+    except ValueError:
+        meta = _candidate_explain_meta(
+            extraction_method="regex",
+            label_reason="month-name date invalid (ValueError)",
+            score_breakdown={"base": 0},
+            raw_detected=raw,
+            normalized_iso=None,
+            parse_path="month_name_value_error",
+        )
+        return None, meta
+
+
+def extract_invoice_date_result(
+    text: str,
+    *,
+    resolved: str | None = None,
+    resolved_source: str | None = None,
+) -> IdentFieldResult:
+    body = text or ""
+    cands: list[IdentFieldCandidate] = []
+
+    # Strong: "Factuur nr ... van 30-01-2026"
+    for m in _INVOICE_NR_VAN_DATE_RE.finditer(body):
+        raw_tok = m.group(1)
+        iso, meta = _date_token_to_iso_explain(raw_tok)
+        if not iso:
+            continue
+        cands.append(
+            IdentFieldCandidate(
+                value=iso,
+                source="invoice_nr_van_date",
+                confidence=92,
+                context=_line_context_at(body, m.start()),
+                label="Factuurdatum",
+                meta={
+                    **meta,
+                    **_candidate_explain_meta(
+                        extraction_method=str(meta.get("extraction_method") or "regex"),
+                        label_reason="regex match: _INVOICE_NR_VAN_DATE_RE",
+                        score_breakdown={"base": 92, "label_bonus": 4},
+                    ),
+                },
+            )
+        )
+
+    lines = (body or "").splitlines()
+    for i, line in enumerate(lines):
+        if _DATE_EXCLUDE_HINT_RE.search(line or ""):
+            continue
+        lm = _INVOICE_DATE_LABEL_RE.search(line or "")
+        if not lm:
+            continue
+        ctx = re.sub(r"\s+", " ", (line or "")).strip()[:160]
+        added_same_line = False
+        # Same line after label
+        tail = (line or "")[lm.end() :]
+        same_line_conf = 90
+        if re.search(r"(?i)\bna\s+factuurdatum\b", line or ""):
+            same_line_conf = 60
+        for rx in (_ISO_DATE_RE, _DD_MM_YYYY_RE, _MONTH_NAME_DATE_RE):
+            dm = rx.search(tail)
+            if dm:
+                raw_tok = dm.group(0)
+                iso, meta = _date_token_to_iso_explain(raw_tok)
+                if iso:
+                    cands.append(
+                        IdentFieldCandidate(
+                            value=iso,
+                            source="invoice_date_label_same_line",
+                            confidence=same_line_conf,
+                            context=ctx,
+                            label=collapse_stutter_chars(line[lm.start() : lm.end()].strip())
+                            or "Factuurdatum",
+                            meta={
+                                **meta,
+                                **_candidate_explain_meta(
+                                    extraction_method=str(meta.get("extraction_method") or "regex"),
+                                    label_reason=f"after invoice-date label (same line), regex: {getattr(rx, 'pattern', '')}",
+                                    score_breakdown={"base": same_line_conf, "label_bonus": 3},
+                                ),
+                            },
+                        )
+                    )
+                    added_same_line = True
+                break
+        if added_same_line:
+            continue
+        # Nearby lines: ±3 lines around label (excluding the label line itself).
+        for j in (-3, -2, -1, 1, 2, 3):
+            idx = i + j
+            if idx < 0 or idx >= len(lines):
+                continue
+            nxt = lines[idx] or ""
+            if _DATE_EXCLUDE_HINT_RE.search(nxt):
+                continue
+            nxt_ctx = re.sub(r"\s+", " ", nxt).strip()[:160]
+            for rx in (_ISO_DATE_RE, _DD_MM_YYYY_RE, _MONTH_NAME_DATE_RE):
+                dm = rx.search(nxt)
+                if not dm:
+                    continue
+                raw_tok = dm.group(0)
+                iso, meta = _date_token_to_iso_explain(raw_tok)
+                if not iso:
+                    continue
+                cands.append(
+                    IdentFieldCandidate(
+                        value=iso,
+                        source="invoice_date_label_next_line",
+                        confidence=max(78, 86 - abs(j) * 2),
+                        context=nxt_ctx or ctx,
+                        label="Factuurdatum",
+                        meta={
+                            **meta,
+                            **_candidate_explain_meta(
+                                extraction_method=str(meta.get("extraction_method") or "regex"),
+                                label_reason=f"near invoice-date label (offset {j}), regex: {getattr(rx, 'pattern', '')}",
+                                score_breakdown={
+                                    "base": max(78, 86 - abs(j) * 2),
+                                    "label_bonus": 2,
+                                    "distance_penalty": abs(j),
+                                },
+                            ),
+                        },
+                    )
+                )
+                break
+
+    # Deterministic fallback: if no label candidates were found, consider non-due dates
+    # document-wide and rank them lower than labeled/near-label candidates.
+    if not cands:
+        for line in lines:
+            ln = line or ""
+            if _DATE_EXCLUDE_HINT_RE.search(ln):
+                continue
+            for rx in (_ISO_DATE_RE, _DD_MM_YYYY_RE, _MONTH_NAME_DATE_RE):
+                dm = rx.search(ln)
+                if not dm:
+                    continue
+                raw_tok = dm.group(0)
+                iso, meta = _date_token_to_iso_explain(raw_tok)
+                if not iso:
+                    continue
+                cands.append(
+                    IdentFieldCandidate(
+                        value=iso,
+                        source="invoice_date_fallback_any",
+                        confidence=66,
+                        context=re.sub(r"\s+", " ", ln).strip()[:160],
+                        label="Datum",
+                        meta={
+                            **meta,
+                            **_candidate_explain_meta(
+                                extraction_method=str(meta.get("extraction_method") or "regex"),
+                                label_reason="document fallback date (non-due line)",
+                                score_breakdown={"base": 66, "fallback_penalty": 20},
+                            ),
+                        },
+                    )
+                )
+                break
+
+    cands = _dedupe_candidates(cands)
+
+    resolved_iso, _ = _date_token_to_iso_explain(resolved or "") if resolved else (None, {})
+    return build_ident_field_result(
+        cands,
+        resolved_value=resolved_iso,
+        resolved_source=resolved_source,
+        field_id="invoice_date",
+    )

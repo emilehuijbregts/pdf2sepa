@@ -352,9 +352,11 @@ _EXCL_VAT_LABEL_RE = re.compile(
 _INVOICE_LABEL_RE = re.compile(
     r"(?:Factuurnummer|Factuurnr\.?|Factuur(?:\s*nummer|\s*nr\.?)|Fact\.?\s*nr\.?|"
     r"Document\s*nr\.?|Documentnr\.?|"
-    r"Invoice\s*(?:number|no\.?|nr\.?)|"
+    r"Invoice\s*(?:number|no\.?|nr\.?)|\bINVOICE\b|"
+    r"Rechnung\s*(?:nr\.?|nummer)|Rechnungsnummer|"
     r"Nota(?:\s*nummer|\s*nr\.?)|"
-    r"Polisnummer|Polis\s*nr\.?|Polis\s*nummer)",
+    r"Polisnummer|Polis\s*nr\.?|Polis\s*nummer|"
+    r"\bNummer\b(?=\s+(?:INV-|REG|SIN/|[A-Z]{1,8}[\-/]?\d)))",
     flags=re.IGNORECASE,
 )
 
@@ -362,28 +364,38 @@ _INVOICE_LABEL_RE = re.compile(
 _INVOICE_LABEL_RE_NO_POLIS = re.compile(
     r"(?:Factuurnummer|Factuurnr\.?|Factuur(?:\s*nummer|\s*nr\.?)|Fact\.?\s*nr\.?|"
     r"Document\s*nr\.?|Documentnr\.?|"
-    r"Invoice\s*(?:number|no\.?|nr\.?)|"
-    r"Nota(?:\s*nummer|\s*nr\.?))",
+    r"Invoice\s*(?:number|no\.?|nr\.?)|\bINVOICE\b|"
+    r"Rechnung\s*(?:nr\.?|nummer)|Rechnungsnummer|"
+    r"Nota(?:\s*nummer|\s*nr\.?)|"
+    r"\bNummer\b(?=\s+(?:INV-|REG|SIN/|[A-Z]{1,8}[\-/]?\d)))",
     flags=re.IGNORECASE,
 )
 
 _CUSTOMER_LABEL_RE = re.compile(
     r"(?:\bKlantcode\b|\bklantnummer\b|\bklant-nummer\b|"
     r"Klant(?:en)?(?:\s*nummer|\s*nr\.?|-nr\.?|\s*code)|Klantnr\.?|"
+    r"\bKlant\b(?=\s+\d)|"
     r"Debiteur(?:en)?(?:\s*nummer|\s*nr\.?)|"
     r"Deb\.?\s*(?:nr\.?|nummer)|Debnr\.?|"
     r"Debiteur|"
+    r"\bDebtor\b(?:\s*(?:number|no\.?|nr\.?|id))?|"
+    r"Betaler(?:\s*(?:nr\.?|nummer|no\.?|id))?|"
+    r"Factureren\s+aan(?:\s*(?:nr\.?|nummer|no\.?|id))?|"
     r"Lid(?:\s*nummer|\s*nr\.?)|"
-    r"Relatie(?:\s*nummer|\s*nr\.?)|"
+    r"Relatie(?:\s*nummer|\s*nr\.?)?|\bRelatie\b|"
+    r"\bCustomer\b(?=\s+\d)|"
     r"Customer\s*(?:number|no\.?|code|nr\.?|id)|"
     r"Client\s*(?:number|no\.?|code|nr\.?|id)|"
-    r"Account\s*(?:number|no\.?|nr\.?))",
+    r"Account\s*(?:number|no\.?|nr\.?)|"
+    r"Kunden(?:nummer|nr\.?|-\s*nr\.?)|Kundennr\.?|"
+    r"Debitor(?:en)?(?:nummer|nr\.?)|Debitorennummer|"
+    r"Billing\s+to(?:\s*(?:number|no\.?|nr\.?|id))?)",
     flags=re.IGNORECASE,
 )
 
 _INVOICE_DATE_LABEL_RE = re.compile(
     r"(?i)(?:Factuurdatum|Factuur\s*datum|Invoice\s*date|Date\s*of\s*invoice|"
-    r"Datum\s*factuur)\b",
+    r"\bDatum\s*factuur|Factuur\s*d\.?\s*d\.?)\b",
 )
 
 # Header variant seen on some invoices: "FACTUUR Nr. <id> van 30-01-2026"
@@ -398,7 +410,7 @@ _DD_MM_YYYY_RE = re.compile(
 )
 _ISO_DATE_RE = re.compile(r"\b(\d{4})-(\d{2})-(\d{2})\b")
 _DATE_EXCLUDE_HINT_RE = re.compile(
-    r"(?i)\b(?:vervaldatum|due\s*date|geleverd|pakbon|ordernummer|leverdatum)\b"
+    r"(?i)\b(?:vervaldatum|due\s*date|geleverd|pakbon|ordernummer|leverdatum|afleverbon|leveringsbon)\b"
 )
 
 _MONTH_NAME_DATE_RE = re.compile(r"(?i)\b(\d{1,2})\s+([A-Za-z]{3,})\.?\s+(\d{4})\b")
@@ -446,12 +458,48 @@ _MONTHS = {
 
 _FIELD_VALUE_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9\-\/]*")
 _EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+-]+\s*@\s*([A-Za-z0-9.-]+\s*\.\s*[A-Za-z]{2,})\b")
-_KVK_RE = re.compile(r"(?i)\b(?:kvk|k\.?v\.?k\.?)\D{0,12}(\d{7,8})\b")
+_KVK_RE = re.compile(
+    r"(?i)\b(?:"
+    r"kvk|k\.?v\.?k\.?|kvk\s*nr\.?|kvk-nummer|"
+    r"chamber\s+of\s+commerce|coc|handelsregister"
+    r")\D{0,16}(\d[\d\s]{6,11})\b"
+)
 # VAT number (NL) — accept spaced/punctuated variants produced by OCR/PDF text extraction.
 _VAT_RE = re.compile(r"(?i)\bN\s*L\s*\d{9}\s*B\s*\d{2}\b")
 _VAT_DEBTOR_HINT_RE = re.compile(
     r"(?i)\b(?:uw|your|afnemer|customer|klant)\b[^\n]{0,32}\b(?:btw|vat)\b|"
     r"\b(?:btw|vat)\b[^\n]{0,32}\b(?:uw|your|afnemer|customer|klant)\b"
+)
+_VAT_LABEL_RE = re.compile(
+    r"(?i)\b(?:"
+    r"btw(?:\s*nr\.?|\s*nummer|-\s*nummer)?|"
+    r"vat(?:\s*id|\s*number|-\s*number|(?:\s+|-)?nr\.?)?"
+    r")\b"
+)
+_VAT_BTW_VALUE_RE = re.compile(
+    r"(?i)\b(?:btw|vat)\s*:\s*([\d.\s]+B[\d.\s]+)"
+)
+# EU VAT fallback (landcode + blok); validatie in field_candidates.
+_VAT_EU_FALLBACK_RE = re.compile(
+    r"(?i)\b([A-Z]{2})[\s.-]*(\d[\dA-Z\s.-]{7,14})\b"
+)
+_KVK_LABEL_RE = re.compile(
+    r"(?i)\b(?:"
+    r"kvk|k\.?v\.?k\.?|kvk\s*nr\.?|kvk-nummer|"
+    r"chamber\s+of\s+commerce|coc|handelsregister"
+    r")\b"
+)
+_KVK_BUSINESS_BLOCK_RE = re.compile(
+    r"(?i)\b(?:"
+    r"kvk|handelsregister|chamber|commerce|coc|btw|vat|iban|"
+    r"bedrijfsgegevens|statutair|vestiging|trade\s*register"
+    r")\b"
+)
+_EMAIL_CONTACT_LABEL_RE = re.compile(
+    r"(?i)\b(?:from|reply-?to|e-?mail|email|contact|support|info)\s*:"
+)
+_DOMAIN_WWW_RE = re.compile(
+    r"(?i)\b(?:www\.)?([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}\b"
 )
 
 _NOISE_WORDS = frozenset({
@@ -502,6 +550,96 @@ def _is_noise_value(val: str) -> bool:
 def _looks_like_date_token(val: str) -> bool:
     v = str(val or "").strip()
     return bool(_DD_MM_YYYY_RE.fullmatch(v) or _ISO_DATE_RE.fullmatch(v))
+
+
+def _is_false_factuurdatum_label(line: str, label_start: int) -> bool:
+    """Reject embedded references like ``na factuurdatum`` (payment terms, not a label)."""
+    before = str(line[: max(0, label_start)] or "").rstrip()
+    return bool(re.search(r"(?i)\bna\s*$", before))
+
+
+def _truncate_before_payment_due(line: str) -> str:
+    """Keep only the segment before payment-due / terms tail on multi-date rows."""
+    s = str(line or "")
+    cut = len(s)
+    for pat in (
+        r"(?i)\bbetaling\s+v[oó]r\b",
+        r"(?i)\bna\s+factuurdatum\b",
+        r"(?i)\bvervaldatum\b",
+        r"(?i)\bdue\s*date\b",
+    ):
+        m = re.search(pat, s)
+        if m:
+            cut = min(cut, m.start())
+    return s[:cut]
+
+
+def _is_payment_due_context_line(line: str) -> bool:
+    low = str(line or "").lower()
+    if _DATE_EXCLUDE_HINT_RE.search(line or ""):
+        return True
+    if "verval" in low or "due" in low:
+        return True
+    if re.search(r"(?i)\bbetaling\s+v[oó]r\b", line or ""):
+        return True
+    if re.search(r"(?i)\bna\s+factuurdatum\b", line or ""):
+        return True
+    return False
+
+
+def _first_invoice_date_token(segment: str) -> str | None:
+    seg = str(segment or "")
+    m_iso = _ISO_DATE_RE.search(seg)
+    if m_iso:
+        return f"{m_iso.group(1)}-{m_iso.group(2)}-{m_iso.group(3)}"
+    m = _DD_MM_YYYY_RE.search(seg)
+    if m:
+        return _iso_from_dmy(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+    m_name = _MONTH_NAME_DATE_RE.search(seg)
+    if m_name:
+        day = int(m_name.group(1))
+        mon_key = str(m_name.group(2) or "").strip().lower()
+        month = _MONTHS.get(mon_key)
+        if month:
+            return _iso_from_dmy(day, int(month), int(m_name.group(3)))
+    return None
+
+
+def _extract_invoice_date_table_header(lines: list[str]) -> str | None:
+    """Map ``Factuurdatum`` column in header/value table rows (Korver-style layouts)."""
+    for i, hdr in enumerate(lines):
+        if not re.search(r"(?i)\bfactuurdatum\b", hdr):
+            continue
+        if not re.search(r"(?i)\b(?:factuurnr|factuurnummer)\b", hdr):
+            continue
+        hdr_words = [w for w in re.split(r"\s+", hdr.strip()) if w]
+        date_col: int | None = None
+        for wi, w in enumerate(hdr_words):
+            if re.fullmatch(r"(?i)factuurdatum", w):
+                date_col = wi
+                break
+        if date_col is None:
+            continue
+        for j in range(1, 4):
+            if i + j >= len(lines):
+                break
+            val_line = lines[i + j] or ""
+            if not val_line.strip():
+                continue
+            if _is_payment_due_context_line(val_line) and not _DD_MM_YYYY_RE.search(
+                _truncate_before_payment_due(val_line)
+            ):
+                continue
+            segment = _truncate_before_payment_due(val_line)
+            tokens = [t for t in re.split(r"\s+", segment.strip()) if t]
+            if date_col < len(tokens) and _looks_like_date_token(tokens[date_col]):
+                iso = _first_invoice_date_token(tokens[date_col])
+                if iso:
+                    return iso
+            iso = _first_invoice_date_token(segment)
+            if iso:
+                return iso
+    return None
 
 
 def _score_customer_candidate_token(tok: str) -> tuple[int, int, int, int]:
@@ -605,10 +743,19 @@ def _extract_invoice_date_from_text(text: str) -> tuple[str | None, str]:
     except Exception:
         pass
 
+    try:
+        table_date = _extract_invoice_date_table_header(lines)
+        if table_date:
+            return table_date, "parsed"
+    except Exception:
+        pass
+
     label_hits = 0
     for i, line in enumerate(lines):
         lm = _INVOICE_DATE_LABEL_RE.search(line)
         if not lm:
+            continue
+        if _is_false_factuurdatum_label(line, lm.start()):
             continue
         label_hits += 1
         # No debug logging here; extraction is deterministic.
@@ -623,48 +770,20 @@ def _extract_invoice_date_from_text(text: str) -> tuple[str | None, str]:
                     "next_line_preview": re.sub(r"\s+", " ", (lines[i + 1] if i + 1 < len(lines) else "")).strip()[:160],
                 },
             )
-        after = line[lm.end() :]
+        after = _truncate_before_payment_due(line[lm.end() :])
 
         # 1) Prefer date tokens on the same line (right after the label).
-        m_iso = _ISO_DATE_RE.search(after)
-        if m_iso:
-            return f"{m_iso.group(1)}-{m_iso.group(2)}-{m_iso.group(3)}", "parsed"
-        m = _DD_MM_YYYY_RE.search(after)
-        if m:
-            inv = _iso_from_dmy(int(m.group(1)), int(m.group(2)), int(m.group(3)))
-            if inv:
-                return inv, "parsed"
-        m_name = _MONTH_NAME_DATE_RE.search(after)
-        if m_name:
-            day = int(m_name.group(1))
-            mon_key = str(m_name.group(2) or "").strip().lower()
-            month = _MONTHS.get(mon_key)
-            if month:
-                inv = _iso_from_dmy(day, int(month), int(m_name.group(3)))
-                if inv:
-                    return inv, "parsed"
+        iso = _first_invoice_date_token(after)
+        if iso:
+            return iso, "parsed"
 
         # 2) Next-line date tokens only if the next line is NOT a due/verval line.
         if i + 1 < len(lines):
-            nxt = lines[i + 1] or ""
-            if not _DATE_EXCLUDE_HINT_RE.search(nxt):
-                m_iso = _ISO_DATE_RE.search(nxt)
-                if m_iso:
-                    return f"{m_iso.group(1)}-{m_iso.group(2)}-{m_iso.group(3)}", "parsed"
-                m = _DD_MM_YYYY_RE.search(nxt)
-                if m:
-                    inv = _iso_from_dmy(int(m.group(1)), int(m.group(2)), int(m.group(3)))
-                    if inv:
-                        return inv, "parsed"
-                m_name = _MONTH_NAME_DATE_RE.search(nxt)
-                if m_name:
-                    day = int(m_name.group(1))
-                    mon_key = str(m_name.group(2) or "").strip().lower()
-                    month = _MONTHS.get(mon_key)
-                    if month:
-                        inv = _iso_from_dmy(day, int(month), int(m_name.group(3)))
-                        if inv:
-                            return inv, "parsed"
+            nxt = _truncate_before_payment_due(lines[i + 1] or "")
+            if not _is_payment_due_context_line(lines[i + 1] or ""):
+                iso = _first_invoice_date_token(nxt)
+                if iso:
+                    return iso, "parsed"
             else:
                 pass
 
@@ -683,8 +802,11 @@ def _extract_invoice_date_from_text(text: str) -> tuple[str | None, str]:
                 and not _MONTH_NAME_DATE_RE.search(after)
                 and (
                     ("dagen" in after_low)
+                    or ("dagen" in line_low)
                     or (re.search(r"\b\d+\s+dagen\b", after_low) is not None)
+                    or (re.search(r"\b\d+\s+dagen\b", line_low) is not None)
                     or (re.search(r"\b\d+\s*%\b", after_low) is not None)
+                    or (re.search(r"\b\d+\s*%\b", line_low) is not None)
                 )
             )
             if looks_like_terms_header:
@@ -693,40 +815,24 @@ def _extract_invoice_date_from_text(text: str) -> tuple[str | None, str]:
             pass
 
         # If we hit a factuurdatum label but didn't find a date in the immediate chunk,
-        # scan a larger lookaround window (both directions) and pick the earliest
+        # scan a compact lookaround window (both directions) and pick the most recent
         # **non-due/non-verval** date token. This prevents selecting due dates when
         # "Factuurdatum" is used as a column header (e.g. "8 dagen - 2%").
         window_diag: list[dict[str, object]] = []
         strong_candidates: list[str] = []
         weak_candidates2: list[str] = []
-        start = max(0, i - 8)
-        end = min(len(lines), i + 9)
+        start = max(0, i - 3)
+        end = min(len(lines), i + 4)
         for j in range(start, end):
             ln = lines[j] or ""
-            low = ln.lower()
-            excluded = bool(_DATE_EXCLUDE_HINT_RE.search(ln) or "verval" in low or "due" in low)
+            segment = _truncate_before_payment_due(ln)
+            excluded = _is_payment_due_context_line(ln)
             picked_list = weak_candidates2 if excluded else strong_candidates
             found_any = False
-            m_iso2 = _ISO_DATE_RE.search(ln)
-            if m_iso2:
-                picked_list.append(f"{m_iso2.group(1)}-{m_iso2.group(2)}-{m_iso2.group(3)}")
+            iso = _first_invoice_date_token(segment)
+            if iso:
+                picked_list.append(iso)
                 found_any = True
-            m2 = _DD_MM_YYYY_RE.search(ln)
-            if m2:
-                inv = _iso_from_dmy(int(m2.group(1)), int(m2.group(2)), int(m2.group(3)))
-                if inv:
-                    picked_list.append(inv)
-                    found_any = True
-            m_name2 = _MONTH_NAME_DATE_RE.search(ln)
-            if m_name2:
-                day = int(m_name2.group(1))
-                mon_key = str(m_name2.group(2) or "").strip().lower()
-                month = _MONTHS.get(mon_key)
-                if month:
-                    inv = _iso_from_dmy(day, int(month), int(m_name2.group(3)))
-                    if inv:
-                        picked_list.append(inv)
-                        found_any = True
             if found_any and len(window_diag) < 10:
                 window_diag.append(
                     {
@@ -744,102 +850,75 @@ def _extract_invoice_date_from_text(text: str) -> tuple[str | None, str]:
 
     # Fallback: generic "datum" lines (excluding due/delivery/order contexts)
     for i, line in enumerate(lines):
-        if "datum" not in line.lower():
+        line_low = (line or "").lower()
+        if "datum" not in line_low:
             continue
         if _DATE_EXCLUDE_HINT_RE.search(line):
             continue
-        # Some PDFs render as:
-        # "Datum:" + empty line + "11-02-2026"
-        chunk_parts = [line]
-        for j in (1, 2, 3):
-            if i + j < len(lines):
-                chunk_parts.append(lines[i + j])
-        chunk = "\n".join(chunk_parts)
-        _agent_log(
-            "H2",
-            "parser/pdf_parser.py:_extract_invoice_date_from_text",
-            "invoice_date generic-datum fallback chunk",
-            {"chunk_preview": re.sub(r"\s+", " ", chunk).strip()[:200]},
-        )
-        m_iso = _ISO_DATE_RE.search(chunk)
-        if m_iso:
-            inv = f"{m_iso.group(1)}-{m_iso.group(2)}-{m_iso.group(3)}"
-            return inv, "parsed"
-        m = _DD_MM_YYYY_RE.search(chunk)
-        if m:
-            inv = _iso_from_dmy(int(m.group(1)), int(m.group(2)), int(m.group(3)))
-            if inv:
+        if (
+            ("betalingsconditie" in line_low or "betalingstermijn" in line_low)
+            and "factuurdatum" in line_low
+            and not _ISO_DATE_RE.search(line)
+            and not _DD_MM_YYYY_RE.search(line)
+            and not _MONTH_NAME_DATE_RE.search(line)
+        ):
+            # Terms headers often have a due date on the next line.
+            continue
+        # Some PDFs render as: "Datum:" + empty line + "11-02-2026".
+        # Scan line-by-line and skip excluded due/delivery lines.
+        for j in (0, 1, 2, 3):
+            if i + j >= len(lines):
+                break
+            probe = lines[i + j] or ""
+            if _DATE_EXCLUDE_HINT_RE.search(probe):
+                continue
+            m_iso = _ISO_DATE_RE.search(probe)
+            if m_iso:
+                inv = f"{m_iso.group(1)}-{m_iso.group(2)}-{m_iso.group(3)}"
                 return inv, "parsed"
-        m_name = _MONTH_NAME_DATE_RE.search(chunk)
-        if m_name:
-            day = int(m_name.group(1))
-            mon_key = str(m_name.group(2) or "").strip().lower()
-            month = _MONTHS.get(mon_key)
-            if month:
-                inv = _iso_from_dmy(day, int(month), int(m_name.group(3)))
+            m = _DD_MM_YYYY_RE.search(probe)
+            if m:
+                inv = _iso_from_dmy(int(m.group(1)), int(m.group(2)), int(m.group(3)))
                 if inv:
                     return inv, "parsed"
+            m_name = _MONTH_NAME_DATE_RE.search(probe)
+            if m_name:
+                day = int(m_name.group(1))
+                mon_key = str(m_name.group(2) or "").strip().lower()
+                month = _MONTHS.get(mon_key)
+                if month:
+                    inv = _iso_from_dmy(day, int(month), int(m_name.group(3)))
+                    if inv:
+                        return inv, "parsed"
 
     # (Nr...van header handled earlier)
 
     first_any_date: str | None = None
-    # Last resort: collect candidate dates across the document (invoice date is typically earlier than due date).
+    # Last resort: collect candidate dates across the document and prefer the
+    # most recent plausible date (never oldest-by-default).
     candidates: list[str] = []
     weak_candidates: list[str] = []
     date_diag: list[dict[str, object]] = []
     for line in lines:
         ln = line or ""
-        low = ln.lower()
-        excluded = bool(_DATE_EXCLUDE_HINT_RE.search(ln) or "verval" in low or "due" in low)
-        m_iso = _ISO_DATE_RE.search(ln)
-        if m_iso:
-            iso = f"{m_iso.group(1)}-{m_iso.group(2)}-{m_iso.group(3)}"
-            (weak_candidates if excluded else candidates).append(iso)
-            if len(date_diag) < 10:
-                date_diag.append(
-                    {
-                        "iso": iso,
-                        "excluded": bool(excluded),
-                        "line_preview": re.sub(r"\s+", " ", ln).strip()[:160],
-                    }
-                )
+        segment = _truncate_before_payment_due(ln)
+        iso = _first_invoice_date_token(segment)
+        if not iso:
             continue
-        m = _DD_MM_YYYY_RE.search(ln)
-        if m:
-            iso = _iso_from_dmy(int(m.group(1)), int(m.group(2)), int(m.group(3)))
-            if iso:
-                (weak_candidates if excluded else candidates).append(iso)
-                if len(date_diag) < 10:
-                    date_diag.append(
-                        {
-                            "iso": iso,
-                            "excluded": bool(excluded),
-                            "line_preview": re.sub(r"\s+", " ", ln).strip()[:160],
-                        }
-                    )
-                continue
-        m_name = _MONTH_NAME_DATE_RE.search(ln)
-        if m_name:
-            day = int(m_name.group(1))
-            mon_key = str(m_name.group(2) or "").strip().lower()
-            month = _MONTHS.get(mon_key)
-            if month:
-                iso = _iso_from_dmy(day, int(month), int(m_name.group(3)))
-                if iso:
-                    (weak_candidates if excluded else candidates).append(iso)
-                    if len(date_diag) < 10:
-                        date_diag.append(
-                            {
-                                "iso": iso,
-                                "excluded": bool(excluded),
-                                "line_preview": re.sub(r"\s+", " ", ln).strip()[:160],
-                            }
-                        )
-                    continue
+        excluded = _is_payment_due_context_line(ln) and segment.strip() == ln.strip()
+        (weak_candidates if excluded else candidates).append(iso)
+        if len(date_diag) < 10:
+            date_diag.append(
+                {
+                    "iso": iso,
+                    "excluded": bool(excluded),
+                    "line_preview": re.sub(r"\s+", " ", ln).strip()[:160],
+                }
+            )
 
     pick_from = candidates or weak_candidates
     if pick_from:
-        first_any_date = min(pick_from)
+        first_any_date = max(pick_from)
 
     if first_any_date:
         _agent_log(
@@ -866,6 +945,55 @@ def extract_invoice_date(text: str | None) -> tuple[str | None, str]:
         return _extract_invoice_date_from_text(text or "")
     except Exception:
         return None, "missing"
+
+
+def build_invoice_date_result_snapshot(
+    text: str,
+    *,
+    invoice_date: str | None = None,
+    invoice_date_source: str | None = None,
+) -> dict[str, Any]:
+    """Build hybrid-safe ``invoice_date_result`` using label-scoped legacy extraction."""
+    from parser.field_candidates import (
+        IdentFieldCandidate,
+        IdentFieldResult,
+        extract_invoice_date_result,
+    )
+
+    legacy_date, legacy_src = _extract_invoice_date_from_text(text or "")
+    chosen_date = legacy_date or (str(invoice_date or "").strip() or None)
+    chosen_src = legacy_src if legacy_date else (str(invoice_date_source or "").strip() or "parsed")
+    if not chosen_date:
+        return extract_invoice_date_result(text or "").to_dict()
+
+    date_result = extract_invoice_date_result(
+        text or "",
+        resolved=chosen_date,
+        resolved_source=chosen_src,
+    )
+    winning = next(
+        (c for c in date_result.candidates if str(c.value or "").strip() == chosen_date),
+        None,
+    )
+    conf = max(int(getattr(winning, "confidence", 0) or 0), 88)
+    src = chosen_src or str(getattr(winning, "source", "") or "parsed")
+    synced = IdentFieldResult(
+        candidates=[
+            IdentFieldCandidate(
+                value=chosen_date,
+                source=src,
+                confidence=conf,
+                context=str(getattr(winning, "context", "") or ""),
+                label=str(getattr(winning, "label", "") or "Factuurdatum"),
+                meta={"field_id": "invoice_date", "match_type": "label"},
+            )
+        ],
+        value=chosen_date,
+        confidence=conf,
+        source=src,
+        status="confirmed",
+    )
+    return synced.to_dict()
 
 def _extract_labeled_field(
     text: str,
@@ -1861,13 +1989,12 @@ def _tentative_incl_pick(candidates: list[AmountCandidate]) -> AmountCandidate |
     ]
     if not pool:
         return None
-    return max(
-        pool,
-        key=lambda c: (
-            c.confidence,
-            _TENTATIVE_INCL_SOURCE_RANK.get(c.source, 0),
-        ),
-    )
+    picked = max(pool, key=_amount_pick_key)
+    if picked.value is not None and picked.value < Decimal("120"):
+        larger = [c for c in pool if c.value is not None and c.value >= Decimal("200")]
+        if larger:
+            return max(larger, key=_amount_pick_key)
+    return picked
 
 
 def _select_amount_legacy(candidates: list[AmountCandidate]) -> AmountResult:
@@ -1989,6 +2116,86 @@ _BEATEN_SOURCES_WHEN_EXPLICIT_PAYABLE_INCL = frozenset(
     }
 )
 
+_PAYABLE_SCORE_MARGIN = 25
+
+_NON_PAYABLE_AMOUNT_CTX_RE = re.compile(
+    r"(?i)\b(?:sub[-\s]*totaal|totaal\s+excl|bedrag\s+excl|excl\.?\s*btw|"
+    r"nettobedrag|netto\s+goederen|order(?:bedrag)?|bestel(?:bedrag)?|"
+    r"korting|discount|stuksprijs)\b"
+)
+_PAYABLE_AMOUNT_CTX_RE = re.compile(
+    r"(?i)\b(?:te\s+betalen|totaal\s+te\s+(?:betalen|voldoen)|amount\s+due|total\s+due)\b"
+)
+
+
+def _amount_payable_score_fields(
+    ctype: str,
+    source: str,
+    context: str,
+) -> int:
+    """0–100 heuristic for selection only (no new extractors)."""
+    ctx = str(context or "")
+    src = str(source or "").strip().lower()
+    low = ctx.lower()
+    amount_type = str(ctype or "unknown")
+    if amount_type == "vat":
+        return 5
+    if amount_type == "excl" or src == "total_label_excl":
+        score = 10
+    elif src == "total_label_payable":
+        score = 100
+    elif amount_type == "incl":
+        score = 78
+    else:
+        score = 35
+    if _PAYABLE_AMOUNT_CTX_RE.search(low):
+        score = max(score, 100)
+    if _NON_PAYABLE_AMOUNT_CTX_RE.search(low):
+        score = min(score, 22)
+    if re.search(
+        r"(?i)\b(?:btw\s*bedrag|vat\s*amount|grondslag|tax\s*amount|basis\s*btw)\b",
+        low,
+    ):
+        score = min(score, 18)
+    if re.search(r"(?i)\bbtw\b", low) and not _PAYABLE_AMOUNT_CTX_RE.search(low):
+        score = min(score, 28)
+    if re.search(r"(?i)\b(?:factuurbedrag|factuurtotaal|eindbedrag)\b", low) and amount_type == "incl":
+        score = max(score, 72)
+    return score
+
+
+def _amount_payable_score(c: AmountCandidate) -> int:
+    return _amount_payable_score_fields(
+        str(getattr(c, "type", "unknown") or "unknown"),
+        str(c.source or ""),
+        str(c.context or ""),
+    )
+
+
+def _amount_pick_key(c: AmountCandidate) -> tuple[int, int, int]:
+    return (
+        _amount_payable_score(c),
+        int(c.confidence or 0),
+        _TENTATIVE_INCL_SOURCE_RANK.get(c.source, 0),
+    )
+
+
+def _pick_amount_group_best(group: list[AmountCandidate]) -> AmountCandidate:
+    if not group:
+        raise ValueError("empty amount group")
+    best_ps = max(_amount_payable_score(c) for c in group)
+    close = [c for c in group if _amount_payable_score(c) >= best_ps - 10]
+    if len(close) == 1:
+        return close[0]
+    return max(
+        close,
+        key=lambda c: (
+            _amount_payable_score(c),
+            int(c.confidence or 0),
+            _TENTATIVE_INCL_SOURCE_RANK.get(c.source, 0),
+        ),
+    )
+
 
 def _select_amount_core(candidates: list[AmountCandidate]) -> AmountResult:
     """Incl-first + legacy; kan ``ambiguous`` teruggeven (vóór tentative fallback)."""
@@ -2007,7 +2214,21 @@ def _select_amount_core(candidates: list[AmountCandidate]) -> AmountResult:
     if incl_cands:
         groups = _group_candidates_by_cent(incl_cands)
         if len(groups) == 1:
-            best = max(groups[0], key=lambda c: c.confidence)
+            g0 = groups[0]
+            best = _pick_amount_group_best(g0) if len(g0) > 1 else g0[0]
+            if best.value is not None and best.value < Decimal("120"):
+                alt_pool = [
+                    c
+                    for c in candidates
+                    if c.type != "excl"
+                    and c.value is not None
+                    and c.value >= Decimal("200")
+                    and int(c.confidence or 0) >= 65
+                ]
+                if alt_pool:
+                    alt = max(alt_pool, key=_amount_pick_key)
+                    if _amount_payable_score(alt) + 5 >= _amount_payable_score(best):
+                        best = alt
             return AmountResult(
                 candidates=sorted_cands,
                 value=best.value,
@@ -2023,7 +2244,7 @@ def _select_amount_core(candidates: list[AmountCandidate]) -> AmountResult:
         ):
             pg = payable_groups[0]
             pay = [c for c in pg if c.source == "total_label_payable"]
-            pick = max(pay, key=lambda c: c.confidence)
+            pick = _pick_amount_group_best(pay)
             return AmountResult(
                 candidates=sorted_cands,
                 value=pick.value,
@@ -2615,26 +2836,7 @@ def extract_invoice_data(
     # Invoice/customer number: try tabular header layout first, then labeled fields.
     try:
         def _tabular_invoice_customer(lines: list[str]) -> tuple[str | None, str | None]:
-            for i, hdr in enumerate(lines[:-1]):
-                h = hdr.lower()
-                if not ("fact" in h or "fakt" in h or "invoice" in h or "nota" in h):
-                    continue
-                has_inv = bool(
-                    re.search(
-                        r"(?i)\b(?:factuurnummer|factuur\s*nr\.?|fact\.?\s*nr\.?|faktuurnummer|faktuurnr\.?|fkt\.?\b|invoice\s*number|invoice\s*no\.?)\b",
-                        hdr,
-                    )
-                )
-                has_cust = bool(
-                    re.search(
-                        r"(?i)\b(?:klant\s*code|klantcode|klant\s*-?\s*nr\.?|klantnr\.?|"
-                        r"deb\.?\s*nr\.?|debnr\.?|debiteur)\b",
-                        hdr,
-                    )
-                )
-                if not (has_inv and has_cust):
-                    continue
-                val_line = lines[i + 1]
+            def _parse_vals(val_line: str) -> list[str]:
                 raw_tokens = [t for t in re.split(r"\s+", val_line.strip()) if t]
                 filtered: list[str] = []
                 for tok in raw_tokens:
@@ -2643,38 +2845,162 @@ def extract_invoice_data(
                     if re.fullmatch(r"(?i)NL\d{9}B\d{2}", tok.replace(" ", "")):
                         continue
                     filtered.append(tok)
-                # Preserve alphanumeric customer codes (e.g. "LA004717") and numeric invoice numbers.
                 vals: list[str] = []
                 for tok in filtered:
                     clean_tok = re.sub(r"^[\W_]+|[\W_]+$", "", tok)
                     if not clean_tok:
                         continue
                     if re.search(r"[A-Za-z]", clean_tok) and re.search(r"\d", clean_tok):
-                        # Keep alphanumeric tokens as-is (minus surrounding punctuation).
                         if len(clean_tok) >= 4:
                             vals.append(clean_tok)
                         continue
                     digits = re.sub(r"\D", "", clean_tok)
                     if len(digits) >= 4:
-                        vals.append(digits)
+                        vals.append(clean_tok)
                 if vals and re.fullmatch(r"20\d{6}", vals[0]):
                     vals = vals[1:]
-                if len(vals) < 2:
+                return vals
+
+            def _word_indices(hdr: str) -> tuple[int | None, int | None]:
+                words = [w.lower() for w in re.findall(r"[A-Za-z]+", hdr or "")]
+                inv_i: int | None = None
+                cust_i: int | None = None
+                for i, w in enumerate(words):
+                    if inv_i is None and (
+                        "factuurnr" in w
+                        or w in ("factuurnummer", "nummer", "invoice")
+                        or (
+                            w == "factuur"
+                            and any(x in words for x in ("relatie", "datum", "nummer", "nr"))
+                        )
+                    ):
+                        inv_i = i
+                    if cust_i is None and w in (
+                        "betaler",
+                        "klant",
+                        "debiteur",
+                        "debnr",
+                        "deb",
+                        "customer",
+                        "relatie",
+                    ):
+                        cust_i = i
+                return inv_i, cust_i
+
+            for i, hdr in enumerate(lines):
+                h = hdr.lower()
+                if not ("fact" in h or "fakt" in h or "invoice" in h or "nota" in h or "nummer" in h):
                     continue
-                idx_inv = hdr.lower().find("fakt") if "fakt" in hdr.lower() else hdr.lower().find("fact")
-                idx_klant = hdr.lower().find("klant")
-                idx_deb = hdr.lower().find("deb")
-                idx_cust = idx_klant if idx_klant != -1 else idx_deb
-                if idx_inv != -1 and idx_deb != -1 and idx_deb < idx_inv and len(vals) >= 3:
-                    # Rows can have leading order/reference columns before Deb/Fact values.
-                    return vals[-1], vals[-2]
-                # Two-column headers: map value order to header order.
-                if idx_inv != -1 and idx_cust != -1:
-                    if idx_inv < idx_cust:
-                        return vals[0], vals[1]
-                    return vals[1], vals[0]
-                # Fallback for noisy rows with extra tokens: invoice tends to be the last of the two.
-                return vals[-1], vals[-2]
+                has_inv = bool(
+                    not re.search(r"(?i)\bdatum\s+nummer\b", hdr)
+                    and (
+                        re.search(
+                            r"(?i)\b(?:factuurnummer|factuurnr|factuur\s*nr\.?|fact\.?\s*nr\.?|"
+                            r"faktuurnummer|faktuurnr\.?|fkt\.?\b|invoice\s*number|invoice\s*no\.?|"
+                            r"rechnung\s*(?:nr\.?|nummer)|rechnungsnummer)\b",
+                            hdr,
+                        )
+                        or (
+                            re.search(r"(?i)\bfactuur\b", hdr)
+                            and re.search(r"(?i)\b(?:relatie|datum)\b", hdr)
+                        )
+                        or (
+                            re.search(r"(?i)\bnummer\b", hdr)
+                            and re.search(r"(?i)\b(?:procedure|facturatiedatum)\b", hdr)
+                        )
+                    )
+                )
+                has_cust = bool(
+                    re.search(
+                        r"(?i)\b(?:klant\s*code|klantcode|klant\s*-?\s*nr\.?|klantnr\.?|"
+                        r"deb\.?\s*nr\.?|debnr\.?|debiteur|betaler|relatie|"
+                        r"customer\s*(?:number|no\.?|nr\.?)?|\bcustomer\b|"
+                        r"factureren\s+aan)\b",
+                        hdr,
+                    )
+                )
+                if not (has_inv and has_cust):
+                    continue
+                hdr_fields = sum(
+                    1
+                    for pat in (
+                        r"(?i)\b(?:factuurnr|factuurnummer|factuur\s*nr|fact\.?\s*nr|invoice|nummer)\b",
+                        r"(?i)\b(?:betaler|klant|deb|relatie|customer)\b",
+                        r"(?i)\b(?:datum|facturatiedatum|procedure)\b",
+                        r"(?i)\bordernummer\b",
+                    )
+                    if re.search(pat, hdr)
+                )
+                if hdr_fields < 2:
+                    continue
+                inv_i, cust_i = _word_indices(hdr)
+                for j in range(1, 5):
+                    if i + j >= len(lines):
+                        break
+                    val_line = lines[i + j] or ""
+                    if not val_line.strip():
+                        continue
+                    if re.search(r"\b\d{4}\s+[A-Z]{2}\b", val_line):
+                        continue
+                    order_ref_fact_table = bool(
+                        re.search(r"(?i)\border\s*/\s*referentie\b", hdr)
+                        and re.search(r"(?i)\bpakbon\b", hdr)
+                        and re.search(r"(?i)\bdeb\.?\s*nr\.?\b", hdr)
+                        and re.search(r"(?i)\bfact\.?\s*nr\.?\b", hdr)
+                        and re.search(r"(?i)\bdatum\b", hdr)
+                    )
+                    if re.search(
+                        r"(?i)\b(?:factuurnummer|factuurnr|invoice\s*no|debiteur|klant\s*nr|"
+                        r"ordernummer|betaler|relatie)\b",
+                        val_line,
+                    ) and not order_ref_fact_table:
+                        continue
+                    if re.search(r"(?i)\b(?:totaal|te\s+betalen)\b", val_line) and re.search(
+                        r"(?i)\b(?:eur|€)\b", val_line
+                    ):
+                        continue
+                    vals = _parse_vals(val_line)
+                    if (
+                        len(vals) >= 3
+                        and vals[0].isdigit()
+                        and len(vals[0]) >= 10
+                        and vals[0].startswith("0")
+                        and re.search(r"(?i)\bfactuurnr\b", hdr)
+                        and re.search(r"(?i)\bbetaler\b", hdr)
+                    ):
+                        vals = vals[1:]
+                    if len(vals) < 2:
+                        continue
+                    idx_inv_chr = (
+                        hdr.lower().find("fakt")
+                        if "fakt" in hdr.lower()
+                        else hdr.lower().find("fact")
+                    )
+                    idx_deb_chr = hdr.lower().find("deb")
+                    if (
+                        re.search(r"(?i)\bordernummer\b", hdr)
+                        and idx_inv_chr != -1
+                        and idx_deb_chr != -1
+                        and idx_deb_chr < idx_inv_chr
+                        and len(vals) >= 3
+                    ):
+                        return vals[-1], vals[-2]
+                    if (
+                        order_ref_fact_table
+                        and idx_deb_chr != -1
+                        and idx_inv_chr != -1
+                        and idx_deb_chr < idx_inv_chr
+                        and len(vals) >= 3
+                    ):
+                        return vals[-1], vals[-2]
+                    if inv_i is None:
+                        inv_i = 0
+                    if cust_i is None:
+                        cust_i = 1 if inv_i == 0 else 0
+                    tab_inv = vals[inv_i] if inv_i < len(vals) else None
+                    tab_cust = vals[cust_i] if cust_i < len(vals) else None
+                    if tab_inv and tab_cust:
+                        return tab_inv, tab_cust
             return None, None
 
         lines = primary_text.split("\n")
@@ -3024,11 +3350,33 @@ def extract_invoice_data(
 
     from parser.field_candidates import (
         extract_customer_number_result,
+        extract_email_domain_result,
         extract_invoice_number_result,
+        extract_kvk_number_result,
+        extract_vat_number_result,
     )
 
-    inv_result = extract_invoice_number_result(
+    invoice_ident_text = primary_text
+    tabular_order_ref_invoice = bool(
+        invoice_number_source == "tabular"
+        and re.search(
+            r"(?im)^.*\border\s*/\s*referentie\b.*\bpakbon\b.*\bdeb\.?\s*nr\.?\b.*\bfact\.?\s*nr\.?\b.*\bdatum\b.*$",
+            primary_text,
+        )
+    )
+    explicit_factuur_colon = re.search(
+        r"(?im)^\s*Factuur\s*:\s*([A-Za-z0-9][A-Za-z0-9\-\/]{3,})\s*$",
         primary_text,
+    )
+    explicit_invoice_number = (
+        explicit_factuur_colon.group(1).strip() if explicit_factuur_colon else invoice_number
+    )
+    if explicit_invoice_number and (explicit_factuur_colon or tabular_order_ref_invoice):
+        # Preserve explicit invoice context for the structured ranker.
+        invoice_ident_text = f"{primary_text.rstrip()}\nFactuurnummer: {explicit_invoice_number}"
+
+    inv_result = extract_invoice_number_result(
+        invoice_ident_text,
         resolved=invoice_number,
         resolved_source=invoice_number_source if invoice_number else None,
     )
@@ -3044,6 +3392,42 @@ def extract_invoice_data(
     if cust_result.value:
         customer_number = cust_result.value
         customer_number_source = cust_result.source
+
+    # New ident-like fields (use ident_text where OCR may contain footer/header details).
+    date_result_dict = build_invoice_date_result_snapshot(
+        primary_text,
+        invoice_date=invoice_date,
+        invoice_date_source=invoice_date_source,
+    )
+    if date_result_dict.get("value"):
+        invoice_date = str(date_result_dict.get("value") or "").strip() or invoice_date
+        invoice_date_source = str(date_result_dict.get("source") or "").strip() or invoice_date_source
+
+    email_result = extract_email_domain_result(
+        ident_text,
+        resolved=email_domain,
+        resolved_source="parsed" if email_domain else None,
+    )
+    if email_result.value:
+        email_domain = email_result.value
+
+    kvk_result = extract_kvk_number_result(
+        ident_text,
+        resolved=kvk_number,
+        resolved_source="parsed" if kvk_number else None,
+        debtor_kvk=debtor_kvk,
+    )
+    if kvk_result.value:
+        kvk_number = kvk_result.value
+
+    vat_result = extract_vat_number_result(
+        ident_text,
+        resolved=vat_number,
+        resolved_source="parsed" if vat_number else None,
+        debtor_vat=debtor_vat,
+    )
+    if vat_result.value:
+        vat_number = vat_result.value
 
     try:
         description = build_description(customer_number, invoice_number)
@@ -3065,14 +3449,18 @@ def extract_invoice_data(
         "customer_number": customer_number,
         "invoice_number_result": inv_result.to_dict(),
         "customer_number_result": cust_result.to_dict(),
+        "invoice_date_result": date_result_dict,
         "invoice_date": invoice_date,
         "invoice_date_source": invoice_date_source,
         "description": description,
         "type": doc_type,
         "supplier_hint": supplier_hint,
         "email_domain": email_domain,
+        "email_domain_result": email_result.to_dict(),
         "kvk_number": kvk_number,
+        "kvk_number_result": kvk_result.to_dict(),
         "vat_number": vat_number,
+        "vat_number_result": vat_result.to_dict(),
         "payment_term_days": payment_term_days,
         "raw_text": primary_text,
     }

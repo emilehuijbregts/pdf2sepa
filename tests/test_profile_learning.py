@@ -160,6 +160,9 @@ class TestConfirmInvoiceFields:
             "Technische Unie B.V.",
             "NL71ABNA0804385750",
             "113073/17078",
+            vat_number=None,
+            kvk_number=None,
+            email_domain=None,
         )
 
     def test_save_profile_learn_fails(self) -> None:

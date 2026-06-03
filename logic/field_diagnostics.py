@@ -53,6 +53,92 @@ _OVERRIDE_REASON_NL: dict[str, str] = {
     "db_master_conflict": "Leveranciers-DB heeft voorrang bij afwijkende waarde",
 }
 
+_FINAL_DECISION_REASON_NL: dict[str, str] = {
+    "highest_confidence": "Had de hoogste betrouwbaarheid",
+    "profile_override": "Herkend via leveranciersprofiel",
+    "user_override": "Handmatig gekozen door gebruiker",
+    "db_master_override": "Overgenomen uit leveranciersdatabase",
+    "fallback_generic": "Generieke parser gaf de sterkste match",
+}
+
+_REJECTION_REASON_NL: dict[str, str] = {
+    "user_locked": "Een handmatige keuze had voorrang",
+    "db_master_conflict": "De leveranciersdatabase had voorrang",
+    "generic_strong": "Een sterkere generieke match won",
+    "generic_preferred": "De generieke kandidaat was net sterker",
+    "profile_fills_gap": "Het leveranciersprofiel was overtuigender",
+    "profile_higher_confidence": "Een alternatief had hogere betrouwbaarheid",
+    "lower_confidence": "Lagere confidence dan de winnaar",
+    "weaker_label": "Zwakkere labelsterkte dan de winnaar",
+    "lower_source_priority": "Lagere bronprioriteit dan de winnaar",
+    "deterministic_tiebreak": "Verloren op deterministische tiebreak",
+    "cross_field_penalty": "Afgestraft door cross-field conflict",
+}
+
+_WINNER_REASON_NL: dict[str, str] = {
+    "higher_confidence": "Gekozen door hogere confidence",
+    "deterministic_tiebreak": "Gekozen via deterministische tiebreak",
+}
+
+_EXTRACTION_METHOD_NL: dict[str, str] = {
+    "fallback_missing": "Geen waarde gevonden in PDF",
+    "label_match": "Gevonden naast herkenbaar label",
+    "regex_fallback": "Herkend via patroonherkenning",
+    "regex": "Herkend via patroonherkenning",
+    "proximity": "Gevonden op basis van nabijheid in de tekst",
+    "footer_scan": "Gevonden in footer van document",
+    "header_scan": "Gevonden in header van document",
+}
+
+_CONTEXT_HINT_NL: dict[str, str] = {
+    "header": "header van document",
+    "footer": "footer van document",
+    "table": "tabel in document",
+    "body": "hoofdtekst van document",
+}
+
+_SOURCE_LABEL_NL: dict[str, str] = {
+    "profile": "Leveranciersprofiel",
+    "generic": "Generieke parser",
+    "db_master": "Leveranciersdatabase",
+    "manual": "Handmatige keuze",
+    "USER_PICKED": "Handmatige keuze",
+    "resolved": "Gekozen waarde",
+    "pdf_text": "PDF-tekst",
+    "ocr": "OCR",
+    "label": "Label in PDF",
+    "factuur_colon": "Factuurnummer naast label",
+    "factuur_plain": "Factuurreferentie in tekst",
+    "datum_nummer_table": "Nummer uit tabelregel",
+    "date_invoice_line": "Factuurregel met datum",
+    "year_slash_ref": "Referentie met jaartal",
+    "klantcode_inline": "Klantcode in tekstregel",
+    "label_block_same_line": "Waarde op dezelfde regel als label",
+    "split_k_newline": "Klantcode over meerdere regels",
+    "ref_slash": "Referentieveld met slash-notatie",
+    "tabular": "Tabelherkenning",
+    "vat": "BTW-herkenning",
+    "kvk": "KvK-herkenning",
+    "email": "E-mailherkenning",
+    "total_label_payable": "Totaal te betalen",
+    "total_label_invoice": "Factuurtotaal",
+    "total_label_generic": "Totaalbedrag",
+    "total_label_excl": "Subtotaal / excl. BTW",
+    "total_label_sum": "Somregel in document",
+    "total_line_hint": "Totaalregel in document",
+    "vat_summary": "BTW-overzicht",
+    "fallback_last_token": "Laatste bedrag in document",
+}
+
+_SCORE_LABEL_NL: dict[str, str] = {
+    "base": "Basisscore",
+    "label_bonus": "Bonus voor labelmatch",
+    "regex_bonus": "Bonus voor patroonmatch",
+    "table_bonus": "Bonus voor tabelcontext",
+    "layout_bonus": "Bonus voor documentlayout",
+    "distance_penalty": "Aftrek door afstand",
+}
+
 _IBAN_SOURCE_NL: dict[str, str] = {
     "pdf_text": "PDF-tekst",
     "ocr": "OCR",
@@ -68,6 +154,53 @@ def _nl(code: str, mapping: dict[str, str]) -> str:
     if not s:
         return ""
     return mapping.get(s, s)
+
+
+def translate_final_decision_reason(code: str) -> str:
+    translated = _nl(code, _FINAL_DECISION_REASON_NL)
+    return translated if translated != code else "Gekozen op basis van de sterkste signalen"
+
+
+def translate_rejection_reason(code: str) -> str:
+    translated = _nl(code, _REJECTION_REASON_NL)
+    return (
+        translated
+        if translated != code
+        else "Niet gekozen omdat een andere kandidaat sterker was"
+    )
+
+
+def translate_winner_reason(code: str) -> str:
+    translated = _nl(code, _WINNER_REASON_NL)
+    return translated if translated != code else "Gekozen op basis van deterministische ranking"
+
+
+def translate_extraction_method(code: str) -> str:
+    translated = _nl(code, _EXTRACTION_METHOD_NL)
+    return translated if translated != code else "Herkend op basis van documentanalyse"
+
+
+def translate_context_hint(code: str) -> str:
+    translated = _nl(code, _CONTEXT_HINT_NL)
+    return translated if translated != code else "locatie in document"
+
+
+def translate_source_label(code: str) -> str:
+    translated = _nl(code, _SOURCE_LABEL_NL)
+    return translated if translated != code else "bron in document"
+
+
+def _score_breakdown_lines_nl(score_breakdown: dict[str, Any] | None) -> list[str]:
+    if not isinstance(score_breakdown, dict):
+        return []
+    lines: list[str] = []
+    for key, raw_value in score_breakdown.items():
+        k = str(key or "").strip()
+        if not k:
+            continue
+        label = _SCORE_LABEL_NL.get(k, "Scoringssignaal")
+        lines.append(f"{label}: {raw_value}")
+    return lines[:8]
 
 
 def _format_amount_display(raw: object | None) -> str | None:
@@ -102,6 +235,44 @@ def _hybrid_override_meta(result_dict: dict[str, Any] | None) -> dict[str, Any]:
     trace = result_dict.get("decision_trace")
     if isinstance(trace, list) and trace:
         out["decision_trace"] = trace
+        trace_human: list[dict[str, Any]] = []
+        for entry in trace:
+            if not isinstance(entry, dict):
+                continue
+            rendered = dict(entry)
+            if str(entry.get("kind") or "") == "final":
+                rendered["final_decision_reason_nl"] = translate_final_decision_reason(
+                    str(entry.get("final_decision_reason") or "").strip()
+                )
+                winner = entry.get("winner") if isinstance(entry.get("winner"), dict) else {}
+                if winner:
+                    winner_reason = str(winner.get("winner_reason") or "").strip()
+                    rendered["winner"] = {
+                        **winner,
+                        "source_nl": translate_source_label(
+                            str(winner.get("source") or "").strip()
+                        ),
+                        "winner_reason_nl": (
+                            translate_winner_reason(winner_reason) if winner_reason else None
+                        ),
+                    }
+            else:
+                rendered["source_nl"] = translate_source_label(
+                    str(entry.get("source") or "").strip()
+                )
+                winner_reason = str(entry.get("winner_reason") or "").strip()
+                if winner_reason:
+                    rendered["winner_reason_nl"] = translate_winner_reason(winner_reason)
+                reason_code = str(
+                    entry.get("rejection_reason") or entry.get("excluded_reason") or ""
+                ).strip()
+                if reason_code:
+                    reason_nl = translate_rejection_reason(reason_code)
+                    rendered["rejection_reason_nl"] = reason_nl
+                    rendered["excluded_reason_nl"] = reason_nl
+            trace_human.append(rendered)
+        if trace_human:
+            out["decision_trace_human"] = trace_human
     if result_dict.get("user_overridden"):
         out["user_overridden"] = True
     prev = result_dict.get("previous_value")
@@ -116,6 +287,7 @@ def map_field_candidate_for_diag(
     field_id: FieldId,
     source_nl_map: dict[str, str] | None = None,
 ) -> dict[str, Any]:
+    cand_dict: dict[str, Any] | None = cand if isinstance(cand, dict) else None
     if isinstance(cand, dict):
         if field_id == "amount":
             fc = field_candidate_from_amount_dict(cand)
@@ -127,18 +299,51 @@ def map_field_candidate_for_diag(
     raw_val = fc.value
     val_str = str(raw_val) if raw_val is not None else ""
     src = str(fc.source or "").strip()
-    preview = _context_preview(str(fc.context or ""))
+    context = str(fc.context or "").strip()
+    preview = _context_preview(context)
     conf = int(fc.confidence or 0)
+    extraction_method = str((cand_dict or {}).get("extraction_method") or "").strip()
+    label_source = str((cand_dict or {}).get("label_source") or "").strip()
+    match_type = str((cand_dict or {}).get("match_type") or "").strip().lower()
+    label_reason = str((cand_dict or {}).get("label_reason") or "").strip()
+    context_hint = str((cand_dict or {}).get("context_hint") or "").strip()
+    parse_path = str((cand_dict or {}).get("parse_path") or "").strip()
+    raw_detected = (cand_dict or {}).get("raw_detected")
+    normalized_iso = (cand_dict or {}).get("normalized_iso")
+    score_breakdown = (
+        (cand_dict or {}).get("score_breakdown")
+        if isinstance((cand_dict or {}).get("score_breakdown"), dict)
+        else None
+    )
+    common_explain = {
+        "context": context or None,
+        "context_preview": preview,
+        "extraction_method": extraction_method or None,
+        "extraction_method_nl": (
+            translate_extraction_method(extraction_method) if extraction_method else None
+        ),
+        "label_source": label_source or None,
+        "match_type": match_type if match_type in {"label", "regex", "fallback"} else None,
+        "label_reason": label_reason or None,
+        "label_reason_nl": label_reason or None,
+        "context_hint": context_hint or None,
+        "context_hint_nl": translate_context_hint(context_hint) if context_hint else None,
+        "parse_path": parse_path or None,
+        "raw_detected": raw_detected,
+        "normalized_iso": normalized_iso,
+        "score_breakdown": score_breakdown,
+        "score_breakdown_nl": _score_breakdown_lines_nl(score_breakdown),
+    }
 
     if field_id == "amount":
         return {
             "value": val_str,
             "value_display": _format_amount_display(raw_val),
             "source": src,
-            "source_nl": _nl(src, source_nl_map or {}),
+            "source_nl": _nl(src, source_nl_map or {}) or translate_source_label(src),
             "confidence": conf,
             "type": str(fc.meta.get("type") or "unknown"),
-            "context_preview": preview,
+            **common_explain,
         }
 
     if field_id == "iban":
@@ -150,17 +355,17 @@ def map_field_candidate_for_diag(
             "source_nl": _nl(src, nl_map),
             "confidence": conf,
             "label": str(fc.label or "").strip() or None,
-            "context_preview": preview,
+            **common_explain,
         }
 
     return {
         "value": val_str,
         "value_display": val_str,
         "source": src,
-        "source_nl": src,
+        "source_nl": translate_source_label(src),
         "confidence": conf,
         "label": str(fc.label or "").strip() or None,
-        "context_preview": preview,
+        **common_explain,
     }
 
 

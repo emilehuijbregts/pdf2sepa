@@ -23,6 +23,10 @@ from parser.pdf_parser import (
     _AMOUNT_TOKEN,
     _CUSTOMER_LABEL_RE,
     _INVOICE_LABEL_RE,
+    _INVOICE_DATE_LABEL_RE,
+    _EMAIL_RE,
+    _KVK_RE,
+    _VAT_RE,
     _TOTAL_LINE_EXCLUDE_RE,
     _TOTAL_LINE_HINT_RE,
     _iter_amount_tokens_excluding_percent,
@@ -39,6 +43,10 @@ _FIELD_LABEL_RES: dict[str, re.Pattern[str]] = {
     "invoice_number": _INVOICE_LABEL_RE,
     "customer_number": _CUSTOMER_LABEL_RE,
     "iban": _IBAN_LABEL_RE,
+    "invoice_date": _INVOICE_DATE_LABEL_RE,
+    "vat_number": re.compile(r"(?i)\b(?:btw(?:-|\s*)nummer|btw|vat)\b"),
+    "kvk_number": re.compile(r"(?i)\b(?:kvk|k\.?v\.?k\.?)\b"),
+    "email_domain": re.compile(r"(?i)\b(?:e-?mail|email)\b"),
 }
 
 _DIALOG_OVERLAY_FIELD_IDS: frozenset[FieldId] = frozenset(
@@ -793,6 +801,12 @@ def _learn_field_spec(
             spec = _learn_field_amount_fallback(lines, confirmed)
         if spec is None:
             spec = _learn_field_amount_label_next_line(lines, confirmed)
+    elif field_id == "invoice_date":
+        spec = _learn_field_invoice_date(raw_text, lines, str(confirmed), context or "")
+    elif field_id == "vat_number":
+        spec = _learn_field_vat_number(raw_text, lines, str(confirmed))
+    elif field_id == "email_domain":
+        spec = _learn_field_email_domain(raw_text, lines, str(confirmed))
     else:
         val_s = _format_confirmed_for_spec(field_id, confirmed)
         spec = _learn_field_string(raw_text, lines, field_id, val_s)
@@ -806,6 +820,112 @@ def _learn_field_spec(
         spec = dict(spec)
         spec["confidence"] = conf
     return spec
+
+
+def _learn_field_invoice_date(
+    raw_text: str,
+    lines: list[str],
+    confirmed_iso: str,
+    context_line: str,
+) -> dict[str, str] | None:
+    """
+    Invoice date learning is value-normalized (ISO), but the PDF contains locale date tokens.
+    We therefore locate matching date tokens on lines with an invoice-date label and infer
+    the same (label,strategy) contract as other fields.
+    """
+    target = normalize_field_value("invoice_date", confirmed_iso)
+    if not isinstance(target, str) or not target:
+        return None
+
+    # Prefer explicit label hits.
+    for i, line in enumerate(lines):
+        for m in _INVOICE_DATE_LABEL_RE.finditer(line or ""):
+            label_text = _extend_label_span(line, m.start(), m.end())
+            # Same line: try to find any token that normalizes to target.
+            tail = (line or "")[m.end() :]
+            for dm in re.finditer(r"\b\d{1,4}[\./-]\d{1,2}[\./-]\d{1,4}\b|\b\d{1,2}\s+[A-Za-z]{3,}\.?\s+\d{4}\b", tail):
+                tok = dm.group(0)
+                if normalize_field_value("invoice_date", tok) == target:
+                    return {
+                        "label": label_text,
+                        "strategy": "same_line_after_colon",
+                        "confirmed_value": target,
+                    }
+            # Next line: date token on next non-empty line.
+            if i + 1 < len(lines):
+                nxt = (lines[i + 1] or "").strip()
+                if nxt:
+                    for dm in re.finditer(r"\b\d{1,4}[\./-]\d{1,2}[\./-]\d{1,4}\b|\b\d{1,2}\s+[A-Za-z]{3,}\.?\s+\d{4}\b", nxt):
+                        tok = dm.group(0)
+                        if normalize_field_value("invoice_date", tok) == target:
+                            return {
+                                "label": label_text,
+                                "strategy": "next_line_first_token",
+                                "confirmed_value": target,
+                            }
+    # Context fallback: if we have a context line, try to find the label line by substring.
+    if context_line:
+        idx = _find_label_line(lines, context_line)
+        if idx is not None and 0 <= idx < len(lines):
+            ln = lines[idx]
+            for m in _INVOICE_DATE_LABEL_RE.finditer(ln or ""):
+                label_text = _extend_label_span(ln, m.start(), m.end())
+                return {"label": label_text, "strategy": "same_line_after_colon", "confirmed_value": target}
+    return None
+
+
+def _learn_field_vat_number(
+    raw_text: str,
+    lines: list[str],
+    confirmed_vat: str,
+) -> dict[str, str] | None:
+    target = normalize_field_value("vat_number", confirmed_vat)
+    if not isinstance(target, str) or not target:
+        return None
+    for m in _VAT_RE.finditer(raw_text or ""):
+        tok = m.group(0)
+        if normalize_field_value("vat_number", tok) != target:
+            continue
+        located = _locate_string_position(raw_text, tok)
+        if located is None:
+            continue
+        _pos, line_idx, pos_in_line, _actual = located
+        found = _find_best_label(lines, line_idx, pos_in_line, "vat_number")
+        if found is None:
+            continue
+        label_text, label_line_idx = found
+        strategy = _infer_strategy_for_field(lines, label_line_idx, line_idx, pos_in_line, "vat_number", None)
+        if strategy is None:
+            continue
+        return {"label": label_text, "strategy": strategy, "confirmed_value": target}
+    return None
+
+
+def _learn_field_email_domain(
+    raw_text: str,
+    lines: list[str],
+    confirmed_domain: str,
+) -> dict[str, str] | None:
+    target = normalize_field_value("email_domain", confirmed_domain)
+    if not isinstance(target, str) or not target:
+        return None
+    for m in _EMAIL_RE.finditer(raw_text or ""):
+        dom = m.group(1)
+        if normalize_field_value("email_domain", dom) != target:
+            continue
+        located = _locate_string_position(raw_text, dom)
+        if located is None:
+            continue
+        _pos, line_idx, pos_in_line, _actual = located
+        found = _find_best_label(lines, line_idx, pos_in_line, "email_domain")
+        if found is None:
+            continue
+        label_text, label_line_idx = found
+        strategy = _infer_strategy_for_field(lines, label_line_idx, line_idx, pos_in_line, "email_domain", None)
+        if strategy is None:
+            continue
+        return {"label": label_text, "strategy": strategy, "confirmed_value": target}
+    return None
 
 
 def learn_profile_from_resolved_fields(
