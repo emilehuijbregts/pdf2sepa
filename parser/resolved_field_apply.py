@@ -101,6 +101,7 @@ def apply_resolved_field_result(
     *,
     snapshot: dict | None = None,
     row=None,
+    preserve_null_scalar: bool = False,
 ) -> None:
     """Apply a resolver-final result to invoice, snapshot and optional UI row sink."""
     resolved = _canonical_result_dict(field_id, result)
@@ -111,7 +112,10 @@ def apply_resolved_field_result(
     selected = resolved.get("selected_value")
     scalar = _legacy_scalar_value(field_id, selected)
     if scalar is None:
-        invoice.pop(legacy_key, None)
+        if preserve_null_scalar:
+            invoice[legacy_key] = None
+        else:
+            invoice.pop(legacy_key, None)
     else:
         invoice[legacy_key] = scalar
 
@@ -123,7 +127,10 @@ def apply_resolved_field_result(
     if isinstance(snapshot, dict):
         snapshot[result_key] = deepcopy(resolved)
         if scalar is None:
-            snapshot.pop(legacy_key, None)
+            if preserve_null_scalar:
+                snapshot[legacy_key] = None
+            else:
+                snapshot.pop(legacy_key, None)
         else:
             snapshot[legacy_key] = scalar
 

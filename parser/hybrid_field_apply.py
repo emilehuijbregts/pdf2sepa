@@ -183,10 +183,8 @@ def apply_hybrid_field_extraction(
     amount_tentative = str(amount_status or "").strip().lower() == "tentative"
 
     for field_id in _HYBRID_FIELD_IDS:
-        generic_fr = field_result_from_legacy_dict(
-            _generic_result_dict(invoice, invoice_copy, field_id),
-            field_id=field_id,
-        )
+        generic_dict = _generic_result_dict(invoice, invoice_copy, field_id)
+        generic_fr = field_result_from_legacy_dict(generic_dict, field_id=field_id)
 
         overrides: list[FieldCandidate] = []
         overrides.extend(_build_db_override_candidates(field_id, supplier, invoice, db))
@@ -254,7 +252,13 @@ def apply_hybrid_field_extraction(
     invoice_copy["profile_fields"] = profile_fields
 
 
-def apply_generic_field_resolution(invoice: dict, invoice_copy: dict) -> None:
+def apply_generic_field_resolution(
+    invoice: dict,
+    invoice_copy: dict,
+    *,
+    preserve_generic_outcome: bool = False,
+    preserve_null_scalars: bool = False,
+) -> None:
     """Route parser-only fields through the resolver with empty overrides.
 
     Used for invoices without a supplier match: there is no DB/profile input, but
@@ -266,10 +270,8 @@ def apply_generic_field_resolution(invoice: dict, invoice_copy: dict) -> None:
         if key not in invoice and key not in invoice_copy:
             continue
 
-        generic_fr = field_result_from_legacy_dict(
-            _generic_result_dict(invoice, invoice_copy, field_id),
-            field_id=field_id,
-        )
+        generic_dict = _generic_result_dict(invoice, invoice_copy, field_id)
+        generic_fr = field_result_from_legacy_dict(generic_dict, field_id=field_id)
         if generic_fr.selected_value is not None:
             winner_meta: dict[str, Any] = {}
             for cand in generic_fr.candidates:
@@ -312,9 +314,23 @@ def apply_generic_field_resolution(invoice: dict, invoice_copy: dict) -> None:
             )
 
         resolved_fr = resolve_field(field_id, generic_fr, [], user_pick=user_pick)
-        resolved_fr.resolver_finalized = True
+        resolved_dict: dict[str, Any]
+        if preserve_generic_outcome:
+            generic_fr.decision_trace = list(resolved_fr.decision_trace or [])
+            generic_fr.override_reason = resolved_fr.override_reason
+            generic_fr.resolver_finalized = True
+            resolved_dict = {
+                **generic_dict,
+                "decision_trace": list(resolved_fr.decision_trace or []),
+                "override_reason": str(resolved_fr.override_reason or ""),
+                "resolver_finalized": True,
+            }
+        else:
+            resolved_fr.resolver_finalized = True
+            resolved_dict = field_result_to_legacy_dict(resolved_fr)
         apply_resolved_field_result(
             invoice_copy,
             field_id,
-            field_result_to_legacy_dict(resolved_fr),
+            resolved_dict,
+            preserve_null_scalar=preserve_null_scalars,
         )

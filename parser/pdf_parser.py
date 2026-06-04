@@ -3461,36 +3461,37 @@ def extract_invoice_data(
     except Exception:
         pass
 
-    return {
-        "iban": iban,
+    parsed_invoice = {
         "all_ibans": all_ibans,
         "iban_result": iban_result.to_dict(),
-        # Legacy amount fields (deprecated — use amount_result)
-        "amount": amount,
-        "amount_source": amount_source,
-        "amount_confidence": amount_confidence,
-        # New structured amount result
         "amount_result": amount_result.to_dict(),
         "amount_excl_vat": amount_excl_vat,
-        "invoice_number": invoice_number,
-        "customer_number": customer_number,
         "invoice_number_result": inv_result.to_dict(),
         "customer_number_result": cust_result.to_dict(),
         "invoice_date_result": date_result_dict,
-        "invoice_date": invoice_date,
         "invoice_date_source": invoice_date_source,
         "description": description,
         "type": doc_type,
         "supplier_hint": supplier_hint,
-        "email_domain": email_domain,
         "email_domain_result": email_result.to_dict(),
-        "kvk_number": kvk_number,
         "kvk_number_result": kvk_result.to_dict(),
-        "vat_number": vat_number,
         "vat_number_result": vat_result.to_dict(),
         "payment_term_days": payment_term_days,
         "raw_text": primary_text,
     }
+    from parser.hybrid_field_apply import apply_generic_field_resolution
+
+    apply_generic_field_resolution(
+        parsed_invoice,
+        parsed_invoice,
+        preserve_generic_outcome=True,
+        preserve_null_scalars=True,
+    )
+    # Backward-compatible non-value metadata; field scalars above are written by
+    # apply_resolved_field_result via apply_generic_field_resolution.
+    parsed_invoice["amount_source"] = amount_source
+    parsed_invoice["amount_confidence"] = amount_confidence
+    return parsed_invoice
 
 def _ocr_pixmap_pytesseract(pix) -> str:
     """OCR a PyMuPDF Pixmap via pytesseract + Pillow (fallback path)."""
