@@ -5,7 +5,12 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from parser.field_candidates import IdentFieldCandidate, candidate_rank_key, rank_key
+from parser.field_candidates import (
+    IdentFieldCandidate,
+    candidate_rank_key,
+    rank_candidates,
+    rank_key,
+)
 from parser.field_model import FieldCandidate, FieldId, FieldResult, normalize_field_status
 
 HIGH_CONFIDENCE = 85
@@ -108,7 +113,7 @@ def _generic_candidate(generic: FieldResult) -> FieldCandidate | None:
             if _values_equal(generic.field_id, c.value, generic.selected_value)
         ]
         if matches:
-            best = max(matches, key=_candidate_rank_tuple)
+            best = max(matches, key=_ident_rank_tuple)
             chosen = _to_field_candidate(best)
             if not chosen.source:
                 chosen.source = generic.source or "generic"
@@ -122,7 +127,7 @@ def _generic_candidate(generic: FieldResult) -> FieldCandidate | None:
             context=str(generic.context or ""),
         )
     if generic.candidates:
-        best = max(generic.candidates, key=_candidate_rank_tuple)
+        best = max(generic.candidates, key=_ident_rank_tuple)
         return _to_field_candidate(best)
     return None
 
@@ -159,7 +164,7 @@ def _trace_entry(
 def _pick_best_override(overrides: list[FieldCandidate]) -> FieldCandidate | None:
     if not overrides:
         return None
-    return sorted(overrides, key=_candidate_rank_tuple, reverse=True)[0]
+    return sorted(overrides, key=_ident_rank_tuple, reverse=True)[0]
 
 
 def _to_ident_candidate(cand: FieldCandidate) -> IdentFieldCandidate:
@@ -233,25 +238,24 @@ def _source_priority(cand: FieldCandidate) -> int:
 
 
 def _resolver_rank_key(field_id: FieldId, cand: FieldCandidate) -> tuple[Any, ...]:
-    """Resolver ordering key (Phase B2).
+    """Canonical resolver ranking (Phase B4 → ``rank_key``, context ``resolver``)."""
+    return rank_key(field_id, cand, context="resolver")
 
-    Amount and invoice_date delegate to canonical ``rank_key``; ident fields keep
-    the legacy ident-only ``_candidate_rank_tuple`` (no resolve-time field_id
-    injection — see ``tests/test_pipeline_parity.py``).
-    """
-    if field_id in ("amount", "invoice_date"):
-        return rank_key(field_id, cand, context="resolver")
-    return _candidate_rank_tuple(cand)
+
+def _ident_rank_tuple(cand: FieldCandidate) -> tuple[Any, ...]:
+    """Ident-only rank for generic-helper paths (no amount/date resolver branches)."""
+    ident = _to_ident_candidate(cand)
+    return candidate_rank_key(ident)
 
 
 def _candidate_rank_components(cand: FieldCandidate) -> tuple[int, int, int, int, int]:
-    key = _candidate_rank_tuple(cand)
+    key = _ident_rank_tuple(cand)
     return (int(key[0]), int(key[1]), int(key[2]), int(key[3]), int(key[4]))
 
 
 def _candidate_rank_tuple(cand: FieldCandidate) -> tuple[Any, ...]:
-    ident = _to_ident_candidate(cand)
-    return candidate_rank_key(ident)
+    """Backward-compatible alias for generic-helper ident ranking."""
+    return _ident_rank_tuple(cand)
 
 
 def _is_valid_labeled_pdf_iban_candidate(cand: FieldCandidate) -> bool:
@@ -369,11 +373,7 @@ def resolve_field(
             field_id, best
         ):
             dedup[key] = cand
-    ranked = sorted(
-        dedup.values(),
-        key=lambda c: _resolver_rank_key(field_id, c),
-        reverse=True,
-    )
+    ranked = rank_candidates(field_id, list(dedup.values()), context="resolver")
     forced_excluded_reasons: dict[tuple[str, str], str] = {}
     forced_final_reason: str | None = None
 

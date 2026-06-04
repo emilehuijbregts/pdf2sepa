@@ -1,17 +1,7 @@
-"""PHASE A — BEHAVIOR LOCK (observability only).
+"""PHASE A / B4 — canonical ranking parity observability.
 
-These tests make the CURRENT parse-time vs resolver ranking divergences VISIBLE.
-They assert today's reality; they do NOT fix it. Phase B will reconcile each
-divergence inside one canonical ranking function, at which point these tests are
-expected to change (intentionally, with a documented winner-change log).
-
-Documented divergences (see plan section B / C1):
-  1. prefer_k_prefix is honored at parse time but dropped by the resolver.
-  2. cross-field penalties are applied only at parse time; the resolver never
-     re-applies them, so a non-penalized candidate (e.g. a profile/db override
-     or a re-synthesized generic candidate) keeps full confidence.
-  3. amount is ranked by a payable-score-first key in the resolver, which
-     differs from the label-strength-first base key used for ident fields.
+Documents intentional parse-vs-resolver divergences that remain after B4
+unification (both stages use ``rank_key``; differences are context-driven).
 """
 
 from __future__ import annotations
@@ -23,7 +13,7 @@ from parser.field_candidates import (
     candidate_rank_key,
 )
 from parser.field_model import FieldCandidate
-from parser.field_resolver import _candidate_rank_tuple
+from parser.field_resolver import _ident_rank_tuple, _resolver_rank_key
 
 # The +3 K-prefix source-priority bonus (parser/field_candidates.py:_source_priority).
 _K_PREFIX_BONUS = 3
@@ -54,7 +44,8 @@ def test_divergence_1_prefer_k_prefix_dropped_by_resolver() -> None:
         context="Klantcode K04816069",
         meta={"field_id": "customer_number"},
     )
-    assert tuple(_candidate_rank_tuple(fc)) == resolver_key
+    assert tuple(_ident_rank_tuple(fc)) == resolver_key
+    assert _resolver_rank_key("customer_number", fc) == resolver_key
 
 
 def test_divergence_2_cross_field_penalty_not_applied_in_resolver() -> None:
@@ -82,7 +73,7 @@ def test_divergence_2_cross_field_penalty_not_applied_in_resolver() -> None:
         context="Ordernummer 123456",
         meta={"field_id": "invoice_number"},
     )
-    resolver_key = tuple(_candidate_rank_tuple(override))
+    resolver_key = tuple(_ident_rank_tuple(override))
     parse_key = candidate_rank_key(penalized)
 
     assert resolver_key[3] == 80  # resolver sees un-penalized confidence
@@ -91,14 +82,8 @@ def test_divergence_2_cross_field_penalty_not_applied_in_resolver() -> None:
 
 
 def _resolver_amount_key(fc: FieldCandidate) -> tuple:
-    """Mirror of the resolver's amount-specific key (field_resolver.py resolve_field._rank_key)."""
-    base = tuple(_candidate_rank_tuple(fc))
-    meta = fc.meta if isinstance(fc.meta, dict) else {}
-    try:
-        payable_score = int(meta.get("payable_score") or 0)
-    except (TypeError, ValueError):
-        payable_score = 0
-    return (payable_score, int(base[3]), int(base[4]), str(base[5]), str(base[6]))
+    """Canonical resolver amount key (``rank_key``, context ``resolver``)."""
+    return _resolver_rank_key("amount", fc)
 
 
 def test_divergence_3_amount_uses_payable_score_first_key() -> None:
@@ -122,7 +107,7 @@ def test_divergence_3_amount_uses_payable_score_first_key() -> None:
 
     # Ident base key (label-strength-first, then confidence) would pick the
     # higher-confidence candidate.
-    base_winner = max(pool, key=lambda c: _candidate_rank_tuple(c))
+    base_winner = max(pool, key=lambda c: _ident_rank_tuple(c))
     # Resolver amount key (payable-score-first) picks the higher payable score.
     amount_winner = max(pool, key=_resolver_amount_key)
 

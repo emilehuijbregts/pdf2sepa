@@ -612,7 +612,9 @@ def rank_key(
 
     from parser.pdf_parser import AmountCandidate
 
-    ident = _coerce_ident_candidate(cand, field_id=field_id)
+    # Resolver must not inject resolve-time field_id into meta (legacy ident ranking).
+    coerce_fid = field_id if context == "parse" else None
+    ident = _coerce_ident_candidate(cand, field_id=coerce_fid)
     fid = str(field_id or (ident.meta or {}).get("field_id") or "").strip().lower()
 
     if fid == "amount" and context == "parse":

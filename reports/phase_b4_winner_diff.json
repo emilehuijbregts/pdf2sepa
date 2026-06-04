@@ -1,0 +1,8 @@
+{
+  "phase": "B4",
+  "note": "Phase B4: resolver unified on rank_key/rank_candidates; production winners must match Phase A.1/B3 snapshot.",
+  "summary": {
+    "production_winner_changes": 0
+  },
+  "production_winner_changes": []
+}
