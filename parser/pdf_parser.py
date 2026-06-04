@@ -1989,11 +1989,11 @@ def _tentative_incl_pick(candidates: list[AmountCandidate]) -> AmountCandidate |
     ]
     if not pool:
         return None
-    picked = max(pool, key=_amount_pick_key)
+    picked = _pick_best_amount(pool)
     if picked.value is not None and picked.value < Decimal("120"):
         larger = [c for c in pool if c.value is not None and c.value >= Decimal("200")]
         if larger:
-            return max(larger, key=_amount_pick_key)
+            return _pick_best_amount(larger)
     return picked
 
 
@@ -2172,12 +2172,46 @@ def _amount_payable_score(c: AmountCandidate) -> int:
     )
 
 
-def _amount_pick_key(c: AmountCandidate) -> tuple[int, int, int]:
-    return (
-        _amount_payable_score(c),
-        int(c.confidence or 0),
-        _TENTATIVE_INCL_SOURCE_RANK.get(c.source, 0),
+def _amount_field_candidate(c: AmountCandidate) -> Any:
+    from parser.field_model import FieldCandidate
+
+    return FieldCandidate(
+        value=c.value,
+        source=str(c.source or ""),
+        confidence=int(c.confidence or 0),
+        context=str(c.context or ""),
+        meta={
+            "field_id": "amount",
+            "type": str(getattr(c, "type", "unknown") or "unknown"),
+        },
     )
+
+
+def _amount_pick_key(c: AmountCandidate) -> tuple[Any, ...]:
+    """Thin delegator to canonical ``rank_key`` (Phase B3)."""
+    from parser.field_candidates import rank_key
+
+    return rank_key("amount", _amount_field_candidate(c), context="parse")
+
+
+def _pick_best_amount(pool: list[AmountCandidate]) -> AmountCandidate:
+    """Highest parse-time amount rank (canonical ``rank_candidates``)."""
+    from parser.field_candidates import rank_candidates
+
+    if not pool:
+        raise ValueError("empty amount pool")
+    if len(pool) == 1:
+        return pool[0]
+    indexed = [(c, _amount_field_candidate(c)) for c in pool]
+    ordered = rank_candidates("amount", [fc for _, fc in indexed], context="parse")
+    best_fc = ordered[0]
+    for cand, fc in indexed:
+        if (
+            str(fc.value) == str(best_fc.value)
+            and str(fc.source or "") == str(best_fc.source or "")
+        ):
+            return cand
+    return max(pool, key=_amount_pick_key)
 
 
 def _pick_amount_group_best(group: list[AmountCandidate]) -> AmountCandidate:
@@ -2187,14 +2221,7 @@ def _pick_amount_group_best(group: list[AmountCandidate]) -> AmountCandidate:
     close = [c for c in group if _amount_payable_score(c) >= best_ps - 10]
     if len(close) == 1:
         return close[0]
-    return max(
-        close,
-        key=lambda c: (
-            _amount_payable_score(c),
-            int(c.confidence or 0),
-            _TENTATIVE_INCL_SOURCE_RANK.get(c.source, 0),
-        ),
-    )
+    return _pick_best_amount(close)
 
 
 def _select_amount_core(candidates: list[AmountCandidate]) -> AmountResult:
@@ -2226,7 +2253,7 @@ def _select_amount_core(candidates: list[AmountCandidate]) -> AmountResult:
                     and int(c.confidence or 0) >= 65
                 ]
                 if alt_pool:
-                    alt = max(alt_pool, key=_amount_pick_key)
+                    alt = _pick_best_amount(alt_pool)
                     if _amount_payable_score(alt) + 5 >= _amount_payable_score(best):
                         best = alt
             return AmountResult(

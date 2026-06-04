@@ -1,0 +1,8 @@
+{
+  "phase": "B3",
+  "note": "Phase B3: parser amount path delegates to rank_key(parse); production winners must match Phase A.1/B2 snapshot.",
+  "summary": {
+    "production_winner_changes": 0
+  },
+  "production_winner_changes": []
+}

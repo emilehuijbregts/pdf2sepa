@@ -552,6 +552,19 @@ def _candidate_rank_key(
 RankingContext = Literal["parse", "resolver"]
 
 
+def _amount_parse_rank_key(c: Any) -> tuple[int, int, int]:
+    """Parse-time amount rank (canonical; legacy ``pdf_parser._amount_pick_key``)."""
+    from parser.pdf_parser import AmountCandidate, _amount_payable_score, _TENTATIVE_INCL_SOURCE_RANK
+
+    if not isinstance(c, AmountCandidate):
+        raise TypeError(f"expected AmountCandidate, got {type(c)!r}")
+    return (
+        _amount_payable_score(c),
+        int(c.confidence or 0),
+        _TENTATIVE_INCL_SOURCE_RANK.get(str(c.source or ""), 0),
+    )
+
+
 def _coerce_ident_candidate(
     cand: IdentFieldCandidate | Any,
     *,
@@ -590,14 +603,14 @@ def rank_key(
     """Canonical per-candidate rank key (Phase B1).
 
     ``parse``: ident fields use ``candidate_rank_key`` (incl. ``prefer_k_prefix``);
-    amount uses ``pdf_parser._amount_pick_key``.
+    amount uses ``_amount_parse_rank_key`` (payable-score-first, same as legacy pick key).
 
     ``resolver``: ident fields use ``candidate_rank_key`` (no K-prefix bonus);
     amount prepends ``payable_score``; ``invoice_date`` adds date tiebreak.
     """
     from decimal import Decimal
 
-    from parser.pdf_parser import AmountCandidate, _amount_pick_key
+    from parser.pdf_parser import AmountCandidate
 
     ident = _coerce_ident_candidate(cand, field_id=field_id)
     fid = str(field_id or (ident.meta or {}).get("field_id") or "").strip().lower()
@@ -616,7 +629,7 @@ def rank_key(
             context=str(ident.context or ""),
             type=ctype,  # type: ignore[arg-type]
         )
-        return _amount_pick_key(ac)
+        return _amount_parse_rank_key(ac)
 
     use_k_prefix = prefer_k_prefix if context == "parse" else False
     base = candidate_rank_key(ident, prefer_k_prefix=use_k_prefix)

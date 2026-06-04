@@ -8,7 +8,7 @@ from decimal import Decimal
 from typing import Any
 
 from parser.field_adapters import field_result_from_legacy_dict
-from parser.field_candidates import IdentFieldCandidate, candidate_rank_key
+from parser.field_candidates import IdentFieldCandidate, candidate_rank_key, rank_key
 from parser.field_resolver import _resolver_rank_key
 from parser.field_model import ALL_FIELD_IDS, FieldCandidate, FieldId, FieldResult
 from parser.field_resolver import (
@@ -22,7 +22,7 @@ from parser.hybrid_field_apply import (
     _generic_result_dict,
     _profile_candidate,
 )
-from parser.pdf_parser import AmountCandidate, _amount_pick_key
+from parser.pdf_parser import AmountCandidate
 from parser.profile_extractor import extract_with_profile, validate_profile
 from parser.supplier_db import SupplierDB
 
@@ -50,7 +50,14 @@ def _parse_rank_key(field_id: FieldId, cand: FieldCandidate) -> list[Any]:
             context=str(cand.context or ""),
             type=ctype,  # type: ignore[arg-type]
         )
-        return list(_amount_pick_key(ac))
+        fc = FieldCandidate(
+            value=ac.value,
+            source=ac.source,
+            confidence=ac.confidence,
+            context=ac.context,
+            meta={"field_id": "amount", "type": ctype},
+        )
+        return list(rank_key("amount", fc, context="parse"))
     ident = IdentFieldCandidate(
         value=str(cand.value) if cand.value is not None else "",
         source=str(cand.source or ""),
