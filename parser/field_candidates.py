@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal, Union
 
 from parser.pdf_parser import (
     _CUSTOMER_LABEL_RE,
@@ -547,6 +547,135 @@ def _candidate_rank_key(
     prefer_k_prefix: bool = False,
 ) -> tuple[int, int, int, int, int, str, str]:
     return candidate_rank_key(cand, prefer_k_prefix=prefer_k_prefix)
+
+
+RankingContext = Literal["parse", "resolver"]
+
+
+def _coerce_ident_candidate(
+    cand: IdentFieldCandidate | Any,
+    *,
+    field_id: str | None,
+) -> IdentFieldCandidate:
+    from parser.field_model import FieldCandidate
+
+    if isinstance(cand, IdentFieldCandidate):
+        ident = cand
+    elif isinstance(cand, FieldCandidate):
+        ident = IdentFieldCandidate(
+            value=str(cand.value) if cand.value is not None else "",
+            source=str(cand.source or ""),
+            confidence=int(cand.confidence or 0),
+            context=str(cand.context or ""),
+            label=str(cand.label or ""),
+            meta=dict(cand.meta or {}),
+        )
+    else:
+        raise TypeError(f"unsupported candidate type: {type(cand)!r}")
+    meta = dict(ident.meta or {})
+    fid = str(field_id or meta.get("field_id") or "").strip().lower()
+    if fid and "field_id" not in meta:
+        meta["field_id"] = fid
+        ident.meta = meta
+    return ident
+
+
+def rank_key(
+    field_id: str,
+    cand: IdentFieldCandidate | Any,
+    *,
+    prefer_k_prefix: bool = False,
+    context: RankingContext = "resolver",
+) -> tuple[Any, ...]:
+    """Canonical per-candidate rank key (Phase B1).
+
+    ``parse``: ident fields use ``candidate_rank_key`` (incl. ``prefer_k_prefix``);
+    amount uses ``pdf_parser._amount_pick_key``.
+
+    ``resolver``: ident fields use ``candidate_rank_key`` (no K-prefix bonus);
+    amount prepends ``payable_score``; ``invoice_date`` adds date tiebreak.
+    """
+    from decimal import Decimal
+
+    from parser.pdf_parser import AmountCandidate, _amount_pick_key
+
+    ident = _coerce_ident_candidate(cand, field_id=field_id)
+    fid = str(field_id or (ident.meta or {}).get("field_id") or "").strip().lower()
+
+    if fid == "amount" and context == "parse":
+        meta = ident.meta if isinstance(ident.meta, dict) else {}
+        ctype = str(meta.get("type") or "unknown")
+        try:
+            val = Decimal(str(ident.value)) if str(ident.value or "").strip() else Decimal("0")
+        except Exception:
+            val = Decimal("0")
+        ac = AmountCandidate(
+            value=val,
+            source=str(ident.source or ""),
+            confidence=int(ident.confidence or 0),
+            context=str(ident.context or ""),
+            type=ctype,  # type: ignore[arg-type]
+        )
+        return _amount_pick_key(ac)
+
+    use_k_prefix = prefer_k_prefix if context == "parse" else False
+    base = candidate_rank_key(ident, prefer_k_prefix=use_k_prefix)
+
+    if fid == "amount" and context == "resolver":
+        meta = ident.meta if isinstance(ident.meta, dict) else {}
+        try:
+            payable_score = int(meta.get("payable_score") or 0)
+        except (TypeError, ValueError):
+            payable_score = 0
+        return (
+            payable_score,
+            int(base[3]),
+            int(base[4]),
+            str(base[5]),
+            str(base[6]),
+        )
+
+    if fid == "invoice_date" and context == "resolver":
+        raw = str(ident.value or "").strip()
+        m = re.fullmatch(r"(\d{4})-(\d{2})-(\d{2})", raw)
+        if m:
+            y, mo, d = int(m.group(1)), int(m.group(2)), int(m.group(3))
+            date_rank = (y * 10000) + (mo * 100) + d
+        else:
+            date_rank = 0
+        return (
+            int(base[0]),
+            int(base[1]),
+            int(base[2]),
+            int(base[3]),
+            int(base[4]),
+            date_rank,
+            raw.casefold(),
+        )
+
+    return base
+
+
+def rank_candidates(
+    field_id: str,
+    candidates: list[IdentFieldCandidate | Any],
+    *,
+    prefer_k_prefix: bool = False,
+    context: RankingContext = "resolver",
+) -> list[IdentFieldCandidate | Any]:
+    """Canonical deterministic ordering (Phase B1). Higher rank first when ``reverse`` sort."""
+    if not candidates:
+        return []
+    return sorted(
+        list(candidates),
+        key=lambda c: rank_key(
+            field_id,
+            c,
+            prefer_k_prefix=prefer_k_prefix,
+            context=context,
+        ),
+        reverse=True,
+    )
 
 
 def _raw_confidence(cand: IdentFieldCandidate) -> int:

@@ -1,0 +1,10 @@
+{
+  "phase": "B1",
+  "note": "B1 extracts rank_key/rank_candidates only; production paths are not wired. production_winner_changes must be 0. rank_key_mismatches must be 0.",
+  "summary": {
+    "production_winner_changes": 0,
+    "rank_key_mismatches": 0
+  },
+  "production_winner_changes": [],
+  "rank_key_mismatches": []
+}
