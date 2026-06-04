@@ -452,6 +452,11 @@ def field_result_to_legacy_dict(fr: FieldResult) -> dict[str, Any]:
     else:
         d = ident_field_result_from_field_result(fr).to_dict()
     d = _merge_hybrid_meta_into_legacy_dict(d, fr)
+    if fr.field_id == "amount" and any(
+        isinstance(entry, dict) and entry.get("kind") == "amount_profile_review_cap"
+        for entry in (fr.decision_trace or [])
+    ):
+        d["review_suggested"] = True
     return canonicalize_legacy_result_dict(
         d,
         field_id=fr.field_id,

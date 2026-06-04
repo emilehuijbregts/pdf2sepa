@@ -161,12 +161,6 @@ def _trace_entry(
     return entry
 
 
-def _pick_best_override(overrides: list[FieldCandidate]) -> FieldCandidate | None:
-    if not overrides:
-        return None
-    return sorted(overrides, key=_ident_rank_tuple, reverse=True)[0]
-
-
 def _to_ident_candidate(cand: FieldCandidate) -> IdentFieldCandidate:
     return IdentFieldCandidate(
         value=str(cand.value) if cand.value is not None else "",
@@ -353,6 +347,8 @@ def resolve_field(
     generic: FieldResult,
     overrides: list[FieldCandidate],
     user_pick: FieldCandidate | None = None,
+    *,
+    amount_profile_review_cap: bool = False,
 ) -> FieldResult:
     """Deterministische resolver: consumeert één ranking en kiest index 0."""
     trace: list[dict[str, Any]] = []
@@ -395,6 +391,7 @@ def resolve_field(
             decision_trace=trace,
             user_overridden=generic.user_overridden,
             previous_value=generic.previous_value,
+            amount_profile_review_cap=amount_profile_review_cap,
         )
 
     winner = ranked[0]
@@ -496,6 +493,7 @@ def resolve_field(
         decision_trace=trace,
         user_overridden=generic.user_overridden or _is_user_source(winner.source),
         previous_value=generic.previous_value,
+        amount_profile_review_cap=amount_profile_review_cap,
     )
 
 
@@ -509,6 +507,7 @@ def _build_result(
     decision_trace: list[dict[str, Any]],
     user_overridden: bool = False,
     previous_value: Any | None = None,
+    amount_profile_review_cap: bool = False,
 ) -> FieldResult:
     st = normalize_field_status(generic.status)
     conf = int(winner.confidence or 0)
@@ -532,6 +531,25 @@ def _build_result(
     elif st in ("ambiguous", "failed") and winner.value is not None:
         st = "confirmed" if conf >= LOW_CONFIDENCE else "tentative"
 
+    trace_out = list(decision_trace)
+    if (
+        field_id == "amount"
+        and amount_profile_review_cap
+        and winner.value is not None
+        and str(src).strip().lower() == "profile"
+        and st == "confirmed"
+    ):
+        st = "tentative"
+        if conf > 75:
+            conf = 75
+        trace_out.append(
+            {
+                "kind": "amount_profile_review_cap",
+                "from_status": "confirmed",
+                "to_status": "tentative",
+            }
+        )
+
     merged_candidates = list(all_cands)
     user_sel = generic.user_selected or user_overridden
 
@@ -545,7 +563,7 @@ def _build_result(
         user_selected=user_sel,
         user_overridden=user_overridden or generic.user_overridden,
         previous_value=previous_value if previous_value is not None else generic.previous_value,
-        decision_trace=decision_trace,
+        decision_trace=trace_out,
         override_reason=override_reason,
         resolver_finalized=True,
     )

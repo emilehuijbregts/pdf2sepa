@@ -76,21 +76,11 @@ def _agent_log(hypothesis_id: str, location: str, message: str, data: dict) -> N
 
 
 def _effective_amount_status(inv_raw: dict) -> tuple[str, dict]:
-    """
-    Bepaal bedragstatus voor betalingsbeslissingen.
-
-    Profiel-bedrag bij bevestigde leverancier (confidence >= 85) telt als confirmed,
-    ook wanneer upstream nog ``tentative`` door cap/legacy pad staat.
-    """
+    """Read stored amount field status for payment decisions (no mutation or re-promotion)."""
     inv_amt_result = inv_raw.get("amount_result") or {}
     if not isinstance(inv_amt_result, dict):
         inv_amt_result = {}
     st = str(inv_amt_result.get("status") or inv_amt_result.get("amount_status") or "").strip().lower()
-    src = str(inv_amt_result.get("source") or "").strip().lower()
-    conf = int(inv_amt_result.get("confidence") or 0)
-    match_st = str(inv_raw.get("match_status") or "").strip().lower()
-    if src == "profile" and match_st == "confirmed" and conf >= 85:
-        return "confirmed", inv_amt_result
     return st, inv_amt_result
 
 

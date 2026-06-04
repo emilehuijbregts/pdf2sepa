@@ -127,20 +127,6 @@ def _build_db_override_candidates(
     return out
 
 
-def _cap_amount_tentative(resolved_dict: dict[str, Any]) -> dict[str, Any]:
-    out = dict(resolved_dict)
-    st = str(out.get("status") or "").strip().lower()
-    if st == "confirmed":
-        out["status"] = "tentative"
-        out["amount_status"] = "tentative"
-        out["review_suggested"] = True
-        conf = int(out.get("confidence") or 0)
-        if conf > 75:
-            out["confidence"] = 75
-            out["amount_confidence"] = 75
-    return out
-
-
 def apply_hybrid_field_extraction(
     invoice: dict,
     invoice_copy: dict,
@@ -222,16 +208,15 @@ def apply_hybrid_field_extraction(
                 context=str(generic_fr.context or ""),
             )
 
-        resolved_fr = resolve_field(field_id, generic_fr, overrides, user_pick=user_pick)
+        resolved_fr = resolve_field(
+            field_id,
+            generic_fr,
+            overrides,
+            user_pick=user_pick,
+            amount_profile_review_cap=field_id == "amount" and amount_tentative,
+        )
         resolved_fr.resolver_finalized = True
         resolved_dict = field_result_to_legacy_dict(resolved_fr)
-
-        if (
-            field_id == "amount"
-            and amount_tentative
-            and str(resolved_dict.get("source") or "") == "profile"
-        ):
-            resolved_dict = _cap_amount_tentative(resolved_dict)
 
         apply_resolved_field_result(invoice_copy, field_id, resolved_dict)
 

@@ -18,7 +18,6 @@ from parser.field_resolver import (
 )
 from parser.hybrid_field_apply import (
     _build_db_override_candidates,
-    _cap_amount_tentative,
     _generic_result_dict,
     _profile_candidate,
 )
@@ -290,21 +289,20 @@ def build_resolver_stage(
     pool = _resolver_merged_pool(field_id, generic, overrides, user_pick)
     serialized = [_serialize_candidate(field_id, c, stage="resolver") for c in pool]
 
-    resolved_fr = resolve_field(field_id, generic, overrides, user_pick=user_pick)
+    amount_profile_review_cap = field_id == "amount" and meta.get("amount_status") == "tentative"
+    resolved_fr = resolve_field(
+        field_id,
+        generic,
+        overrides,
+        user_pick=user_pick,
+        amount_profile_review_cap=amount_profile_review_cap,
+    )
     resolved_dict = resolved_fr.to_dict() if hasattr(resolved_fr, "to_dict") else {}
 
-    cap_applied = False
-    if (
-        field_id == "amount"
-        and meta.get("amount_status") == "tentative"
-        and str(resolved_dict.get("source") or "") == "profile"
-    ):
-        capped = _cap_amount_tentative(resolved_dict)
-        cap_applied = capped.get("status") != resolved_dict.get("status") or capped.get(
-            "confidence"
-        ) != resolved_dict.get("confidence")
-        if cap_applied:
-            resolved_dict = capped
+    cap_applied = any(
+        isinstance(entry, dict) and entry.get("kind") == "amount_profile_review_cap"
+        for entry in (resolved_fr.decision_trace or [])
+    )
 
     trace = list(resolved_fr.decision_trace or [])
     final_reason = ""
