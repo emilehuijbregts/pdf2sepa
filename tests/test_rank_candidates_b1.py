@@ -14,7 +14,7 @@ from parser.field_candidates import (
 )
 from parser.field_model import FieldCandidate
 from parser.pdf_parser import AmountCandidate, _amount_pick_key
-from tests.snapshot_observability_helpers import resolver_rank_key
+from parser.field_resolver import _resolver_rank_key as resolver_rank_key
 
 
 def test_rank_key_ident_matches_candidate_rank_key() -> None:

@@ -9,6 +9,7 @@ from typing import Any
 
 from parser.field_adapters import field_result_from_legacy_dict
 from parser.field_candidates import IdentFieldCandidate, candidate_rank_key
+from parser.field_resolver import _resolver_rank_key
 from parser.field_model import ALL_FIELD_IDS, FieldCandidate, FieldId, FieldResult
 from parser.field_resolver import (
     _candidate_rank_tuple,
@@ -65,39 +66,8 @@ def _parse_rank_key(field_id: FieldId, cand: FieldCandidate) -> list[Any]:
 
 
 def resolver_rank_key(field_id: FieldId, cand: FieldCandidate) -> tuple[Any, ...]:
-    """Mirror of resolve_field inner _rank_key (observability only)."""
-    base = _candidate_rank_tuple(cand)
-    if field_id == "amount":
-        meta = cand.meta if isinstance(cand.meta, dict) else {}
-        try:
-            payable_score = int(meta.get("payable_score") or 0)
-        except (TypeError, ValueError):
-            payable_score = 0
-        return (
-            payable_score,
-            int(base[3]),
-            int(base[4]),
-            str(base[5]),
-            str(base[6]),
-        )
-    if field_id == "invoice_date":
-        raw = str(cand.value or "").strip()
-        m = re.fullmatch(r"(\d{4})-(\d{2})-(\d{2})", raw)
-        if m:
-            y, mo, d = int(m.group(1)), int(m.group(2)), int(m.group(3))
-            date_rank = (y * 10000) + (mo * 100) + d
-        else:
-            date_rank = 0
-        return (
-            int(base[0]),
-            int(base[1]),
-            int(base[2]),
-            int(base[3]),
-            int(base[4]),
-            date_rank,
-            raw.casefold(),
-        )
-    return base
+    """Production resolver rank key (Phase B2: ``field_resolver._resolver_rank_key``)."""
+    return _resolver_rank_key(field_id, cand)
 
 
 def _rank_key_kind(field_id: FieldId, *, stage: str) -> str:

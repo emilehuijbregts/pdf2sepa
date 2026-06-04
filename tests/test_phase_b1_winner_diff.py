@@ -1,4 +1,4 @@
-"""Phase B1 — winner-diff report vs Phase A.1 snapshot (no production behavior change)."""
+"""Phase B winner-diff report vs Phase A.1 snapshot (no production behavior change)."""
 
 from __future__ import annotations
 
@@ -16,7 +16,8 @@ from tests.snapshot_observability_helpers import (
 )
 from tests.test_ranking_snapshot import SNAPSHOT_PATH, observability_bundle
 
-REPORT_PATH = Path(__file__).resolve().parents[1] / "reports" / "phase_b1_winner_diff.json"
+REPORT_PATH = Path(__file__).resolve().parents[1] / "reports" / "phase_b2_winner_diff.json"
+PHASE_LABEL = "B2"
 
 
 def _candidate_from_snapshot_row(field_id: str, row: dict[str, Any]) -> FieldCandidate:
@@ -33,7 +34,7 @@ def _candidate_from_snapshot_row(field_id: str, row: dict[str, Any]) -> FieldCan
     )
 
 
-def test_phase_b1_winner_diff_report(observability_bundle: dict[str, Any]) -> None:
+def test_phase_b_winner_diff_report(observability_bundle: dict[str, Any]) -> None:
     if not SNAPSHOT_PATH.is_file():
         pytest.skip("Committed Phase A.1 snapshot missing")
 
@@ -91,10 +92,10 @@ def test_phase_b1_winner_diff_report(observability_bundle: dict[str, Any]) -> No
                     )
 
     report = {
-        "phase": "B1",
+        "phase": PHASE_LABEL,
         "note": (
-            "B1 extracts rank_key/rank_candidates only; production paths are not wired. "
-            "production_winner_changes must be 0. rank_key_mismatches must be 0."
+            f"Phase {PHASE_LABEL}: resolver delegates to rank_key; production winners must "
+            "match Phase A.1 snapshot. rank_key_mismatches must be 0."
         ),
         "summary": {
             "production_winner_changes": len(production_changes),

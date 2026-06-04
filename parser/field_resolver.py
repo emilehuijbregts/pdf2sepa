@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from parser.field_candidates import IdentFieldCandidate, candidate_rank_key
+from parser.field_candidates import IdentFieldCandidate, candidate_rank_key, rank_key
 from parser.field_model import FieldCandidate, FieldId, FieldResult, normalize_field_status
 
 HIGH_CONFIDENCE = 85
@@ -232,12 +232,24 @@ def _source_priority(cand: FieldCandidate) -> int:
     return 20
 
 
+def _resolver_rank_key(field_id: FieldId, cand: FieldCandidate) -> tuple[Any, ...]:
+    """Resolver ordering key (Phase B2).
+
+    Amount and invoice_date delegate to canonical ``rank_key``; ident fields keep
+    the legacy ident-only ``_candidate_rank_tuple`` (no resolve-time field_id
+    injection — see ``tests/test_pipeline_parity.py``).
+    """
+    if field_id in ("amount", "invoice_date"):
+        return rank_key(field_id, cand, context="resolver")
+    return _candidate_rank_tuple(cand)
+
+
 def _candidate_rank_components(cand: FieldCandidate) -> tuple[int, int, int, int, int]:
     key = _candidate_rank_tuple(cand)
     return (int(key[0]), int(key[1]), int(key[2]), int(key[3]), int(key[4]))
 
 
-def _candidate_rank_tuple(cand: FieldCandidate) -> tuple[int, int, int, str, str]:
+def _candidate_rank_tuple(cand: FieldCandidate) -> tuple[Any, ...]:
     ident = _to_ident_candidate(cand)
     return candidate_rank_key(ident)
 
@@ -341,40 +353,6 @@ def resolve_field(
     """Deterministische resolver: consumeert één ranking en kiest index 0."""
     trace: list[dict[str, Any]] = []
 
-    def _rank_key(c: FieldCandidate) -> tuple[Any, ...]:
-        base = _candidate_rank_tuple(c)
-        if field_id == "amount":
-            meta = c.meta if isinstance(c.meta, dict) else {}
-            try:
-                payable_score = int(meta.get("payable_score") or 0)
-            except (TypeError, ValueError):
-                payable_score = 0
-            return (
-                payable_score,
-                int(base[3]),
-                int(base[4]),
-                str(base[5]),
-                str(base[6]),
-            )
-        if field_id == "invoice_date":
-            raw = str(c.value or "").strip()
-            m = re.fullmatch(r"(\d{4})-(\d{2})-(\d{2})", raw)
-            if m:
-                y, mo, d = int(m.group(1)), int(m.group(2)), int(m.group(3))
-                date_rank = (y * 10000) + (mo * 100) + d
-            else:
-                date_rank = 0
-            return (
-                int(base[0]),
-                int(base[1]),
-                int(base[2]),
-                int(base[3]),
-                int(base[4]),
-                date_rank,
-                raw.casefold(),
-            )
-        return base
-
     all_cands: list[FieldCandidate] = list(generic.candidates)
     gen_cand = _generic_candidate(generic)
     if gen_cand is not None:
@@ -387,9 +365,15 @@ def resolve_field(
     for cand in all_cands:
         key = (str(cand.source or ""), str(cand.value or ""))
         best = dedup.get(key)
-        if best is None or _rank_key(cand) > _rank_key(best):
+        if best is None or _resolver_rank_key(field_id, cand) > _resolver_rank_key(
+            field_id, best
+        ):
             dedup[key] = cand
-    ranked = sorted(dedup.values(), key=_rank_key, reverse=True)
+    ranked = sorted(
+        dedup.values(),
+        key=lambda c: _resolver_rank_key(field_id, c),
+        reverse=True,
+    )
     forced_excluded_reasons: dict[tuple[str, str], str] = {}
     forced_final_reason: str | None = None
 
@@ -472,7 +456,7 @@ def resolve_field(
         comp = _candidate_rank_components(cand)
         entry["label_strength"] = comp[0]
         entry["source_priority"] = comp[4]
-        entry["rank_score"] = [str(x) for x in _rank_key(cand)]
+        entry["rank_score"] = [str(x) for x in _resolver_rank_key(field_id, cand)]
         trace.append(entry)
 
     if forced_final_reason is not None:

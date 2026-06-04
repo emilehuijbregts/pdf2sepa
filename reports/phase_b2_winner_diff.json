@@ -1,0 +1,10 @@
+{
+  "phase": "B2",
+  "note": "Phase B2: resolver delegates to rank_key; production winners must match Phase A.1 snapshot. rank_key_mismatches must be 0.",
+  "summary": {
+    "production_winner_changes": 0,
+    "rank_key_mismatches": 0
+  },
+  "production_winner_changes": [],
+  "rank_key_mismatches": []
+}
