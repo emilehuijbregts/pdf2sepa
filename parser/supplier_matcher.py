@@ -8,7 +8,7 @@ import time
 
 from logic.validation import is_plausible_iban, mask_iban_for_log
 from logic.payment_amounts import normalize_supplier_vat_rate_pct
-from parser.hybrid_field_apply import apply_hybrid_field_extraction
+from parser.hybrid_field_apply import apply_generic_field_resolution, apply_hybrid_field_extraction
 from parser.supplier_db import SupplierDB
 
 logger = logging.getLogger(__name__)
@@ -544,6 +544,7 @@ def match_suppliers(invoices: list[dict], db: SupplierDB) -> list[dict]:
             invoice_copy["supplier_vat_rate"] = 21
             invoice_copy["extraction_source"] = "generic"
             invoice_copy["profile_fields"] = []
+            apply_generic_field_resolution(invoice, invoice_copy)
 
         out.append(invoice_copy)
 

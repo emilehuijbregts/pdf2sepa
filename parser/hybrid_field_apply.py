@@ -252,3 +252,69 @@ def apply_hybrid_field_extraction(
 
     invoice_copy["extraction_source"] = "profile" if profile_fields else "generic"
     invoice_copy["profile_fields"] = profile_fields
+
+
+def apply_generic_field_resolution(invoice: dict, invoice_copy: dict) -> None:
+    """Route parser-only fields through the resolver with empty overrides.
+
+    Used for invoices without a supplier match: there is no DB/profile input, but
+    parser-produced winners should still pass through the same ``resolve_field``
+    selection path as matched invoices.
+    """
+    for field_id in _HYBRID_FIELD_IDS:
+        key = _RESULT_KEY[field_id]
+        if key not in invoice and key not in invoice_copy:
+            continue
+
+        generic_fr = field_result_from_legacy_dict(
+            _generic_result_dict(invoice, invoice_copy, field_id),
+            field_id=field_id,
+        )
+        if generic_fr.selected_value is not None:
+            winner_meta: dict[str, Any] = {}
+            for cand in generic_fr.candidates:
+                if str(cand.value) == str(generic_fr.selected_value) and str(
+                    cand.source or ""
+                ).casefold() == str(generic_fr.source or "").casefold():
+                    winner_meta = dict(cand.meta or {})
+                    break
+            if field_id == "amount":
+                same_value_scores: list[int] = []
+                for cand in generic_fr.candidates:
+                    if str(cand.value) != str(generic_fr.selected_value):
+                        continue
+                    try:
+                        same_value_scores.append(int((cand.meta or {}).get("payable_score") or 0))
+                    except (TypeError, ValueError):
+                        same_value_scores.append(0)
+                if same_value_scores:
+                    winner_meta = {
+                        **winner_meta,
+                        "payable_score": max(same_value_scores),
+                    }
+            generic_fr.candidates = [
+                FieldCandidate(
+                    value=generic_fr.selected_value,
+                    source=generic_fr.source,
+                    confidence=int(generic_fr.confidence or 0),
+                    context=str(generic_fr.context or ""),
+                    meta=winner_meta,
+                )
+            ] + list(generic_fr.candidates)
+
+        user_pick: FieldCandidate | None = None
+        if generic_fr.user_overridden and generic_fr.selected_value is not None:
+            user_pick = FieldCandidate(
+                value=generic_fr.selected_value,
+                source=generic_fr.source or "USER_PICKED",
+                confidence=100,
+                context=str(generic_fr.context or ""),
+            )
+
+        resolved_fr = resolve_field(field_id, generic_fr, [], user_pick=user_pick)
+        resolved_fr.resolver_finalized = True
+        apply_resolved_field_result(
+            invoice_copy,
+            field_id,
+            field_result_to_legacy_dict(resolved_fr),
+        )
