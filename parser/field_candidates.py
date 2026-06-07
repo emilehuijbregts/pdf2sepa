@@ -910,36 +910,6 @@ def _selection_trace(
     return trace
 
 
-def _ambiguous_tie_trace(
-    ordered: list[IdentFieldCandidate],
-    *,
-    final_reason: str,
-) -> list[dict[str, Any]]:
-    trace: list[dict[str, Any]] = []
-    for idx, cand in enumerate(ordered, start=1):
-        trace.append(
-            {
-                "value": cand.value,
-                "source": cand.source,
-                "confidence": int(cand.confidence or 0),
-                "considered": True,
-                "win": False,
-                "rank": idx,
-                "excluded_reason": "deterministic_tiebreak",
-                "rejection_reason": "deterministic_tiebreak",
-            }
-        )
-    trace.append(
-        {
-            "kind": "final",
-            "final_decision_reason": final_reason,
-            "winner": {},
-            "status": "ambiguous",
-        }
-    )
-    return trace
-
-
 def _missing_candidate() -> IdentFieldCandidate:
     return IdentFieldCandidate(
         value="",
@@ -2686,11 +2656,9 @@ def build_ident_field_result(
     resolved_value: str | None = None,
     resolved_source: str | None = None,
     prefer_k_prefix: bool = False,
-    prefer_label_over_resolved: bool = False,
     field_id: str | None = None,
 ) -> IdentFieldResult:
     """Selecteer winnaar via een enkele deterministische ranking."""
-    _ = prefer_label_over_resolved  # legacy param, intentionally unused
     candidates = _merge_resolved_into_candidates(
         candidates, resolved_value, resolved_source, field_id=field_id
     )

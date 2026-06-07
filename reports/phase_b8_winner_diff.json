@@ -1,0 +1,16 @@
+{
+  "phase": "B8",
+  "note": "Phase B8: G5 dead-code cleanup removed unused resolver/candidate helpers; production winners must match Phase A.1.",
+  "summary": {
+    "production_winner_changes": 0
+  },
+  "production_winner_changes": [],
+  "dead_code_removed": [
+    "_generic_is_strong",
+    "_generic_is_weak",
+    "_db_master_conflict_winner",
+    "_pick_best_override",
+    "_ambiguous_tie_trace",
+    "prefer_label_over_resolved"
+  ]
+}

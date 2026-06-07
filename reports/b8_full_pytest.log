@@ -1,0 +1,31 @@
+........................................................................ [ 12%]
+........................................................................ [ 25%]
+.............................................F.......................... [ 38%]
+........................................................................ [ 50%]
+........................................................................ [ 63%]
+........................................................................ [ 76%]
+........................................................................ [ 88%]
+...............................................................          [100%]
+=================================== FAILURES ===================================
+/Users/eh/Documents/Cursor/PDF2SEPA/tests/test_golden_dataset.py:40: AssertionError: Golden dataset mismatch:
+=============================== warnings summary ===============================
+<frozen importlib._bootstrap>:228
+<frozen importlib._bootstrap>:228
+  <frozen importlib._bootstrap>:228: DeprecationWarning: builtin type SwigPyPacked has no __module__ attribute
+
+<frozen importlib._bootstrap>:228
+<frozen importlib._bootstrap>:228
+  <frozen importlib._bootstrap>:228: DeprecationWarning: builtin type SwigPyObject has no __module__ attribute
+
+<frozen importlib._bootstrap>:228
+  <frozen importlib._bootstrap>:228: DeprecationWarning: builtin type swigvarlink has no __module__ attribute
+
+tests/test_supplier_matching.py::TestUnmatched::test_empty_database_valid_iban_becomes_new
+  /Users/eh/Documents/Cursor/PDF2SEPA/parser/supplier_matcher.py:115: DeprecationWarning: Flags not at the start of the expression '^(?i)(?:factuur|invo' (truncated)
+    s = re.sub(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_golden_dataset.py::test_02_golden_dataset_business_output
+1 failed, 566 passed, 6 warnings in 4622.12s (1:17:02)
+sys:1: DeprecationWarning: builtin type swigvarlink has no __module__ attribute

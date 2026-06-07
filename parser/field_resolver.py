@@ -302,46 +302,6 @@ def _loser_reason(winner: FieldCandidate, loser: FieldCandidate) -> str:
     return "deterministic_tiebreak"
 
 
-def _generic_is_strong(generic: FieldResult) -> bool:
-    st = normalize_field_status(generic.status)
-    conf = int(generic.confidence or 0)
-    return st == "confirmed" and conf >= HIGH_CONFIDENCE
-
-
-def _generic_is_weak(generic: FieldResult) -> bool:
-    st = normalize_field_status(generic.status)
-    conf = int(generic.confidence or 0)
-    if st in ("ambiguous", "failed"):
-        return True
-    if st == "tentative":
-        return True
-    return conf < LOW_CONFIDENCE
-
-
-def _db_master_conflict_winner(
-    field_id: FieldId,
-    generic: FieldResult,
-    overrides: list[FieldCandidate],
-) -> FieldCandidate | None:
-    """Bij IBAN/klantnummer wint DB-master wanneer PDF-waarde afwijkt (geen user lock)."""
-    if field_id not in ("customer_number", "iban"):
-        return None
-    if generic.user_overridden:
-        return None
-    db_cands = [o for o in overrides if o.source == "db_master"]
-    if not db_cands:
-        return None
-    best_db = _pick_best_override(db_cands)
-    if best_db is None:
-        return None
-    gen_cand = _generic_candidate(generic)
-    if gen_cand is None or gen_cand.value is None:
-        return None
-    if _values_equal(field_id, gen_cand.value, best_db.value):
-        return None
-    return best_db
-
-
 def resolve_field(
     field_id: FieldId,
     generic: FieldResult,
