@@ -1,0 +1,820 @@
+{
+  "phase": "B9",
+  "baseline": "tests/snapshots/phase_a_ranking_snapshot.json",
+  "summary": {
+    "production_winner_changes": 0,
+    "status_changes": 0,
+    "ranking_changes": 0,
+    "authority_changes": 48,
+    "intentional_authority_changes": 48,
+    "unexplained_changes": 0,
+    "post_resolve_status_violations": 0,
+    "phase_b_goals_met": {
+      "ranking": true,
+      "authority": true,
+      "status": true,
+      "routing": true
+    },
+    "recommendation": "Phase B complete"
+  },
+  "production_winner_changes": [],
+  "status_changes": [],
+  "ranking_changes": [],
+  "authority_changes": [
+    {
+      "pdf": "2ba Fact-2BA-20260114-260789-Duister.pdf",
+      "field": "amount",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "2ba Fact-2BA-20260114-260789-Duister.pdf",
+      "field": "invoice_number",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "2ba Fact-2BA-20260114-260789-Duister.pdf",
+      "field": "customer_number",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "2ba Fact-2BA-20260114-260789-Duister.pdf",
+      "field": "iban",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "2ba Fact-2BA-20260114-260789-Duister.pdf",
+      "field": "vat_number",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "2ba Fact-2BA-20260114-260789-Duister.pdf",
+      "field": "kvk_number",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "2ba Fact-2BA-20260114-260789-Duister.pdf",
+      "field": "invoice_date",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "2ba Fact-2BA-20260114-260789-Duister.pdf",
+      "field": "email_domain",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "Bauder 24065433.pdf",
+      "field": "amount",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "Bauder 24065433.pdf",
+      "field": "invoice_number",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "Bauder 24065433.pdf",
+      "field": "customer_number",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "Bauder 24065433.pdf",
+      "field": "iban",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "Bauder 24065433.pdf",
+      "field": "vat_number",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "Bauder 24065433.pdf",
+      "field": "kvk_number",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "Bauder 24065433.pdf",
+      "field": "invoice_date",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "Bauder 24065433.pdf",
+      "field": "email_domain",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "DTC 500127_26000078.pdf",
+      "field": "amount",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "DTC 500127_26000078.pdf",
+      "field": "invoice_number",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "DTC 500127_26000078.pdf",
+      "field": "customer_number",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "DTC 500127_26000078.pdf",
+      "field": "iban",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "DTC 500127_26000078.pdf",
+      "field": "vat_number",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "DTC 500127_26000078.pdf",
+      "field": "kvk_number",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "DTC 500127_26000078.pdf",
+      "field": "invoice_date",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "DTC 500127_26000078.pdf",
+      "field": "email_domain",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "Gevier 917310_26031451.pdf",
+      "field": "amount",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "Gevier 917310_26031451.pdf",
+      "field": "invoice_number",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "Gevier 917310_26031451.pdf",
+      "field": "customer_number",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "Gevier 917310_26031451.pdf",
+      "field": "iban",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "Gevier 917310_26031451.pdf",
+      "field": "vat_number",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "Gevier 917310_26031451.pdf",
+      "field": "kvk_number",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "Gevier 917310_26031451.pdf",
+      "field": "invoice_date",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "Gevier 917310_26031451.pdf",
+      "field": "email_domain",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "Lammers F4368916_factuur_duister_handelsonderneming__01-04-2026.pdf",
+      "field": "amount",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "Lammers F4368916_factuur_duister_handelsonderneming__01-04-2026.pdf",
+      "field": "invoice_number",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "Lammers F4368916_factuur_duister_handelsonderneming__01-04-2026.pdf",
+      "field": "customer_number",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "Lammers F4368916_factuur_duister_handelsonderneming__01-04-2026.pdf",
+      "field": "iban",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "Lammers F4368916_factuur_duister_handelsonderneming__01-04-2026.pdf",
+      "field": "vat_number",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "Lammers F4368916_factuur_duister_handelsonderneming__01-04-2026.pdf",
+      "field": "kvk_number",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "Lammers F4368916_factuur_duister_handelsonderneming__01-04-2026.pdf",
+      "field": "invoice_date",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "Lammers F4368916_factuur_duister_handelsonderneming__01-04-2026.pdf",
+      "field": "email_domain",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "PGB 1800001827.pdf",
+      "field": "amount",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "PGB 1800001827.pdf",
+      "field": "invoice_number",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "PGB 1800001827.pdf",
+      "field": "customer_number",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "PGB 1800001827.pdf",
+      "field": "iban",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "PGB 1800001827.pdf",
+      "field": "vat_number",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "PGB 1800001827.pdf",
+      "field": "kvk_number",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "PGB 1800001827.pdf",
+      "field": "invoice_date",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "PGB 1800001827.pdf",
+      "field": "email_domain",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    }
+  ],
+  "intentional_authority_changes": [
+    {
+      "pdf": "2ba Fact-2BA-20260114-260789-Duister.pdf",
+      "field": "amount",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "2ba Fact-2BA-20260114-260789-Duister.pdf",
+      "field": "invoice_number",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "2ba Fact-2BA-20260114-260789-Duister.pdf",
+      "field": "customer_number",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "2ba Fact-2BA-20260114-260789-Duister.pdf",
+      "field": "iban",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "2ba Fact-2BA-20260114-260789-Duister.pdf",
+      "field": "vat_number",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "2ba Fact-2BA-20260114-260789-Duister.pdf",
+      "field": "kvk_number",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "2ba Fact-2BA-20260114-260789-Duister.pdf",
+      "field": "invoice_date",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "2ba Fact-2BA-20260114-260789-Duister.pdf",
+      "field": "email_domain",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "Bauder 24065433.pdf",
+      "field": "amount",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "Bauder 24065433.pdf",
+      "field": "invoice_number",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "Bauder 24065433.pdf",
+      "field": "customer_number",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "Bauder 24065433.pdf",
+      "field": "iban",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "Bauder 24065433.pdf",
+      "field": "vat_number",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "Bauder 24065433.pdf",
+      "field": "kvk_number",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "Bauder 24065433.pdf",
+      "field": "invoice_date",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "Bauder 24065433.pdf",
+      "field": "email_domain",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "DTC 500127_26000078.pdf",
+      "field": "amount",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "DTC 500127_26000078.pdf",
+      "field": "invoice_number",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "DTC 500127_26000078.pdf",
+      "field": "customer_number",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "DTC 500127_26000078.pdf",
+      "field": "iban",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "DTC 500127_26000078.pdf",
+      "field": "vat_number",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "DTC 500127_26000078.pdf",
+      "field": "kvk_number",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "DTC 500127_26000078.pdf",
+      "field": "invoice_date",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "DTC 500127_26000078.pdf",
+      "field": "email_domain",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "Gevier 917310_26031451.pdf",
+      "field": "amount",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "Gevier 917310_26031451.pdf",
+      "field": "invoice_number",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "Gevier 917310_26031451.pdf",
+      "field": "customer_number",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "Gevier 917310_26031451.pdf",
+      "field": "iban",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "Gevier 917310_26031451.pdf",
+      "field": "vat_number",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "Gevier 917310_26031451.pdf",
+      "field": "kvk_number",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "Gevier 917310_26031451.pdf",
+      "field": "invoice_date",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "Gevier 917310_26031451.pdf",
+      "field": "email_domain",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "Lammers F4368916_factuur_duister_handelsonderneming__01-04-2026.pdf",
+      "field": "amount",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "Lammers F4368916_factuur_duister_handelsonderneming__01-04-2026.pdf",
+      "field": "invoice_number",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "Lammers F4368916_factuur_duister_handelsonderneming__01-04-2026.pdf",
+      "field": "customer_number",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "Lammers F4368916_factuur_duister_handelsonderneming__01-04-2026.pdf",
+      "field": "iban",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "Lammers F4368916_factuur_duister_handelsonderneming__01-04-2026.pdf",
+      "field": "vat_number",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "Lammers F4368916_factuur_duister_handelsonderneming__01-04-2026.pdf",
+      "field": "kvk_number",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "Lammers F4368916_factuur_duister_handelsonderneming__01-04-2026.pdf",
+      "field": "invoice_date",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "Lammers F4368916_factuur_duister_handelsonderneming__01-04-2026.pdf",
+      "field": "email_domain",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "PGB 1800001827.pdf",
+      "field": "amount",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "PGB 1800001827.pdf",
+      "field": "invoice_number",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "PGB 1800001827.pdf",
+      "field": "customer_number",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "PGB 1800001827.pdf",
+      "field": "iban",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "PGB 1800001827.pdf",
+      "field": "vat_number",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "PGB 1800001827.pdf",
+      "field": "kvk_number",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "PGB 1800001827.pdf",
+      "field": "invoice_date",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    },
+    {
+      "pdf": "PGB 1800001827.pdf",
+      "field": "email_domain",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "intentional_resolver_finalized_propagation"
+    }
+  ],
+  "intentional_changes": [
+    {
+      "phase": "B1",
+      "change": "Extract canonical rank_key/rank_candidates in field_candidates.py (no production wiring).",
+      "production_impact": "none"
+    },
+    {
+      "phase": "B2",
+      "change": "Resolver amount/invoice_date delegate to rank_key(context=resolver).",
+      "production_impact": "none"
+    },
+    {
+      "phase": "B3",
+      "change": "Parse-time amount selection delegates to rank_key/rank_candidates(context=parse).",
+      "production_impact": "none"
+    },
+    {
+      "phase": "B4",
+      "change": "Resolver unified on rank_key/rank_candidates; ident helpers remain legacy aliases.",
+      "production_impact": "none"
+    },
+    {
+      "phase": "B5",
+      "change": "Unmatched suppliers route parser winners through resolve_field(empty overrides).",
+      "production_impact": "none"
+    },
+    {
+      "phase": "B6",
+      "change": "Parser field scalars written only via apply_resolved_field_result after resolve_field.",
+      "production_impact": "none"
+    },
+    {
+      "phase": "B7",
+      "change": "Field status assigned only in _build_result; payment_engine reads status read-only.",
+      "production_impact": "none"
+    },
+    {
+      "phase": "B5-B7",
+      "change": "Production matched/unmatched paths set resolver_finalized=true after resolve_field (metadata only; winners unchanged).",
+      "production_impact": "metadata_only"
+    },
+    {
+      "phase": "B8",
+      "change": "Remove unused G5 dead resolver/candidate helpers.",
+      "production_impact": "none"
+    }
+  ],
+  "reverted_changes": [],
+  "unexplained_changes": [],
+  "per_phase_winner_diff_totals": {
+    "B1": 0,
+    "B2": 0,
+    "B3": 0,
+    "B4": 0,
+    "B5": 0,
+    "B6": 0,
+    "B7": 0,
+    "B8": 0
+  },
+  "architecture_audit": {
+    "ranking_checks": {
+      "canonical_rank_key_exists": true,
+      "amount_pick_key_delegates_rank_key": true,
+      "resolver_rank_key_delegates_rank_key": true,
+      "dead_cap_helper_removed": true
+    },
+    "authority_checks": {
+      "resolve_field_defined": true,
+      "apply_resolved_field_result_defined": true,
+      "hybrid_uses_resolve_field": true,
+      "unmatched_uses_apply_generic_field_resolution": true,
+      "extract_invoice_data_uses_apply_generic_field_resolution": true
+    },
+    "status_checks": {
+      "build_result_has_amount_profile_review_cap": true,
+      "payment_engine_no_status_repromotion": true,
+      "post_resolve_cap_removed": true
+    },
+    "routing_checks": {
+      "unmatched_supplier_resolve_field_path": true
+    },
+    "phase_b_goals_met": {
+      "ranking": true,
+      "authority": true,
+      "status": true,
+      "routing": true
+    },
+    "remaining_architecture_gaps": [
+      {
+        "area": "ui",
+        "location": "main_window.py",
+        "detail": "Post-resolve status mutation on user-repair paths (resolved.status / resolved_dict status).",
+        "phase_b_scope": "deferred"
+      },
+      {
+        "area": "parse",
+        "location": "parser/field_candidates.py build_ident_field_result",
+        "detail": "Parse-stage field status is decided before resolve_field (separate from resolver status authority).",
+        "phase_b_scope": "by_design"
+      },
+      {
+        "area": "parse",
+        "location": "parser/pdf_parser.py extract_invoice_data",
+        "detail": "Legacy amount_source/amount_confidence mirror writes after apply_generic_field_resolution.",
+        "phase_b_scope": "deferred"
+      },
+      {
+        "area": "loader",
+        "location": "logic/invoice_folder_loader.py",
+        "detail": "Direct date_dict status assignment outside resolver pipeline.",
+        "phase_b_scope": "deferred"
+      },
+      {
+        "area": "parity",
+        "location": "tests/test_pipeline_parity.py",
+        "detail": "Three documented parse-vs-resolver ranking divergences (K-prefix, cross-field penalty, amount key shape).",
+        "phase_b_scope": "documented_intentional"
+      }
+    ]
+  },
+  "post_resolve_status_violations": []
+}
