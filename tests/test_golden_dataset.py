@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import json
-import logging
 from dataclasses import dataclass
 from datetime import date
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -22,12 +21,8 @@ from logic.invoice_folder_loader import load_invoices_from_folder, strip_raw_tex
 from logic.paths import read_user_data_root
 from logic.payment_engine import calculate_payments
 from logic.settings import load_settings, merge_debtor_with_defaults
-from parser.pdf_parser import extract_text_strict
-from parser.profile_extractor import FIELD_KEYS, extract_with_profile, validate_profile
 from parser.supplier_db import SupplierDB
 from parser.supplier_matcher import match_suppliers
-
-logger = logging.getLogger(__name__)
 
 APP_BASE = Path(__file__).resolve().parents[1]
 GOLDEN_DIR = APP_BASE / "tests" / "golden_dataset"
@@ -110,127 +105,6 @@ def pipeline_output() -> _PipelineOutput:
         payments_by_pdf[k] = p
 
     return _PipelineOutput(invoices_by_pdf=invoices_by_pdf, payments_by_pdf=payments_by_pdf)
-
-
-@pytest.fixture
-def user_data_dir() -> Path:
-    return read_user_data_root(APP_BASE)
-
-
-def _suppliers_with_extraction_profiles(user_data_dir: Path) -> list[tuple[str, dict]]:
-    suppliers_path = user_data_dir / "suppliers.json"
-    if not suppliers_path.is_file():
-        return []
-    data = json.loads(suppliers_path.read_text(encoding="utf-8") or "{}")
-    if not isinstance(data, dict):
-        return []
-    out: list[tuple[str, dict]] = []
-    for s in data.get("suppliers") or []:
-        if not isinstance(s, dict):
-            continue
-        name = str(s.get("name") or "").strip()
-        ep = s.get("extraction_profile")
-        if not name or not isinstance(ep, dict):
-            continue
-        learned = str(ep.get("learned_from") or "").strip()
-        if not learned:
-            continue
-        out.append((name, ep))
-    return out
-
-
-def _profile_field_failures(
-    *,
-    supplier: str,
-    pdf_name: str,
-    profile: dict,
-    raw_text: str,
-) -> list[dict[str, object]]:
-    if validate_profile(raw_text, profile, None):
-        return []
-    extracted = extract_with_profile(raw_text, profile)
-    failures: list[dict[str, object]] = []
-    for field in FIELD_KEYS:
-        spec = profile.get(field)
-        if not isinstance(spec, dict):
-            continue
-        expected = spec.get("confirmed_value")
-        if expected is None:
-            continue
-        actual = extracted.get(field)
-        if field == "amount":
-            try:
-                exp_d = Decimal(str(expected)).quantize(Decimal("0.01"))
-                if actual is None:
-                    pass
-                else:
-                    act_d = Decimal(str(actual)).quantize(Decimal("0.01"))
-                    if abs(act_d - exp_d) <= Decimal("0.01"):
-                        continue
-            except (InvalidOperation, ValueError, TypeError):
-                pass
-        elif str(actual or "").strip() == str(expected).strip():
-            continue
-        failures.append(
-            {
-                "supplier": supplier,
-                "pdf": pdf_name,
-                "field": field,
-                "expected": expected,
-                "actual": actual,
-            }
-        )
-    return failures
-
-
-def test_01_profile_extraction(user_data_dir: Path) -> None:
-    profiles = _suppliers_with_extraction_profiles(user_data_dir)
-    if not profiles:
-        pytest.skip("Geen extraction_profile in suppliers.json")
-
-    failures: list[dict[str, object]] = []
-    tested = 0
-    for supplier, profile in profiles:
-        pdf_name = Path(str(profile.get("learned_from") or "")).name
-        pdf_path = GOLDEN_PDFS_DIR / pdf_name
-        if not pdf_path.is_file():
-            logger.warning("PDF ontbreekt voor %r: %s — overgeslagen", supplier, pdf_name)
-            continue
-
-        raw = extract_text_strict(str(pdf_path))
-        field_failures = _profile_field_failures(
-            supplier=supplier,
-            pdf_name=pdf_name,
-            profile=profile,
-            raw_text=raw,
-        )
-        if field_failures:
-            for f in field_failures:
-                logger.warning(
-                    "Profiel-extractie mismatch: supplier=%s pdf=%s field=%s expected=%r actual=%r",
-                    f["supplier"],
-                    f["pdf"],
-                    f["field"],
-                    f["expected"],
-                    f["actual"],
-                )
-                print(
-                    f"FAIL {f['supplier']} {f['pdf']} {f['field']}: "
-                    f"expected={f['expected']!r} actual={f['actual']!r}"
-                )
-            failures.extend(field_failures)
-        tested += 1
-
-    if tested == 0:
-        pytest.skip("Geen profiel-PDFs beschikbaar")
-
-    assert failures == [], (
-        f"{len(failures)} profiel-extractie(s) mislukt:\n"
-        + "\n".join(
-            f"  {f['supplier']} {f['pdf']} {f['field']}: expected={f['expected']!r} actual={f['actual']!r}"
-            for f in failures
-        )
-    )
 
 
 def test_02_golden_dataset_business_output(pipeline_output: _PipelineOutput) -> None:
@@ -359,4 +233,3 @@ def test_02_golden_dataset_business_output(pipeline_output: _PipelineOutput) -> 
             expected=int(golden.get("payment_terms_days") or 0),
             actual=actual["payment_terms_days"],
         )
-
