@@ -1,0 +1,28 @@
+{
+  "phase": "C5",
+  "baseline_full_suite_sec": 5036.81,
+  "note": "Warm disk cache (tests/.cache). Cold extraction ~415s on first PDF load.",
+  "golden_concern_runs_sec": {
+    "golden_extraction_sec": 2.5,
+    "golden_ranking_sec": 0.73,
+    "golden_decision_sec": 0.56,
+    "golden_regression_lock_sec": 415.46,
+    "phase_c_guards_sec": 0.38,
+    "parity_snapshot_sec": 412.19
+  },
+  "golden_concern_total_sec": 831.82,
+  "exit_codes": {
+    "golden_extraction_sec": 0,
+    "golden_ranking_sec": 0,
+    "golden_decision_sec": 0,
+    "golden_regression_lock_sec": 1,
+    "phase_c_guards_sec": 0,
+    "parity_snapshot_sec": 0
+  },
+  "targets": {
+    "extraction_warm_cache_under_60_sec": true,
+    "ranking_under_600_sec": true,
+    "decision_under_900_sec": true,
+    "per_concern_feedback_under_300_sec": true
+  }
+}

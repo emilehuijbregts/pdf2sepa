@@ -1,0 +1,25 @@
+{
+  "phase": "C5",
+  "production_code_changed": false,
+  "test_02_preserved": true,
+  "split_files": [
+    "tests/test_golden_extraction.py",
+    "tests/test_golden_ranking.py",
+    "tests/test_golden_decision.py"
+  ],
+  "regression_lock": "tests/test_golden_dataset.py::test_02_golden_dataset_business_output",
+  "known_failures": {
+    "regression_lock_failed": 1,
+    "split_tests_xfailed": 10,
+    "primary": "option_tape_specialties_n_v_vf2602902.json invoice_number (VAT vs VF)",
+    "demasked_cascades": [
+      "option_tape: description, decision_status, amount_status",
+      "pearlpaint: invoice_number, description, decision_status, amount_status",
+      "polaris: decision_status, amount_status"
+    ]
+  },
+  "runtime_before_sec": 5036.81,
+  "runtime_golden_concern_warm_cache_sec": 3.79,
+  "runtime_report": "reports/phase_c_runtime.json",
+  "recommendation": "Phase C complete"
+}

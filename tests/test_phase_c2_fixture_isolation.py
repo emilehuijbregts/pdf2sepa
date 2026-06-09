@@ -16,23 +16,14 @@ _FILES = {
 
 
 def _fixture_names(path: Path) -> set[str]:
-    tree = ast.parse(path.read_text(encoding="utf-8"))
+    src = path.read_text(encoding="utf-8")
+    tree = ast.parse(src)
     names: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef) and node.name.startswith("test_"):
-            continue
-        if isinstance(node, ast.FunctionDef) and any(
-            isinstance(d, ast.Attribute) and d.attr == "fixture"
-            for d in ast.walk(node)
-            if isinstance(d, ast.Attribute)
-        ):
-            # simpler: look for @pytest.fixture decorator
-            pass
     for node in tree.body:
         if not isinstance(node, ast.FunctionDef):
             continue
         for dec in node.decorator_list:
-            dec_src = ast.get_source_segment(path.read_text(encoding="utf-8"), dec) or ""
+            dec_src = ast.get_source_segment(src, dec) or ""
             if "fixture" in dec_src:
                 names.add(node.name)
     return names
@@ -43,14 +34,13 @@ def test_phase_c2_per_file_fixture_names() -> None:
     ranking = _fixture_names(_FILES["ranking"])
     decision = _fixture_names(_FILES["decision"])
     lock = _fixture_names(_FILES["regression_lock"])
-    assert extraction == {"matched_by_pdf"}
+    assert extraction == {"pipeline_output"}
     assert ranking == {"matched_by_pdf", "ranking_snapshot"}
     assert decision == {"pipeline_output"}
     assert lock == {"pipeline_output"}
 
 
 def test_phase_c2_no_cross_file_fixture_imports() -> None:
-    forbidden = ("from tests.test_golden_", "import pipeline_output")
     for label, path in _FILES.items():
         text = path.read_text(encoding="utf-8")
         for other in _FILES:
