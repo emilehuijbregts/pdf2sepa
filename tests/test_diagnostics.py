@@ -181,6 +181,60 @@ def test_overlay_field_result_invoice_number_live_wins() -> None:
     assert snap["invoice_number"] == "OLD"
 
 
+def test_overlay_field_result_clears_stale_customer_scalar_on_absent() -> None:
+    inv = _base_invoice(
+        customer_number="STALE-CODE",
+        customer_number_result={
+            "value": "K42",
+            "status": "confirmed",
+            "source": "label",
+            "confidence": 90,
+            "candidates": [],
+        },
+    )
+    snap = build_invoice_diagnostics_snapshot(inv)
+    absent_live = {
+        "value": None,
+        "selected_value": None,
+        "absence_state": "NOT_PRESENT_SUPPLIER_LEVEL",
+        "source": "USER_ABSENT_CUSTOMER",
+        "status": "confirmed",
+        "user_selected": True,
+        "user_overridden": True,
+        "candidates": [],
+        "resolver_finalized": True,
+    }
+    merged = overlay_field_result(snap, "customer_number", absent_live)
+    assert "customer_number" not in merged
+    assert merged["customer_number_result"]["source"] == "USER_ABSENT_CUSTOMER"
+    diag = build_diagnostics(merged)
+    assert diag["customer_number"]["value_display"] == "Geen klantnummer"
+
+
+def test_build_ident_field_diag_block_absent_ignores_stale_scalar() -> None:
+    from logic.field_diagnostics import build_ident_field_diag_block
+    from ui.field_review import CUSTOMER_ABSENT_PICK_SOURCE
+
+    block = build_ident_field_diag_block(
+        {
+            "customer_number": "WRONG",
+            "customer_number_result": {
+                "value": None,
+                "selected_value": None,
+                "absence_state": "NOT_PRESENT_SUPPLIER_LEVEL",
+                "source": CUSTOMER_ABSENT_PICK_SOURCE,
+                "status": "confirmed",
+                "user_selected": True,
+                "candidates": [{"value": "WRONG", "source": "label", "confidence": 90}],
+            },
+        },
+        "customer_number",
+    )
+    assert block["value_display"] == "Geen klantnummer"
+    assert block["candidates"] == []
+    assert "WRONG" not in str(block.get("value") or "")
+
+
 def test_overlay_amount_result_replaces_stale_parser_snapshot() -> None:
     """Live amount_result from UI cell must win over batch diagnostics snapshot."""
     inv = _base_invoice(

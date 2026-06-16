@@ -2,12 +2,12 @@
   "phase": "B9",
   "baseline": "tests/snapshots/phase_a_ranking_snapshot.json",
   "summary": {
-    "production_winner_changes": 0,
-    "status_changes": 0,
-    "ranking_changes": 0,
+    "production_winner_changes": 32,
+    "status_changes": 13,
+    "ranking_changes": 102,
     "authority_changes": 48,
-    "intentional_authority_changes": 48,
-    "unexplained_changes": 0,
+    "intentional_authority_changes": 43,
+    "unexplained_changes": 152,
     "post_resolve_status_violations": 0,
     "phase_b_goals_met": {
       "ranking": true,
@@ -15,11 +15,2267 @@
       "status": true,
       "routing": true
     },
-    "recommendation": "Phase B complete"
+    "recommendation": "Phase B not complete"
   },
-  "production_winner_changes": [],
-  "status_changes": [],
-  "ranking_changes": [],
+  "production_winner_changes": [
+    {
+      "pdf": "Aluned 502601306.pdf",
+      "field": "vat_number",
+      "old_winner": {
+        "confidence": 72,
+        "source": "vat",
+        "status": "tentative",
+        "value": "ST8DAKTRIM"
+      },
+      "new_winner": {
+        "value": "",
+        "source": "fallback_missing",
+        "status": "tentative",
+        "confidence": 5
+      },
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Arbo&verzuim Factuur-20260075.pdf",
+      "field": "invoice_number",
+      "old_winner": {
+        "confidence": 64,
+        "source": "label_next_line",
+        "status": "tentative",
+        "value": "20260075"
+      },
+      "new_winner": {
+        "value": "20180168",
+        "source": "header_table_invoice",
+        "status": "confirmed",
+        "confidence": 89
+      },
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Atlantic Factuur van Groupe Atlantic Nederland  - Fact. 26403880.pdf",
+      "field": "kvk_number",
+      "old_winner": {
+        "confidence": 75,
+        "source": "kvk",
+        "status": "tentative",
+        "value": "09083166"
+      },
+      "new_winner": {
+        "value": "",
+        "source": "fallback_missing",
+        "status": "tentative",
+        "confidence": 5
+      },
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Bauder 24065433.pdf",
+      "field": "kvk_number",
+      "old_winner": {
+        "confidence": 75,
+        "source": "kvk",
+        "status": "tentative",
+        "value": "30186425"
+      },
+      "new_winner": {
+        "value": "",
+        "source": "fallback_missing",
+        "status": "tentative",
+        "confidence": 5
+      },
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Bitasco VerkoopFactuur SI26-007024.pdf",
+      "field": "amount",
+      "old_winner": {
+        "confidence": 70,
+        "source": "total_label_generic",
+        "status": "confirmed",
+        "value": "4287.89"
+      },
+      "new_winner": {
+        "value": "4287.89",
+        "source": "total_label_generic",
+        "status": "tentative",
+        "confidence": 70
+      },
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Bosta Factuur NL01D00074953_2.pdf",
+      "field": "amount",
+      "old_winner": {
+        "confidence": 85,
+        "source": "total_label_sum",
+        "status": "confirmed",
+        "value": "193.98"
+      },
+      "new_winner": {
+        "value": "193.98",
+        "source": "TOTAL_LABEL_SUM",
+        "status": "confirmed",
+        "confidence": 85
+      },
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Bosta Factuur NL01D00074953_2.pdf",
+      "field": "customer_number",
+      "old_winner": {
+        "confidence": 94,
+        "source": "label_block_same_line",
+        "status": "confirmed",
+        "value": "NL01114276"
+      },
+      "new_winner": {
+        "value": "NLO1114276",
+        "source": "label_block_same_line",
+        "status": "confirmed",
+        "confidence": 94
+      },
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Bosta Factuur NL01D00074953_2.pdf",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL58INGB0006364795"
+      },
+      "new_winner": {
+        "value": "NL58INGB0006364795",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Caleffi Invoice Caleffi NV N° 1210001330  of 24.03.2026. pdf.pdf",
+      "field": "invoice_number",
+      "old_winner": {
+        "confidence": 89,
+        "source": "header_table_invoice",
+        "status": "confirmed",
+        "value": "1210001330"
+      },
+      "new_winner": {
+        "value": "",
+        "source": "fallback_missing",
+        "status": "tentative",
+        "confidence": 5
+      },
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "DTC 500127_26000078.pdf",
+      "field": "invoice_number",
+      "old_winner": {
+        "confidence": 64,
+        "source": "label_next_line",
+        "status": "tentative",
+        "value": "500127"
+      },
+      "new_winner": {
+        "value": "137,75/ST",
+        "source": "header_table_invoice",
+        "status": "confirmed",
+        "confidence": 86
+      },
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "David Price 2026-009.pdf",
+      "field": "invoice_number",
+      "old_winner": {
+        "confidence": 70,
+        "source": "label",
+        "status": "tentative",
+        "value": "2026-009"
+      },
+      "new_winner": {
+        "value": "2026-009",
+        "source": "label",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "De waal Factuur 2861.pdf",
+      "field": "invoice_number",
+      "old_winner": {
+        "confidence": 88,
+        "source": "label",
+        "status": "confirmed",
+        "value": "2861"
+      },
+      "new_winner": {
+        "value": "",
+        "source": "fallback_missing",
+        "status": "tentative",
+        "confidence": 5
+      },
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Dissel 288582.PDF",
+      "field": "amount",
+      "old_winner": {
+        "confidence": 95,
+        "source": "vat_summary_last_amount",
+        "status": "confirmed",
+        "value": "3620.93"
+      },
+      "new_winner": {
+        "value": "82.16",
+        "source": "total_label_payable",
+        "status": "tentative",
+        "confidence": 100
+      },
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Dissel 288582.PDF",
+      "field": "kvk_number",
+      "old_winner": {
+        "confidence": 75,
+        "source": "kvk",
+        "status": "tentative",
+        "value": "6312200"
+      },
+      "new_winner": {
+        "value": "",
+        "source": "fallback_missing",
+        "status": "tentative",
+        "confidence": 5
+      },
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Frige SALESINVOICE-102089217.pdf",
+      "field": "amount",
+      "old_winner": {
+        "confidence": 100,
+        "source": "total_label_payable",
+        "status": "confirmed",
+        "value": "325.79"
+      },
+      "new_winner": {
+        "value": "325.79",
+        "source": "total_label_payable",
+        "status": "tentative",
+        "confidence": 100
+      },
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Gevier 917310_26031451.pdf",
+      "field": "invoice_number",
+      "old_winner": {
+        "confidence": 64,
+        "source": "label_next_line",
+        "status": "tentative",
+        "value": "917310"
+      },
+      "new_winner": {
+        "value": "157,45/ST",
+        "source": "header_table_invoice",
+        "status": "confirmed",
+        "confidence": 86
+      },
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Korver Holland Uitgaande factuur 1094659.pdf",
+      "field": "invoice_number",
+      "old_winner": {
+        "confidence": 64,
+        "source": "label_next_line",
+        "status": "tentative",
+        "value": "VF-1094659"
+      },
+      "new_winner": {
+        "value": "D3269",
+        "source": "label_next_line",
+        "status": "tentative",
+        "confidence": 64
+      },
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Labor Factuur_verkooporders__01_F2600915_2026-01-12_11-39-22_.PDF",
+      "field": "invoice_number",
+      "old_winner": {
+        "confidence": 89,
+        "source": "header_table_invoice",
+        "status": "confirmed",
+        "value": "F2600915"
+      },
+      "new_winner": {
+        "value": "F2600915",
+        "source": "tabular",
+        "status": "tentative",
+        "confidence": 70
+      },
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Louwman 0071640028_PVF74-1308422_2060342.PDF",
+      "field": "invoice_number",
+      "old_winner": {
+        "confidence": 88,
+        "source": "label",
+        "status": "confirmed",
+        "value": "PVF74-1308422"
+      },
+      "new_winner": {
+        "value": "10/1974",
+        "source": "header_table_invoice",
+        "status": "confirmed",
+        "confidence": 89
+      },
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Majestic Factuur Majestic Products nr 9002335421.pdf",
+      "field": "amount",
+      "old_winner": {
+        "confidence": 40,
+        "source": "total_line_hint",
+        "status": "confirmed",
+        "value": "200.88"
+      },
+      "new_winner": {
+        "value": "200.88",
+        "source": "total_label_invoice",
+        "status": "confirmed",
+        "confidence": 95
+      },
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "OEG FactuurHA13451308.pdf",
+      "field": "kvk_number",
+      "old_winner": {
+        "confidence": 75,
+        "source": "kvk",
+        "status": "tentative",
+        "value": "26570090"
+      },
+      "new_winner": {
+        "value": "",
+        "source": "fallback_missing",
+        "status": "tentative",
+        "confidence": 5
+      },
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Omniplast 3245984_0.pdf",
+      "field": "vat_number",
+      "old_winner": {
+        "confidence": 72,
+        "source": "vat",
+        "status": "tentative",
+        "value": "SN44M860MTR1"
+      },
+      "new_winner": {
+        "value": "",
+        "source": "fallback_missing",
+        "status": "tentative",
+        "confidence": 5
+      },
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Option tape Verkoopfactuur VF2602902.pdf",
+      "field": "invoice_number",
+      "old_winner": {
+        "confidence": 70,
+        "source": "label",
+        "status": "tentative",
+        "value": "NL001740777B35"
+      },
+      "new_winner": {
+        "value": "VF2602902",
+        "source": "factuur_plain",
+        "status": "confirmed",
+        "confidence": 83
+      },
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Option tape Verkoopfactuur VF2602902.pdf",
+      "field": "kvk_number",
+      "old_winner": {
+        "confidence": 75,
+        "source": "kvk",
+        "status": "tentative",
+        "value": "7593080"
+      },
+      "new_winner": {
+        "value": "",
+        "source": "fallback_missing",
+        "status": "tentative",
+        "confidence": 5
+      },
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "PGB 1800001827.pdf",
+      "field": "invoice_number",
+      "old_winner": {
+        "confidence": 56,
+        "source": "label_next_line",
+        "status": "tentative",
+        "value": "0736911725"
+      },
+      "new_winner": {
+        "value": "26/1800001827",
+        "source": "year_slash_ref",
+        "status": "tentative",
+        "confidence": 78
+      },
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "PGB 1800001827.pdf",
+      "field": "kvk_number",
+      "old_winner": {
+        "confidence": 75,
+        "source": "kvk",
+        "status": "tentative",
+        "value": "56451378"
+      },
+      "new_winner": {
+        "value": "",
+        "source": "fallback_missing",
+        "status": "tentative",
+        "confidence": 5
+      },
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Pearl paint 2610I000151.pdf",
+      "field": "invoice_number",
+      "old_winner": {
+        "confidence": 88,
+        "source": "label",
+        "status": "confirmed",
+        "value": "2610"
+      },
+      "new_winner": {
+        "value": "2610I000151",
+        "source": "label",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Pm Coded Factuur 15.pdf",
+      "field": "amount",
+      "old_winner": {
+        "confidence": 100,
+        "source": "total_label_payable",
+        "status": "confirmed",
+        "value": "62.96"
+      },
+      "new_winner": {
+        "value": "62.96",
+        "source": "total_label_payable",
+        "status": "tentative",
+        "confidence": 100
+      },
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Pm Coded Factuur 15.pdf",
+      "field": "invoice_number",
+      "old_winner": {
+        "confidence": 64,
+        "source": "label_next_line",
+        "status": "tentative",
+        "value": "2026/15"
+      },
+      "new_winner": {
+        "value": "2026/15",
+        "source": "label",
+        "status": "tentative",
+        "confidence": 70
+      },
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "eekhof 251231 factuur 250017 Handelsonderneming Duister (Bouwbedrijf Van der Donk).pdf",
+      "field": "vat_number",
+      "old_winner": {
+        "confidence": 90,
+        "source": "vat",
+        "status": "confirmed",
+        "value": "NL005350752B22"
+      },
+      "new_winner": {
+        "value": "NL005350752B22",
+        "source": "parsed",
+        "status": "tentative",
+        "confidence": 70
+      },
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "eekhof 251231 factuur 250017 Handelsonderneming Duister (Bouwbedrijf Van der Donk).pdf",
+      "field": "kvk_number",
+      "old_winner": {
+        "confidence": 75,
+        "source": "kvk",
+        "status": "tentative",
+        "value": "98694081"
+      },
+      "new_winner": {
+        "value": "",
+        "source": "fallback_missing",
+        "status": "tentative",
+        "confidence": 5
+      },
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "profolux factuur-25-025881.pdf",
+      "field": "kvk_number",
+      "old_winner": {
+        "confidence": 75,
+        "source": "kvk",
+        "status": "tentative",
+        "value": "58064850"
+      },
+      "new_winner": {
+        "value": "",
+        "source": "fallback_missing",
+        "status": "tentative",
+        "confidence": 5
+      },
+      "classification": "unexplained"
+    }
+  ],
+  "status_changes": [
+    {
+      "pdf": "Arbo&verzuim Factuur-20260075.pdf",
+      "field": "invoice_number",
+      "old_status": "tentative",
+      "new_status": "confirmed",
+      "winner_value": "20180168",
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Bitasco VerkoopFactuur SI26-007024.pdf",
+      "field": "amount",
+      "old_status": "confirmed",
+      "new_status": "tentative",
+      "winner_value": "4287.89",
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Caleffi Invoice Caleffi NV N° 1210001330  of 24.03.2026. pdf.pdf",
+      "field": "invoice_number",
+      "old_status": "confirmed",
+      "new_status": "tentative",
+      "winner_value": "",
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "DTC 500127_26000078.pdf",
+      "field": "invoice_number",
+      "old_status": "tentative",
+      "new_status": "confirmed",
+      "winner_value": "137,75/ST",
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "David Price 2026-009.pdf",
+      "field": "invoice_number",
+      "old_status": "tentative",
+      "new_status": "confirmed",
+      "winner_value": "2026-009",
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "De waal Factuur 2861.pdf",
+      "field": "invoice_number",
+      "old_status": "confirmed",
+      "new_status": "tentative",
+      "winner_value": "",
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Dissel 288582.PDF",
+      "field": "amount",
+      "old_status": "confirmed",
+      "new_status": "tentative",
+      "winner_value": "82.16",
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Frige SALESINVOICE-102089217.pdf",
+      "field": "amount",
+      "old_status": "confirmed",
+      "new_status": "tentative",
+      "winner_value": "325.79",
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Gevier 917310_26031451.pdf",
+      "field": "invoice_number",
+      "old_status": "tentative",
+      "new_status": "confirmed",
+      "winner_value": "157,45/ST",
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Labor Factuur_verkooporders__01_F2600915_2026-01-12_11-39-22_.PDF",
+      "field": "invoice_number",
+      "old_status": "confirmed",
+      "new_status": "tentative",
+      "winner_value": "F2600915",
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Option tape Verkoopfactuur VF2602902.pdf",
+      "field": "invoice_number",
+      "old_status": "tentative",
+      "new_status": "confirmed",
+      "winner_value": "VF2602902",
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Pm Coded Factuur 15.pdf",
+      "field": "amount",
+      "old_status": "confirmed",
+      "new_status": "tentative",
+      "winner_value": "62.96",
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "eekhof 251231 factuur 250017 Handelsonderneming Duister (Bouwbedrijf Van der Donk).pdf",
+      "field": "vat_number",
+      "old_status": "confirmed",
+      "new_status": "tentative",
+      "winner_value": "NL005350752B22",
+      "classification": "unexplained"
+    }
+  ],
+  "ranking_changes": [
+    {
+      "pdf": "Aco Sales Invoice - F444643.pdf",
+      "field": "invoice_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "F444643",
+        "dgn-/-2",
+        "20260423",
+        "0314-368299",
+        "NL813771213B01"
+      ],
+      "new_ordering": [
+        "F444643",
+        "dgn-/-2"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Aco Sales Invoice - F444643.pdf",
+      "field": "invoice_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "F444643",
+        "dgn-/-2",
+        "20260423",
+        "0314-368299",
+        "NL813771213B01"
+      ],
+      "new_ordering": [
+        "F444643",
+        "dgn-/-2"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Aluned 502601306.pdf",
+      "field": "amount",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "1930.71",
+        "1930.71",
+        "1930.71"
+      ],
+      "new_ordering": [
+        "1930.71",
+        "1930.71",
+        "1930.71",
+        "335.08",
+        "335.08"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Aluned 502601306.pdf",
+      "field": "amount",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "1930.71",
+        "1930.71",
+        "1930.71"
+      ],
+      "new_ordering": [
+        "1930.71",
+        "335.08",
+        "1930.71",
+        "1930.71"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Aluned 502601306.pdf",
+      "field": "vat_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "ST8DAKTRIM",
+        "ST6DAKTRIM",
+        "ST3DAKTRIM",
+        "ST18DAKTRIM",
+        "ST12DAKTRIM"
+      ],
+      "new_ordering": [
+        ""
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Aluned 502601306.pdf",
+      "field": "vat_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "ST8DAKTRIM",
+        "ST6DAKTRIM",
+        "ST3DAKTRIM",
+        "ST18DAKTRIM",
+        "ST12DAKTRIM"
+      ],
+      "new_ordering": [
+        ""
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Arbo&verzuim Factuur-20260075.pdf",
+      "field": "invoice_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "20260075",
+        "20180168"
+      ],
+      "new_ordering": [
+        "20180168",
+        "20260075"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Arbo&verzuim Factuur-20260075.pdf",
+      "field": "invoice_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "20260075",
+        "20180168"
+      ],
+      "new_ordering": [
+        "20180168",
+        "20260075"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Atlantic Factuur van Groupe Atlantic Nederland  - Fact. 26403880.pdf",
+      "field": "kvk_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "09083166"
+      ],
+      "new_ordering": [
+        ""
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Atlantic Factuur van Groupe Atlantic Nederland  - Fact. 26403880.pdf",
+      "field": "kvk_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "09083166"
+      ],
+      "new_ordering": [
+        ""
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "BJ autotechniek 26069 duister wouter.pdf",
+      "field": "invoice_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "26069",
+        "17139601",
+        "1500",
+        "0009",
+        "NL69"
+      ],
+      "new_ordering": [
+        "26069"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "BJ autotechniek 26069 duister wouter.pdf",
+      "field": "invoice_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "26069",
+        "17139601",
+        "1500",
+        "0009",
+        "NL69"
+      ],
+      "new_ordering": [
+        "26069"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Bauder 24065433.pdf",
+      "field": "kvk_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "30186425"
+      ],
+      "new_ordering": [
+        ""
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Bauder 24065433.pdf",
+      "field": "kvk_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "30186425"
+      ],
+      "new_ordering": [
+        ""
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Besli Factuur 30323154.pdf",
+      "field": "amount",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "95.45",
+        "549.96",
+        "549.96",
+        "549.96",
+        "95.45"
+      ],
+      "new_ordering": [
+        "95.45",
+        "549.96",
+        "549.96",
+        "549.96",
+        "95.45",
+        "95.45"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Besli Factuur 30323154.pdf",
+      "field": "amount",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "549.96",
+        "95.45",
+        "95.45",
+        "549.96",
+        "549.96"
+      ],
+      "new_ordering": [
+        "549.96",
+        "95.45",
+        "95.45",
+        "95.45",
+        "549.96",
+        "549.96"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Bitasco VerkoopFactuur SI26-007024.pdf",
+      "field": "amount",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "4287.89",
+        "4287.89",
+        "4287.89"
+      ],
+      "new_ordering": [
+        "4287.89",
+        "4287.89",
+        "4287.89",
+        "744.18"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Bitasco VerkoopFactuur SI26-007024.pdf",
+      "field": "amount",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "4287.89",
+        "4287.89",
+        "4287.89"
+      ],
+      "new_ordering": [
+        "4287.89",
+        "744.18",
+        "4287.89",
+        "4287.89"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Bonfix Factuur Handelsonderneming Duister _ 2610903.pdf",
+      "field": "invoice_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "2610903",
+        "RABONL2U",
+        "2612387"
+      ],
+      "new_ordering": [
+        "2610903",
+        "2612387"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Bonfix Factuur Handelsonderneming Duister _ 2610903.pdf",
+      "field": "invoice_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "2610903",
+        "RABONL2U",
+        "2612387"
+      ],
+      "new_ordering": [
+        "2610903",
+        "2612387"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Bosta Factuur NL01D00074953_2.pdf",
+      "field": "customer_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "NL01114276"
+      ],
+      "new_ordering": [
+        "NLO1114276",
+        "NL01114276"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Bosta Factuur NL01D00074953_2.pdf",
+      "field": "customer_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "NL01114276",
+        "NL01114276"
+      ],
+      "new_ordering": [
+        "NLO1114276",
+        "NL01114276"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Bosta Factuur NL01D00074953_2.pdf",
+      "field": "iban",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "NL58INGB0006364795",
+        "NL58INGB0006364795"
+      ],
+      "new_ordering": [
+        "NL58INGB0006364795"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Brouwers zink 382005.pdf",
+      "field": "invoice_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "382005",
+        "5216"
+      ],
+      "new_ordering": [
+        "382005"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Brouwers zink 382005.pdf",
+      "field": "invoice_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "382005",
+        "5216"
+      ],
+      "new_ordering": [
+        "382005"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Caleffi Invoice Caleffi NV N° 1210001330  of 24.03.2026. pdf.pdf",
+      "field": "invoice_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "1210001330"
+      ],
+      "new_ordering": [
+        ""
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Caleffi Invoice Caleffi NV N° 1210001330  of 24.03.2026. pdf.pdf",
+      "field": "invoice_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "1210001330"
+      ],
+      "new_ordering": [
+        ""
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Connect products 26003265.pdf",
+      "field": "invoice_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "26003265",
+        "3349",
+        "16003040"
+      ],
+      "new_ordering": [
+        "26003265",
+        "16003040"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Connect products 26003265.pdf",
+      "field": "invoice_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "26003265",
+        "3349",
+        "16003040"
+      ],
+      "new_ordering": [
+        "26003265",
+        "16003040"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "DTC 500127_26000078.pdf",
+      "field": "amount",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "1875.16",
+        "1875.16",
+        "149.04",
+        "1875.16",
+        "325.44",
+        "1549.72",
+        "1549.72"
+      ],
+      "new_ordering": [
+        "1875.16",
+        "1875.16",
+        "1875.16",
+        "149.04",
+        "1875.16",
+        "325.44",
+        "1549.72",
+        "1549.72"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "DTC 500127_26000078.pdf",
+      "field": "amount",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "1875.16",
+        "1875.16",
+        "325.44",
+        "1549.72",
+        "149.04",
+        "1875.16"
+      ],
+      "new_ordering": [
+        "1875.16",
+        "1875.16",
+        "1875.16",
+        "325.44",
+        "1549.72",
+        "149.04",
+        "1875.16"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "DTC 500127_26000078.pdf",
+      "field": "invoice_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "500127",
+        "26000078",
+        "NL005977915B01"
+      ],
+      "new_ordering": [
+        "137,75/ST",
+        "500127",
+        "26000078"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "DTC 500127_26000078.pdf",
+      "field": "invoice_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "500127",
+        "26000078",
+        "NL005977915B01"
+      ],
+      "new_ordering": [
+        "137,75/ST",
+        "500127",
+        "26000078"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "DYKA Factuur 3360031301 03-02-2026.PDF",
+      "field": "amount",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "15.00",
+        "13.84",
+        "0.16",
+        "0.16",
+        "15.00",
+        "38.72",
+        "38.72",
+        "6.72",
+        "32.00"
+      ],
+      "new_ordering": [
+        "15.00",
+        "13.84",
+        "0.16",
+        "0.16",
+        "15.00",
+        "38.72",
+        "38.72",
+        "38.72",
+        "6.72",
+        "32.00"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "DYKA Factuur 3360031301 03-02-2026.PDF",
+      "field": "amount",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "38.72",
+        "38.72",
+        "15.00",
+        "13.84",
+        "0.16",
+        "6.72",
+        "32.00",
+        "0.16",
+        "15.00"
+      ],
+      "new_ordering": [
+        "38.72",
+        "38.72",
+        "38.72",
+        "15.00",
+        "13.84",
+        "0.16",
+        "6.72",
+        "32.00",
+        "0.16",
+        "15.00"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "DYKA Factuur 3360031301 03-02-2026.PDF",
+      "field": "invoice_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "3360031301",
+        "DYKRAY202"
+      ],
+      "new_ordering": [
+        "3360031301"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "DYKA Factuur 3360031301 03-02-2026.PDF",
+      "field": "invoice_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "3360031301",
+        "DYKRAY202"
+      ],
+      "new_ordering": [
+        "3360031301"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "De waal Factuur 2861.pdf",
+      "field": "invoice_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "2861",
+        "5216"
+      ],
+      "new_ordering": [
+        ""
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "De waal Factuur 2861.pdf",
+      "field": "invoice_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "2861",
+        "5216"
+      ],
+      "new_ordering": [
+        ""
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Defrancq Verkoop Factuur VFA2600287.pdf",
+      "field": "invoice_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "VFA26/00287",
+        "62254448",
+        "NL148005664B01"
+      ],
+      "new_ordering": [
+        "VFA26/00287"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Defrancq Verkoop Factuur VFA2600287.pdf",
+      "field": "invoice_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "VFA26/00287",
+        "62254448",
+        "NL148005664B01"
+      ],
+      "new_ordering": [
+        "VFA26/00287"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Dissel 288582.PDF",
+      "field": "amount",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "2992.50",
+        "82.16",
+        "15.10",
+        "3620.93",
+        "3620.93"
+      ],
+      "new_ordering": [
+        "82.16",
+        "2992.50",
+        "82.16",
+        "15.10",
+        "3620.93",
+        "3620.93",
+        "3620.93"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Dissel 288582.PDF",
+      "field": "amount",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "3620.93",
+        "2992.50",
+        "82.16",
+        "15.10",
+        "3620.93"
+      ],
+      "new_ordering": [
+        "82.16",
+        "3620.93",
+        "3620.93",
+        "2992.50",
+        "82.16",
+        "15.10",
+        "3620.93"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Dissel 288582.PDF",
+      "field": "invoice_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "288582",
+        "103305",
+        "353889",
+        "20260401",
+        "NL62"
+      ],
+      "new_ordering": [
+        "288582",
+        "103305",
+        "353889",
+        "20260401"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Dissel 288582.PDF",
+      "field": "invoice_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "288582",
+        "103305",
+        "353889",
+        "20260401",
+        "NL62"
+      ],
+      "new_ordering": [
+        "288582",
+        "103305",
+        "353889",
+        "20260401"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Dissel 288582.PDF",
+      "field": "kvk_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "6312200"
+      ],
+      "new_ordering": [
+        ""
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Dissel 288582.PDF",
+      "field": "kvk_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "6312200"
+      ],
+      "new_ordering": [
+        ""
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Eplucon Factuur 260312.pdf",
+      "field": "invoice_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "260312",
+        "030084",
+        "5216"
+      ],
+      "new_ordering": [
+        "260312",
+        "030084"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Eplucon Factuur 260312.pdf",
+      "field": "invoice_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "260312",
+        "030084",
+        "5216"
+      ],
+      "new_ordering": [
+        "260312",
+        "030084"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Feyts 260068.pdf",
+      "field": "invoice_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "260068",
+        "6088",
+        "3871",
+        "14039954",
+        "0108",
+        "0005",
+        "NL38"
+      ],
+      "new_ordering": [
+        "260068",
+        "14039954"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Feyts 260068.pdf",
+      "field": "invoice_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "260068",
+        "6088",
+        "3871",
+        "14039954",
+        "0108",
+        "0005",
+        "NL38"
+      ],
+      "new_ordering": [
+        "260068",
+        "14039954"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Feyts 260068.pdf",
+      "field": "iban",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "NL38INGB0005608846"
+      ],
+      "new_ordering": [
+        "NL38INGB0005608846",
+        "NL15RABO0108387100"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Feyts 260068.pdf",
+      "field": "iban",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "NL38INGB0005608846",
+        "NL38INGB0005608846"
+      ],
+      "new_ordering": [
+        "NL38INGB0005608846",
+        "NL38INGB0005608846",
+        "NL15RABO0108387100"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Frige SALESINVOICE-102089217.pdf",
+      "field": "amount",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "325.79",
+        "56.54",
+        "325.79",
+        "325.79",
+        "56.54"
+      ],
+      "new_ordering": [
+        "325.79",
+        "56.54",
+        "325.79",
+        "325.79",
+        "56.54",
+        "269.25"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Frige SALESINVOICE-102089217.pdf",
+      "field": "amount",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "325.79",
+        "56.54",
+        "56.54",
+        "325.79",
+        "325.79"
+      ],
+      "new_ordering": [
+        "325.79",
+        "269.25",
+        "56.54",
+        "56.54",
+        "325.79",
+        "325.79"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Gevier 917310_26031451.pdf",
+      "field": "amount",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "285.75",
+        "285.75",
+        "236.16",
+        "285.75",
+        "49.59",
+        "236.16",
+        "236.16"
+      ],
+      "new_ordering": [
+        "285.75",
+        "285.75",
+        "285.75",
+        "236.16",
+        "285.75",
+        "49.59",
+        "236.16",
+        "236.16"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Gevier 917310_26031451.pdf",
+      "field": "amount",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "285.75",
+        "285.75",
+        "49.59",
+        "236.16",
+        "236.16",
+        "285.75"
+      ],
+      "new_ordering": [
+        "285.75",
+        "285.75",
+        "285.75",
+        "49.59",
+        "236.16",
+        "236.16",
+        "285.75"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Gevier 917310_26031451.pdf",
+      "field": "invoice_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "917310",
+        "26031451",
+        "NL854976504B01"
+      ],
+      "new_ordering": [
+        "157,45/ST",
+        "917310",
+        "26031451"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Gevier 917310_26031451.pdf",
+      "field": "invoice_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "917310",
+        "26031451",
+        "NL854976504B01"
+      ],
+      "new_ordering": [
+        "157,45/ST",
+        "917310",
+        "26031451"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "IHS Lewo factuur 26402381.pdf",
+      "field": "invoice_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "26402381",
+        "262002859"
+      ],
+      "new_ordering": [
+        "26402381"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "IHS Lewo factuur 26402381.pdf",
+      "field": "invoice_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "26402381",
+        "262002859"
+      ],
+      "new_ordering": [
+        "26402381"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Installatiebalie Verkoopfactuur VF26-05543.pdf",
+      "field": "invoice_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "VF26-05543",
+        "K12493",
+        "230556",
+        "INGBNL2A"
+      ],
+      "new_ordering": [
+        "VF26-05543",
+        "K12493",
+        "230556"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Installatiebalie Verkoopfactuur VF26-05543.pdf",
+      "field": "invoice_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "VF26-05543",
+        "K12493",
+        "230556",
+        "INGBNL2A"
+      ],
+      "new_ordering": [
+        "VF26-05543",
+        "K12493",
+        "230556"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Korver Holland Uitgaande factuur 1094659.pdf",
+      "field": "invoice_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "VF-1094659",
+        "D3269",
+        "230948"
+      ],
+      "new_ordering": [
+        "D3269",
+        "2000046117",
+        "VF-1094659"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Korver Holland Uitgaande factuur 1094659.pdf",
+      "field": "invoice_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "VF-1094659",
+        "D3269",
+        "230948"
+      ],
+      "new_ordering": [
+        "D3269",
+        "2000046117",
+        "VF-1094659"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Labor Factuur_verkooporders__01_F2600915_2026-01-12_11-39-22_.PDF",
+      "field": "amount",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "39.66",
+        "39.66",
+        "39.66"
+      ],
+      "new_ordering": [
+        "39.66",
+        "39.66",
+        "39.66",
+        "39.66"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Labor Factuur_verkooporders__01_F2600915_2026-01-12_11-39-22_.PDF",
+      "field": "amount",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "39.66",
+        "39.66",
+        "39.66"
+      ],
+      "new_ordering": [
+        "39.66",
+        "39.66",
+        "39.66",
+        "39.66"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Labor Factuur_verkooporders__01_F2600915_2026-01-12_11-39-22_.PDF",
+      "field": "invoice_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "F2600915",
+        "LA004717"
+      ],
+      "new_ordering": [
+        "F2600915"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Labor Factuur_verkooporders__01_F2600915_2026-01-12_11-39-22_.PDF",
+      "field": "invoice_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "F2600915",
+        "LA004717"
+      ],
+      "new_ordering": [
+        "F2600915"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Lammers F4368916_factuur_duister_handelsonderneming__01-04-2026.pdf",
+      "field": "invoice_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "F4368916",
+        "5216jw",
+        "0956"
+      ],
+      "new_ordering": [
+        "F4368916",
+        "5216jw"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Lammers F4368916_factuur_duister_handelsonderneming__01-04-2026.pdf",
+      "field": "invoice_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "F4368916",
+        "5216jw",
+        "0956"
+      ],
+      "new_ordering": [
+        "F4368916",
+        "5216jw"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Louwman 0071640028_PVF74-1308422_2060342.PDF",
+      "field": "invoice_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "PVF74-1308422"
+      ],
+      "new_ordering": [
+        "10/1974",
+        "PVF74-1308422"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Louwman 0071640028_PVF74-1308422_2060342.PDF",
+      "field": "invoice_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "PVF74-1308422"
+      ],
+      "new_ordering": [
+        "10/1974",
+        "PVF74-1308422"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Majestic Factuur Majestic Products nr 9002335421.pdf",
+      "field": "amount",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "200.88",
+        "200.88",
+        "200.88",
+        "5.02",
+        "166.02"
+      ],
+      "new_ordering": [
+        "200.88",
+        "5.02",
+        "200.88",
+        "166.02",
+        "200.88"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Majestic Factuur Majestic Products nr 9002335421.pdf",
+      "field": "vat_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "NL802825655B01",
+        "NL001740777B35"
+      ],
+      "new_ordering": [
+        "NL802825655B01"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Majestic Factuur Majestic Products nr 9002335421.pdf",
+      "field": "vat_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "NL802825655B01",
+        "NL001740777B35"
+      ],
+      "new_ordering": [
+        "NL802825655B01"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "OEG FactuurHA13451308.pdf",
+      "field": "kvk_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "26570090"
+      ],
+      "new_ordering": [
+        ""
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "OEG FactuurHA13451308.pdf",
+      "field": "kvk_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "26570090"
+      ],
+      "new_ordering": [
+        ""
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Omniplast 3245984_0.pdf",
+      "field": "vat_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "SN44M860MTR1",
+        "SN44M340MTR2"
+      ],
+      "new_ordering": [
+        ""
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Omniplast 3245984_0.pdf",
+      "field": "vat_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "SN44M860MTR1",
+        "SN44M340MTR2"
+      ],
+      "new_ordering": [
+        ""
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Option tape Verkoopfactuur VF2602902.pdf",
+      "field": "invoice_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "NL001740777B35",
+        "VF2602902"
+      ],
+      "new_ordering": [
+        "VF2602902"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Option tape Verkoopfactuur VF2602902.pdf",
+      "field": "invoice_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "NL001740777B35",
+        "VF2602902"
+      ],
+      "new_ordering": [
+        "VF2602902"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Option tape Verkoopfactuur VF2602902.pdf",
+      "field": "kvk_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "7593080",
+        "7209914",
+        "32371134",
+        "32371019",
+        "00175930"
+      ],
+      "new_ordering": [
+        ""
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Option tape Verkoopfactuur VF2602902.pdf",
+      "field": "kvk_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "7593080",
+        "7209914",
+        "32371134",
+        "32371019",
+        "00175930"
+      ],
+      "new_ordering": [
+        ""
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "PGB 1800001827.pdf",
+      "field": "invoice_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "0736911725",
+        "NL001740777B35",
+        "26/1800001827"
+      ],
+      "new_ordering": [
+        "26/1800001827"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "PGB 1800001827.pdf",
+      "field": "invoice_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "0736911725",
+        "NL001740777B35",
+        "26/1800001827"
+      ],
+      "new_ordering": [
+        "26/1800001827"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "PGB 1800001827.pdf",
+      "field": "kvk_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "56451378",
+        "44596389",
+        "39003232",
+        "29001606"
+      ],
+      "new_ordering": [
+        ""
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "PGB 1800001827.pdf",
+      "field": "kvk_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "56451378",
+        "44596389",
+        "39003232",
+        "29001606"
+      ],
+      "new_ordering": [
+        ""
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Pearl paint 2610I000151.pdf",
+      "field": "invoice_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "2610",
+        "22221111",
+        "2610I000151"
+      ],
+      "new_ordering": [
+        "2610I000151",
+        "22221111"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Pearl paint 2610I000151.pdf",
+      "field": "invoice_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "2610",
+        "22221111",
+        "2610I000151",
+        "2610I000151"
+      ],
+      "new_ordering": [
+        "2610I000151",
+        "22221111",
+        "2610I000151"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Pearl paint 2610I000151.pdf",
+      "field": "vat_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "NL803726387B01",
+        "NL006340350B01"
+      ],
+      "new_ordering": [
+        "NL803726387B01"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Pearl paint 2610I000151.pdf",
+      "field": "vat_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "NL803726387B01",
+        "NL006340350B01"
+      ],
+      "new_ordering": [
+        "NL803726387B01"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Pm Coded Factuur 15.pdf",
+      "field": "amount",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "62.96",
+        "62.96",
+        "62.96",
+        "62.96",
+        "62.96",
+        "41.86"
+      ],
+      "new_ordering": [
+        "62.96",
+        "62.96",
+        "62.96",
+        "62.96",
+        "41.86",
+        "62.96",
+        "41.86"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Pm Coded Factuur 15.pdf",
+      "field": "amount",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "62.96",
+        "62.96",
+        "62.96",
+        "41.86",
+        "62.96",
+        "62.96"
+      ],
+      "new_ordering": [
+        "62.96",
+        "62.96",
+        "41.86",
+        "62.96",
+        "41.86",
+        "62.96",
+        "62.96"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "eekhof 251231 factuur 250017 Handelsonderneming Duister (Bouwbedrijf Van der Donk).pdf",
+      "field": "invoice_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "250017",
+        "5231",
+        "5216"
+      ],
+      "new_ordering": [
+        "250017"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "eekhof 251231 factuur 250017 Handelsonderneming Duister (Bouwbedrijf Van der Donk).pdf",
+      "field": "invoice_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "250017",
+        "5231",
+        "5216"
+      ],
+      "new_ordering": [
+        "250017"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "eekhof 251231 factuur 250017 Handelsonderneming Duister (Bouwbedrijf Van der Donk).pdf",
+      "field": "iban",
+      "stage": "parse_stage",
+      "old_ordering": [
+        ""
+      ],
+      "new_ordering": [
+        "NL38KNAB0777015781"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "eekhof 251231 factuur 250017 Handelsonderneming Duister (Bouwbedrijf Van der Donk).pdf",
+      "field": "iban",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "NL38KNAB0777015781",
+        ""
+      ],
+      "new_ordering": [
+        "NL38KNAB0777015781",
+        "NL38KNAB0777015781"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "eekhof 251231 factuur 250017 Handelsonderneming Duister (Bouwbedrijf Van der Donk).pdf",
+      "field": "kvk_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "98694081",
+        "3162784"
+      ],
+      "new_ordering": [
+        ""
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "eekhof 251231 factuur 250017 Handelsonderneming Duister (Bouwbedrijf Van der Donk).pdf",
+      "field": "kvk_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "98694081",
+        "3162784"
+      ],
+      "new_ordering": [
+        ""
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "profolux factuur-25-025881.pdf",
+      "field": "kvk_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "58064850"
+      ],
+      "new_ordering": [
+        ""
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "profolux factuur-25-025881.pdf",
+      "field": "kvk_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "58064850"
+      ],
+      "new_ordering": [
+        ""
+      ],
+      "classification": "unexplained"
+    }
+  ],
   "authority_changes": [
     {
       "pdf": "2ba Fact-2BA-20260114-260789-Duister.pdf",
@@ -117,7 +2373,7 @@
       "field": "kvk_number",
       "old_resolver_finalized": false,
       "new_resolver_finalized": true,
-      "classification": "intentional_resolver_finalized_propagation"
+      "classification": "unexplained"
     },
     {
       "pdf": "Bauder 24065433.pdf",
@@ -145,7 +2401,7 @@
       "field": "invoice_number",
       "old_resolver_finalized": false,
       "new_resolver_finalized": true,
-      "classification": "intentional_resolver_finalized_propagation"
+      "classification": "unexplained"
     },
     {
       "pdf": "DTC 500127_26000078.pdf",
@@ -201,7 +2457,7 @@
       "field": "invoice_number",
       "old_resolver_finalized": false,
       "new_resolver_finalized": true,
-      "classification": "intentional_resolver_finalized_propagation"
+      "classification": "unexplained"
     },
     {
       "pdf": "Gevier 917310_26031451.pdf",
@@ -313,7 +2569,7 @@
       "field": "invoice_number",
       "old_resolver_finalized": false,
       "new_resolver_finalized": true,
-      "classification": "intentional_resolver_finalized_propagation"
+      "classification": "unexplained"
     },
     {
       "pdf": "PGB 1800001827.pdf",
@@ -341,7 +2597,7 @@
       "field": "kvk_number",
       "old_resolver_finalized": false,
       "new_resolver_finalized": true,
-      "classification": "intentional_resolver_finalized_propagation"
+      "classification": "unexplained"
     },
     {
       "pdf": "PGB 1800001827.pdf",
@@ -452,13 +2708,6 @@
     },
     {
       "pdf": "Bauder 24065433.pdf",
-      "field": "kvk_number",
-      "old_resolver_finalized": false,
-      "new_resolver_finalized": true,
-      "classification": "intentional_resolver_finalized_propagation"
-    },
-    {
-      "pdf": "Bauder 24065433.pdf",
       "field": "invoice_date",
       "old_resolver_finalized": false,
       "new_resolver_finalized": true,
@@ -480,13 +2729,6 @@
     },
     {
       "pdf": "DTC 500127_26000078.pdf",
-      "field": "invoice_number",
-      "old_resolver_finalized": false,
-      "new_resolver_finalized": true,
-      "classification": "intentional_resolver_finalized_propagation"
-    },
-    {
-      "pdf": "DTC 500127_26000078.pdf",
       "field": "customer_number",
       "old_resolver_finalized": false,
       "new_resolver_finalized": true,
@@ -530,13 +2772,6 @@
     {
       "pdf": "Gevier 917310_26031451.pdf",
       "field": "amount",
-      "old_resolver_finalized": false,
-      "new_resolver_finalized": true,
-      "classification": "intentional_resolver_finalized_propagation"
-    },
-    {
-      "pdf": "Gevier 917310_26031451.pdf",
-      "field": "invoice_number",
       "old_resolver_finalized": false,
       "new_resolver_finalized": true,
       "classification": "intentional_resolver_finalized_propagation"
@@ -648,13 +2883,6 @@
     },
     {
       "pdf": "PGB 1800001827.pdf",
-      "field": "invoice_number",
-      "old_resolver_finalized": false,
-      "new_resolver_finalized": true,
-      "classification": "intentional_resolver_finalized_propagation"
-    },
-    {
-      "pdf": "PGB 1800001827.pdf",
       "field": "customer_number",
       "old_resolver_finalized": false,
       "new_resolver_finalized": true,
@@ -670,13 +2898,6 @@
     {
       "pdf": "PGB 1800001827.pdf",
       "field": "vat_number",
-      "old_resolver_finalized": false,
-      "new_resolver_finalized": true,
-      "classification": "intentional_resolver_finalized_propagation"
-    },
-    {
-      "pdf": "PGB 1800001827.pdf",
-      "field": "kvk_number",
       "old_resolver_finalized": false,
       "new_resolver_finalized": true,
       "classification": "intentional_resolver_finalized_propagation"
@@ -744,16 +2965,2305 @@
     }
   ],
   "reverted_changes": [],
-  "unexplained_changes": [],
+  "unexplained_changes": [
+    {
+      "pdf": "Aluned 502601306.pdf",
+      "field": "vat_number",
+      "old_winner": {
+        "confidence": 72,
+        "source": "vat",
+        "status": "tentative",
+        "value": "ST8DAKTRIM"
+      },
+      "new_winner": {
+        "value": "",
+        "source": "fallback_missing",
+        "status": "tentative",
+        "confidence": 5
+      },
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Arbo&verzuim Factuur-20260075.pdf",
+      "field": "invoice_number",
+      "old_winner": {
+        "confidence": 64,
+        "source": "label_next_line",
+        "status": "tentative",
+        "value": "20260075"
+      },
+      "new_winner": {
+        "value": "20180168",
+        "source": "header_table_invoice",
+        "status": "confirmed",
+        "confidence": 89
+      },
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Atlantic Factuur van Groupe Atlantic Nederland  - Fact. 26403880.pdf",
+      "field": "kvk_number",
+      "old_winner": {
+        "confidence": 75,
+        "source": "kvk",
+        "status": "tentative",
+        "value": "09083166"
+      },
+      "new_winner": {
+        "value": "",
+        "source": "fallback_missing",
+        "status": "tentative",
+        "confidence": 5
+      },
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Bauder 24065433.pdf",
+      "field": "kvk_number",
+      "old_winner": {
+        "confidence": 75,
+        "source": "kvk",
+        "status": "tentative",
+        "value": "30186425"
+      },
+      "new_winner": {
+        "value": "",
+        "source": "fallback_missing",
+        "status": "tentative",
+        "confidence": 5
+      },
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Bitasco VerkoopFactuur SI26-007024.pdf",
+      "field": "amount",
+      "old_winner": {
+        "confidence": 70,
+        "source": "total_label_generic",
+        "status": "confirmed",
+        "value": "4287.89"
+      },
+      "new_winner": {
+        "value": "4287.89",
+        "source": "total_label_generic",
+        "status": "tentative",
+        "confidence": 70
+      },
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Bosta Factuur NL01D00074953_2.pdf",
+      "field": "amount",
+      "old_winner": {
+        "confidence": 85,
+        "source": "total_label_sum",
+        "status": "confirmed",
+        "value": "193.98"
+      },
+      "new_winner": {
+        "value": "193.98",
+        "source": "TOTAL_LABEL_SUM",
+        "status": "confirmed",
+        "confidence": 85
+      },
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Bosta Factuur NL01D00074953_2.pdf",
+      "field": "customer_number",
+      "old_winner": {
+        "confidence": 94,
+        "source": "label_block_same_line",
+        "status": "confirmed",
+        "value": "NL01114276"
+      },
+      "new_winner": {
+        "value": "NLO1114276",
+        "source": "label_block_same_line",
+        "status": "confirmed",
+        "confidence": 94
+      },
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Bosta Factuur NL01D00074953_2.pdf",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL58INGB0006364795"
+      },
+      "new_winner": {
+        "value": "NL58INGB0006364795",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Caleffi Invoice Caleffi NV N° 1210001330  of 24.03.2026. pdf.pdf",
+      "field": "invoice_number",
+      "old_winner": {
+        "confidence": 89,
+        "source": "header_table_invoice",
+        "status": "confirmed",
+        "value": "1210001330"
+      },
+      "new_winner": {
+        "value": "",
+        "source": "fallback_missing",
+        "status": "tentative",
+        "confidence": 5
+      },
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "DTC 500127_26000078.pdf",
+      "field": "invoice_number",
+      "old_winner": {
+        "confidence": 64,
+        "source": "label_next_line",
+        "status": "tentative",
+        "value": "500127"
+      },
+      "new_winner": {
+        "value": "137,75/ST",
+        "source": "header_table_invoice",
+        "status": "confirmed",
+        "confidence": 86
+      },
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "David Price 2026-009.pdf",
+      "field": "invoice_number",
+      "old_winner": {
+        "confidence": 70,
+        "source": "label",
+        "status": "tentative",
+        "value": "2026-009"
+      },
+      "new_winner": {
+        "value": "2026-009",
+        "source": "label",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "De waal Factuur 2861.pdf",
+      "field": "invoice_number",
+      "old_winner": {
+        "confidence": 88,
+        "source": "label",
+        "status": "confirmed",
+        "value": "2861"
+      },
+      "new_winner": {
+        "value": "",
+        "source": "fallback_missing",
+        "status": "tentative",
+        "confidence": 5
+      },
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Dissel 288582.PDF",
+      "field": "amount",
+      "old_winner": {
+        "confidence": 95,
+        "source": "vat_summary_last_amount",
+        "status": "confirmed",
+        "value": "3620.93"
+      },
+      "new_winner": {
+        "value": "82.16",
+        "source": "total_label_payable",
+        "status": "tentative",
+        "confidence": 100
+      },
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Dissel 288582.PDF",
+      "field": "kvk_number",
+      "old_winner": {
+        "confidence": 75,
+        "source": "kvk",
+        "status": "tentative",
+        "value": "6312200"
+      },
+      "new_winner": {
+        "value": "",
+        "source": "fallback_missing",
+        "status": "tentative",
+        "confidence": 5
+      },
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Frige SALESINVOICE-102089217.pdf",
+      "field": "amount",
+      "old_winner": {
+        "confidence": 100,
+        "source": "total_label_payable",
+        "status": "confirmed",
+        "value": "325.79"
+      },
+      "new_winner": {
+        "value": "325.79",
+        "source": "total_label_payable",
+        "status": "tentative",
+        "confidence": 100
+      },
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Gevier 917310_26031451.pdf",
+      "field": "invoice_number",
+      "old_winner": {
+        "confidence": 64,
+        "source": "label_next_line",
+        "status": "tentative",
+        "value": "917310"
+      },
+      "new_winner": {
+        "value": "157,45/ST",
+        "source": "header_table_invoice",
+        "status": "confirmed",
+        "confidence": 86
+      },
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Korver Holland Uitgaande factuur 1094659.pdf",
+      "field": "invoice_number",
+      "old_winner": {
+        "confidence": 64,
+        "source": "label_next_line",
+        "status": "tentative",
+        "value": "VF-1094659"
+      },
+      "new_winner": {
+        "value": "D3269",
+        "source": "label_next_line",
+        "status": "tentative",
+        "confidence": 64
+      },
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Labor Factuur_verkooporders__01_F2600915_2026-01-12_11-39-22_.PDF",
+      "field": "invoice_number",
+      "old_winner": {
+        "confidence": 89,
+        "source": "header_table_invoice",
+        "status": "confirmed",
+        "value": "F2600915"
+      },
+      "new_winner": {
+        "value": "F2600915",
+        "source": "tabular",
+        "status": "tentative",
+        "confidence": 70
+      },
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Louwman 0071640028_PVF74-1308422_2060342.PDF",
+      "field": "invoice_number",
+      "old_winner": {
+        "confidence": 88,
+        "source": "label",
+        "status": "confirmed",
+        "value": "PVF74-1308422"
+      },
+      "new_winner": {
+        "value": "10/1974",
+        "source": "header_table_invoice",
+        "status": "confirmed",
+        "confidence": 89
+      },
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Majestic Factuur Majestic Products nr 9002335421.pdf",
+      "field": "amount",
+      "old_winner": {
+        "confidence": 40,
+        "source": "total_line_hint",
+        "status": "confirmed",
+        "value": "200.88"
+      },
+      "new_winner": {
+        "value": "200.88",
+        "source": "total_label_invoice",
+        "status": "confirmed",
+        "confidence": 95
+      },
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "OEG FactuurHA13451308.pdf",
+      "field": "kvk_number",
+      "old_winner": {
+        "confidence": 75,
+        "source": "kvk",
+        "status": "tentative",
+        "value": "26570090"
+      },
+      "new_winner": {
+        "value": "",
+        "source": "fallback_missing",
+        "status": "tentative",
+        "confidence": 5
+      },
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Omniplast 3245984_0.pdf",
+      "field": "vat_number",
+      "old_winner": {
+        "confidence": 72,
+        "source": "vat",
+        "status": "tentative",
+        "value": "SN44M860MTR1"
+      },
+      "new_winner": {
+        "value": "",
+        "source": "fallback_missing",
+        "status": "tentative",
+        "confidence": 5
+      },
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Option tape Verkoopfactuur VF2602902.pdf",
+      "field": "invoice_number",
+      "old_winner": {
+        "confidence": 70,
+        "source": "label",
+        "status": "tentative",
+        "value": "NL001740777B35"
+      },
+      "new_winner": {
+        "value": "VF2602902",
+        "source": "factuur_plain",
+        "status": "confirmed",
+        "confidence": 83
+      },
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Option tape Verkoopfactuur VF2602902.pdf",
+      "field": "kvk_number",
+      "old_winner": {
+        "confidence": 75,
+        "source": "kvk",
+        "status": "tentative",
+        "value": "7593080"
+      },
+      "new_winner": {
+        "value": "",
+        "source": "fallback_missing",
+        "status": "tentative",
+        "confidence": 5
+      },
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "PGB 1800001827.pdf",
+      "field": "invoice_number",
+      "old_winner": {
+        "confidence": 56,
+        "source": "label_next_line",
+        "status": "tentative",
+        "value": "0736911725"
+      },
+      "new_winner": {
+        "value": "26/1800001827",
+        "source": "year_slash_ref",
+        "status": "tentative",
+        "confidence": 78
+      },
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "PGB 1800001827.pdf",
+      "field": "kvk_number",
+      "old_winner": {
+        "confidence": 75,
+        "source": "kvk",
+        "status": "tentative",
+        "value": "56451378"
+      },
+      "new_winner": {
+        "value": "",
+        "source": "fallback_missing",
+        "status": "tentative",
+        "confidence": 5
+      },
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Pearl paint 2610I000151.pdf",
+      "field": "invoice_number",
+      "old_winner": {
+        "confidence": 88,
+        "source": "label",
+        "status": "confirmed",
+        "value": "2610"
+      },
+      "new_winner": {
+        "value": "2610I000151",
+        "source": "label",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Pm Coded Factuur 15.pdf",
+      "field": "amount",
+      "old_winner": {
+        "confidence": 100,
+        "source": "total_label_payable",
+        "status": "confirmed",
+        "value": "62.96"
+      },
+      "new_winner": {
+        "value": "62.96",
+        "source": "total_label_payable",
+        "status": "tentative",
+        "confidence": 100
+      },
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Pm Coded Factuur 15.pdf",
+      "field": "invoice_number",
+      "old_winner": {
+        "confidence": 64,
+        "source": "label_next_line",
+        "status": "tentative",
+        "value": "2026/15"
+      },
+      "new_winner": {
+        "value": "2026/15",
+        "source": "label",
+        "status": "tentative",
+        "confidence": 70
+      },
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "eekhof 251231 factuur 250017 Handelsonderneming Duister (Bouwbedrijf Van der Donk).pdf",
+      "field": "vat_number",
+      "old_winner": {
+        "confidence": 90,
+        "source": "vat",
+        "status": "confirmed",
+        "value": "NL005350752B22"
+      },
+      "new_winner": {
+        "value": "NL005350752B22",
+        "source": "parsed",
+        "status": "tentative",
+        "confidence": 70
+      },
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "eekhof 251231 factuur 250017 Handelsonderneming Duister (Bouwbedrijf Van der Donk).pdf",
+      "field": "kvk_number",
+      "old_winner": {
+        "confidence": 75,
+        "source": "kvk",
+        "status": "tentative",
+        "value": "98694081"
+      },
+      "new_winner": {
+        "value": "",
+        "source": "fallback_missing",
+        "status": "tentative",
+        "confidence": 5
+      },
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "profolux factuur-25-025881.pdf",
+      "field": "kvk_number",
+      "old_winner": {
+        "confidence": 75,
+        "source": "kvk",
+        "status": "tentative",
+        "value": "58064850"
+      },
+      "new_winner": {
+        "value": "",
+        "source": "fallback_missing",
+        "status": "tentative",
+        "confidence": 5
+      },
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Arbo&verzuim Factuur-20260075.pdf",
+      "field": "invoice_number",
+      "old_status": "tentative",
+      "new_status": "confirmed",
+      "winner_value": "20180168",
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Bitasco VerkoopFactuur SI26-007024.pdf",
+      "field": "amount",
+      "old_status": "confirmed",
+      "new_status": "tentative",
+      "winner_value": "4287.89",
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Caleffi Invoice Caleffi NV N° 1210001330  of 24.03.2026. pdf.pdf",
+      "field": "invoice_number",
+      "old_status": "confirmed",
+      "new_status": "tentative",
+      "winner_value": "",
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "DTC 500127_26000078.pdf",
+      "field": "invoice_number",
+      "old_status": "tentative",
+      "new_status": "confirmed",
+      "winner_value": "137,75/ST",
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "David Price 2026-009.pdf",
+      "field": "invoice_number",
+      "old_status": "tentative",
+      "new_status": "confirmed",
+      "winner_value": "2026-009",
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "De waal Factuur 2861.pdf",
+      "field": "invoice_number",
+      "old_status": "confirmed",
+      "new_status": "tentative",
+      "winner_value": "",
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Dissel 288582.PDF",
+      "field": "amount",
+      "old_status": "confirmed",
+      "new_status": "tentative",
+      "winner_value": "82.16",
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Frige SALESINVOICE-102089217.pdf",
+      "field": "amount",
+      "old_status": "confirmed",
+      "new_status": "tentative",
+      "winner_value": "325.79",
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Gevier 917310_26031451.pdf",
+      "field": "invoice_number",
+      "old_status": "tentative",
+      "new_status": "confirmed",
+      "winner_value": "157,45/ST",
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Labor Factuur_verkooporders__01_F2600915_2026-01-12_11-39-22_.PDF",
+      "field": "invoice_number",
+      "old_status": "confirmed",
+      "new_status": "tentative",
+      "winner_value": "F2600915",
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Option tape Verkoopfactuur VF2602902.pdf",
+      "field": "invoice_number",
+      "old_status": "tentative",
+      "new_status": "confirmed",
+      "winner_value": "VF2602902",
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Pm Coded Factuur 15.pdf",
+      "field": "amount",
+      "old_status": "confirmed",
+      "new_status": "tentative",
+      "winner_value": "62.96",
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "eekhof 251231 factuur 250017 Handelsonderneming Duister (Bouwbedrijf Van der Donk).pdf",
+      "field": "vat_number",
+      "old_status": "confirmed",
+      "new_status": "tentative",
+      "winner_value": "NL005350752B22",
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Aco Sales Invoice - F444643.pdf",
+      "field": "invoice_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "F444643",
+        "dgn-/-2",
+        "20260423",
+        "0314-368299",
+        "NL813771213B01"
+      ],
+      "new_ordering": [
+        "F444643",
+        "dgn-/-2"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Aco Sales Invoice - F444643.pdf",
+      "field": "invoice_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "F444643",
+        "dgn-/-2",
+        "20260423",
+        "0314-368299",
+        "NL813771213B01"
+      ],
+      "new_ordering": [
+        "F444643",
+        "dgn-/-2"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Aluned 502601306.pdf",
+      "field": "amount",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "1930.71",
+        "1930.71",
+        "1930.71"
+      ],
+      "new_ordering": [
+        "1930.71",
+        "1930.71",
+        "1930.71",
+        "335.08",
+        "335.08"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Aluned 502601306.pdf",
+      "field": "amount",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "1930.71",
+        "1930.71",
+        "1930.71"
+      ],
+      "new_ordering": [
+        "1930.71",
+        "335.08",
+        "1930.71",
+        "1930.71"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Aluned 502601306.pdf",
+      "field": "vat_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "ST8DAKTRIM",
+        "ST6DAKTRIM",
+        "ST3DAKTRIM",
+        "ST18DAKTRIM",
+        "ST12DAKTRIM"
+      ],
+      "new_ordering": [
+        ""
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Aluned 502601306.pdf",
+      "field": "vat_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "ST8DAKTRIM",
+        "ST6DAKTRIM",
+        "ST3DAKTRIM",
+        "ST18DAKTRIM",
+        "ST12DAKTRIM"
+      ],
+      "new_ordering": [
+        ""
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Arbo&verzuim Factuur-20260075.pdf",
+      "field": "invoice_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "20260075",
+        "20180168"
+      ],
+      "new_ordering": [
+        "20180168",
+        "20260075"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Arbo&verzuim Factuur-20260075.pdf",
+      "field": "invoice_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "20260075",
+        "20180168"
+      ],
+      "new_ordering": [
+        "20180168",
+        "20260075"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Atlantic Factuur van Groupe Atlantic Nederland  - Fact. 26403880.pdf",
+      "field": "kvk_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "09083166"
+      ],
+      "new_ordering": [
+        ""
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Atlantic Factuur van Groupe Atlantic Nederland  - Fact. 26403880.pdf",
+      "field": "kvk_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "09083166"
+      ],
+      "new_ordering": [
+        ""
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "BJ autotechniek 26069 duister wouter.pdf",
+      "field": "invoice_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "26069",
+        "17139601",
+        "1500",
+        "0009",
+        "NL69"
+      ],
+      "new_ordering": [
+        "26069"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "BJ autotechniek 26069 duister wouter.pdf",
+      "field": "invoice_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "26069",
+        "17139601",
+        "1500",
+        "0009",
+        "NL69"
+      ],
+      "new_ordering": [
+        "26069"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Bauder 24065433.pdf",
+      "field": "kvk_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "30186425"
+      ],
+      "new_ordering": [
+        ""
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Bauder 24065433.pdf",
+      "field": "kvk_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "30186425"
+      ],
+      "new_ordering": [
+        ""
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Besli Factuur 30323154.pdf",
+      "field": "amount",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "95.45",
+        "549.96",
+        "549.96",
+        "549.96",
+        "95.45"
+      ],
+      "new_ordering": [
+        "95.45",
+        "549.96",
+        "549.96",
+        "549.96",
+        "95.45",
+        "95.45"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Besli Factuur 30323154.pdf",
+      "field": "amount",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "549.96",
+        "95.45",
+        "95.45",
+        "549.96",
+        "549.96"
+      ],
+      "new_ordering": [
+        "549.96",
+        "95.45",
+        "95.45",
+        "95.45",
+        "549.96",
+        "549.96"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Bitasco VerkoopFactuur SI26-007024.pdf",
+      "field": "amount",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "4287.89",
+        "4287.89",
+        "4287.89"
+      ],
+      "new_ordering": [
+        "4287.89",
+        "4287.89",
+        "4287.89",
+        "744.18"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Bitasco VerkoopFactuur SI26-007024.pdf",
+      "field": "amount",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "4287.89",
+        "4287.89",
+        "4287.89"
+      ],
+      "new_ordering": [
+        "4287.89",
+        "744.18",
+        "4287.89",
+        "4287.89"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Bonfix Factuur Handelsonderneming Duister _ 2610903.pdf",
+      "field": "invoice_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "2610903",
+        "RABONL2U",
+        "2612387"
+      ],
+      "new_ordering": [
+        "2610903",
+        "2612387"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Bonfix Factuur Handelsonderneming Duister _ 2610903.pdf",
+      "field": "invoice_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "2610903",
+        "RABONL2U",
+        "2612387"
+      ],
+      "new_ordering": [
+        "2610903",
+        "2612387"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Bosta Factuur NL01D00074953_2.pdf",
+      "field": "customer_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "NL01114276"
+      ],
+      "new_ordering": [
+        "NLO1114276",
+        "NL01114276"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Bosta Factuur NL01D00074953_2.pdf",
+      "field": "customer_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "NL01114276",
+        "NL01114276"
+      ],
+      "new_ordering": [
+        "NLO1114276",
+        "NL01114276"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Bosta Factuur NL01D00074953_2.pdf",
+      "field": "iban",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "NL58INGB0006364795",
+        "NL58INGB0006364795"
+      ],
+      "new_ordering": [
+        "NL58INGB0006364795"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Brouwers zink 382005.pdf",
+      "field": "invoice_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "382005",
+        "5216"
+      ],
+      "new_ordering": [
+        "382005"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Brouwers zink 382005.pdf",
+      "field": "invoice_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "382005",
+        "5216"
+      ],
+      "new_ordering": [
+        "382005"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Caleffi Invoice Caleffi NV N° 1210001330  of 24.03.2026. pdf.pdf",
+      "field": "invoice_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "1210001330"
+      ],
+      "new_ordering": [
+        ""
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Caleffi Invoice Caleffi NV N° 1210001330  of 24.03.2026. pdf.pdf",
+      "field": "invoice_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "1210001330"
+      ],
+      "new_ordering": [
+        ""
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Connect products 26003265.pdf",
+      "field": "invoice_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "26003265",
+        "3349",
+        "16003040"
+      ],
+      "new_ordering": [
+        "26003265",
+        "16003040"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Connect products 26003265.pdf",
+      "field": "invoice_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "26003265",
+        "3349",
+        "16003040"
+      ],
+      "new_ordering": [
+        "26003265",
+        "16003040"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "DTC 500127_26000078.pdf",
+      "field": "amount",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "1875.16",
+        "1875.16",
+        "149.04",
+        "1875.16",
+        "325.44",
+        "1549.72",
+        "1549.72"
+      ],
+      "new_ordering": [
+        "1875.16",
+        "1875.16",
+        "1875.16",
+        "149.04",
+        "1875.16",
+        "325.44",
+        "1549.72",
+        "1549.72"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "DTC 500127_26000078.pdf",
+      "field": "amount",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "1875.16",
+        "1875.16",
+        "325.44",
+        "1549.72",
+        "149.04",
+        "1875.16"
+      ],
+      "new_ordering": [
+        "1875.16",
+        "1875.16",
+        "1875.16",
+        "325.44",
+        "1549.72",
+        "149.04",
+        "1875.16"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "DTC 500127_26000078.pdf",
+      "field": "invoice_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "500127",
+        "26000078",
+        "NL005977915B01"
+      ],
+      "new_ordering": [
+        "137,75/ST",
+        "500127",
+        "26000078"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "DTC 500127_26000078.pdf",
+      "field": "invoice_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "500127",
+        "26000078",
+        "NL005977915B01"
+      ],
+      "new_ordering": [
+        "137,75/ST",
+        "500127",
+        "26000078"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "DYKA Factuur 3360031301 03-02-2026.PDF",
+      "field": "amount",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "15.00",
+        "13.84",
+        "0.16",
+        "0.16",
+        "15.00",
+        "38.72",
+        "38.72",
+        "6.72",
+        "32.00"
+      ],
+      "new_ordering": [
+        "15.00",
+        "13.84",
+        "0.16",
+        "0.16",
+        "15.00",
+        "38.72",
+        "38.72",
+        "38.72",
+        "6.72",
+        "32.00"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "DYKA Factuur 3360031301 03-02-2026.PDF",
+      "field": "amount",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "38.72",
+        "38.72",
+        "15.00",
+        "13.84",
+        "0.16",
+        "6.72",
+        "32.00",
+        "0.16",
+        "15.00"
+      ],
+      "new_ordering": [
+        "38.72",
+        "38.72",
+        "38.72",
+        "15.00",
+        "13.84",
+        "0.16",
+        "6.72",
+        "32.00",
+        "0.16",
+        "15.00"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "DYKA Factuur 3360031301 03-02-2026.PDF",
+      "field": "invoice_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "3360031301",
+        "DYKRAY202"
+      ],
+      "new_ordering": [
+        "3360031301"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "DYKA Factuur 3360031301 03-02-2026.PDF",
+      "field": "invoice_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "3360031301",
+        "DYKRAY202"
+      ],
+      "new_ordering": [
+        "3360031301"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "De waal Factuur 2861.pdf",
+      "field": "invoice_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "2861",
+        "5216"
+      ],
+      "new_ordering": [
+        ""
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "De waal Factuur 2861.pdf",
+      "field": "invoice_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "2861",
+        "5216"
+      ],
+      "new_ordering": [
+        ""
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Defrancq Verkoop Factuur VFA2600287.pdf",
+      "field": "invoice_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "VFA26/00287",
+        "62254448",
+        "NL148005664B01"
+      ],
+      "new_ordering": [
+        "VFA26/00287"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Defrancq Verkoop Factuur VFA2600287.pdf",
+      "field": "invoice_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "VFA26/00287",
+        "62254448",
+        "NL148005664B01"
+      ],
+      "new_ordering": [
+        "VFA26/00287"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Dissel 288582.PDF",
+      "field": "amount",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "2992.50",
+        "82.16",
+        "15.10",
+        "3620.93",
+        "3620.93"
+      ],
+      "new_ordering": [
+        "82.16",
+        "2992.50",
+        "82.16",
+        "15.10",
+        "3620.93",
+        "3620.93",
+        "3620.93"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Dissel 288582.PDF",
+      "field": "amount",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "3620.93",
+        "2992.50",
+        "82.16",
+        "15.10",
+        "3620.93"
+      ],
+      "new_ordering": [
+        "82.16",
+        "3620.93",
+        "3620.93",
+        "2992.50",
+        "82.16",
+        "15.10",
+        "3620.93"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Dissel 288582.PDF",
+      "field": "invoice_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "288582",
+        "103305",
+        "353889",
+        "20260401",
+        "NL62"
+      ],
+      "new_ordering": [
+        "288582",
+        "103305",
+        "353889",
+        "20260401"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Dissel 288582.PDF",
+      "field": "invoice_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "288582",
+        "103305",
+        "353889",
+        "20260401",
+        "NL62"
+      ],
+      "new_ordering": [
+        "288582",
+        "103305",
+        "353889",
+        "20260401"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Dissel 288582.PDF",
+      "field": "kvk_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "6312200"
+      ],
+      "new_ordering": [
+        ""
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Dissel 288582.PDF",
+      "field": "kvk_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "6312200"
+      ],
+      "new_ordering": [
+        ""
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Eplucon Factuur 260312.pdf",
+      "field": "invoice_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "260312",
+        "030084",
+        "5216"
+      ],
+      "new_ordering": [
+        "260312",
+        "030084"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Eplucon Factuur 260312.pdf",
+      "field": "invoice_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "260312",
+        "030084",
+        "5216"
+      ],
+      "new_ordering": [
+        "260312",
+        "030084"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Feyts 260068.pdf",
+      "field": "invoice_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "260068",
+        "6088",
+        "3871",
+        "14039954",
+        "0108",
+        "0005",
+        "NL38"
+      ],
+      "new_ordering": [
+        "260068",
+        "14039954"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Feyts 260068.pdf",
+      "field": "invoice_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "260068",
+        "6088",
+        "3871",
+        "14039954",
+        "0108",
+        "0005",
+        "NL38"
+      ],
+      "new_ordering": [
+        "260068",
+        "14039954"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Feyts 260068.pdf",
+      "field": "iban",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "NL38INGB0005608846"
+      ],
+      "new_ordering": [
+        "NL38INGB0005608846",
+        "NL15RABO0108387100"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Feyts 260068.pdf",
+      "field": "iban",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "NL38INGB0005608846",
+        "NL38INGB0005608846"
+      ],
+      "new_ordering": [
+        "NL38INGB0005608846",
+        "NL38INGB0005608846",
+        "NL15RABO0108387100"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Frige SALESINVOICE-102089217.pdf",
+      "field": "amount",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "325.79",
+        "56.54",
+        "325.79",
+        "325.79",
+        "56.54"
+      ],
+      "new_ordering": [
+        "325.79",
+        "56.54",
+        "325.79",
+        "325.79",
+        "56.54",
+        "269.25"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Frige SALESINVOICE-102089217.pdf",
+      "field": "amount",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "325.79",
+        "56.54",
+        "56.54",
+        "325.79",
+        "325.79"
+      ],
+      "new_ordering": [
+        "325.79",
+        "269.25",
+        "56.54",
+        "56.54",
+        "325.79",
+        "325.79"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Gevier 917310_26031451.pdf",
+      "field": "amount",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "285.75",
+        "285.75",
+        "236.16",
+        "285.75",
+        "49.59",
+        "236.16",
+        "236.16"
+      ],
+      "new_ordering": [
+        "285.75",
+        "285.75",
+        "285.75",
+        "236.16",
+        "285.75",
+        "49.59",
+        "236.16",
+        "236.16"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Gevier 917310_26031451.pdf",
+      "field": "amount",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "285.75",
+        "285.75",
+        "49.59",
+        "236.16",
+        "236.16",
+        "285.75"
+      ],
+      "new_ordering": [
+        "285.75",
+        "285.75",
+        "285.75",
+        "49.59",
+        "236.16",
+        "236.16",
+        "285.75"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Gevier 917310_26031451.pdf",
+      "field": "invoice_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "917310",
+        "26031451",
+        "NL854976504B01"
+      ],
+      "new_ordering": [
+        "157,45/ST",
+        "917310",
+        "26031451"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Gevier 917310_26031451.pdf",
+      "field": "invoice_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "917310",
+        "26031451",
+        "NL854976504B01"
+      ],
+      "new_ordering": [
+        "157,45/ST",
+        "917310",
+        "26031451"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "IHS Lewo factuur 26402381.pdf",
+      "field": "invoice_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "26402381",
+        "262002859"
+      ],
+      "new_ordering": [
+        "26402381"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "IHS Lewo factuur 26402381.pdf",
+      "field": "invoice_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "26402381",
+        "262002859"
+      ],
+      "new_ordering": [
+        "26402381"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Installatiebalie Verkoopfactuur VF26-05543.pdf",
+      "field": "invoice_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "VF26-05543",
+        "K12493",
+        "230556",
+        "INGBNL2A"
+      ],
+      "new_ordering": [
+        "VF26-05543",
+        "K12493",
+        "230556"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Installatiebalie Verkoopfactuur VF26-05543.pdf",
+      "field": "invoice_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "VF26-05543",
+        "K12493",
+        "230556",
+        "INGBNL2A"
+      ],
+      "new_ordering": [
+        "VF26-05543",
+        "K12493",
+        "230556"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Korver Holland Uitgaande factuur 1094659.pdf",
+      "field": "invoice_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "VF-1094659",
+        "D3269",
+        "230948"
+      ],
+      "new_ordering": [
+        "D3269",
+        "2000046117",
+        "VF-1094659"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Korver Holland Uitgaande factuur 1094659.pdf",
+      "field": "invoice_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "VF-1094659",
+        "D3269",
+        "230948"
+      ],
+      "new_ordering": [
+        "D3269",
+        "2000046117",
+        "VF-1094659"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Labor Factuur_verkooporders__01_F2600915_2026-01-12_11-39-22_.PDF",
+      "field": "amount",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "39.66",
+        "39.66",
+        "39.66"
+      ],
+      "new_ordering": [
+        "39.66",
+        "39.66",
+        "39.66",
+        "39.66"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Labor Factuur_verkooporders__01_F2600915_2026-01-12_11-39-22_.PDF",
+      "field": "amount",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "39.66",
+        "39.66",
+        "39.66"
+      ],
+      "new_ordering": [
+        "39.66",
+        "39.66",
+        "39.66",
+        "39.66"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Labor Factuur_verkooporders__01_F2600915_2026-01-12_11-39-22_.PDF",
+      "field": "invoice_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "F2600915",
+        "LA004717"
+      ],
+      "new_ordering": [
+        "F2600915"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Labor Factuur_verkooporders__01_F2600915_2026-01-12_11-39-22_.PDF",
+      "field": "invoice_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "F2600915",
+        "LA004717"
+      ],
+      "new_ordering": [
+        "F2600915"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Lammers F4368916_factuur_duister_handelsonderneming__01-04-2026.pdf",
+      "field": "invoice_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "F4368916",
+        "5216jw",
+        "0956"
+      ],
+      "new_ordering": [
+        "F4368916",
+        "5216jw"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Lammers F4368916_factuur_duister_handelsonderneming__01-04-2026.pdf",
+      "field": "invoice_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "F4368916",
+        "5216jw",
+        "0956"
+      ],
+      "new_ordering": [
+        "F4368916",
+        "5216jw"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Louwman 0071640028_PVF74-1308422_2060342.PDF",
+      "field": "invoice_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "PVF74-1308422"
+      ],
+      "new_ordering": [
+        "10/1974",
+        "PVF74-1308422"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Louwman 0071640028_PVF74-1308422_2060342.PDF",
+      "field": "invoice_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "PVF74-1308422"
+      ],
+      "new_ordering": [
+        "10/1974",
+        "PVF74-1308422"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Majestic Factuur Majestic Products nr 9002335421.pdf",
+      "field": "amount",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "200.88",
+        "200.88",
+        "200.88",
+        "5.02",
+        "166.02"
+      ],
+      "new_ordering": [
+        "200.88",
+        "5.02",
+        "200.88",
+        "166.02",
+        "200.88"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Majestic Factuur Majestic Products nr 9002335421.pdf",
+      "field": "vat_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "NL802825655B01",
+        "NL001740777B35"
+      ],
+      "new_ordering": [
+        "NL802825655B01"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Majestic Factuur Majestic Products nr 9002335421.pdf",
+      "field": "vat_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "NL802825655B01",
+        "NL001740777B35"
+      ],
+      "new_ordering": [
+        "NL802825655B01"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "OEG FactuurHA13451308.pdf",
+      "field": "kvk_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "26570090"
+      ],
+      "new_ordering": [
+        ""
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "OEG FactuurHA13451308.pdf",
+      "field": "kvk_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "26570090"
+      ],
+      "new_ordering": [
+        ""
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Omniplast 3245984_0.pdf",
+      "field": "vat_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "SN44M860MTR1",
+        "SN44M340MTR2"
+      ],
+      "new_ordering": [
+        ""
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Omniplast 3245984_0.pdf",
+      "field": "vat_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "SN44M860MTR1",
+        "SN44M340MTR2"
+      ],
+      "new_ordering": [
+        ""
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Option tape Verkoopfactuur VF2602902.pdf",
+      "field": "invoice_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "NL001740777B35",
+        "VF2602902"
+      ],
+      "new_ordering": [
+        "VF2602902"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Option tape Verkoopfactuur VF2602902.pdf",
+      "field": "invoice_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "NL001740777B35",
+        "VF2602902"
+      ],
+      "new_ordering": [
+        "VF2602902"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Option tape Verkoopfactuur VF2602902.pdf",
+      "field": "kvk_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "7593080",
+        "7209914",
+        "32371134",
+        "32371019",
+        "00175930"
+      ],
+      "new_ordering": [
+        ""
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Option tape Verkoopfactuur VF2602902.pdf",
+      "field": "kvk_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "7593080",
+        "7209914",
+        "32371134",
+        "32371019",
+        "00175930"
+      ],
+      "new_ordering": [
+        ""
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "PGB 1800001827.pdf",
+      "field": "invoice_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "0736911725",
+        "NL001740777B35",
+        "26/1800001827"
+      ],
+      "new_ordering": [
+        "26/1800001827"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "PGB 1800001827.pdf",
+      "field": "invoice_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "0736911725",
+        "NL001740777B35",
+        "26/1800001827"
+      ],
+      "new_ordering": [
+        "26/1800001827"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "PGB 1800001827.pdf",
+      "field": "kvk_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "56451378",
+        "44596389",
+        "39003232",
+        "29001606"
+      ],
+      "new_ordering": [
+        ""
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "PGB 1800001827.pdf",
+      "field": "kvk_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "56451378",
+        "44596389",
+        "39003232",
+        "29001606"
+      ],
+      "new_ordering": [
+        ""
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Pearl paint 2610I000151.pdf",
+      "field": "invoice_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "2610",
+        "22221111",
+        "2610I000151"
+      ],
+      "new_ordering": [
+        "2610I000151",
+        "22221111"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Pearl paint 2610I000151.pdf",
+      "field": "invoice_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "2610",
+        "22221111",
+        "2610I000151",
+        "2610I000151"
+      ],
+      "new_ordering": [
+        "2610I000151",
+        "22221111",
+        "2610I000151"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Pearl paint 2610I000151.pdf",
+      "field": "vat_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "NL803726387B01",
+        "NL006340350B01"
+      ],
+      "new_ordering": [
+        "NL803726387B01"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Pearl paint 2610I000151.pdf",
+      "field": "vat_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "NL803726387B01",
+        "NL006340350B01"
+      ],
+      "new_ordering": [
+        "NL803726387B01"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Pm Coded Factuur 15.pdf",
+      "field": "amount",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "62.96",
+        "62.96",
+        "62.96",
+        "62.96",
+        "62.96",
+        "41.86"
+      ],
+      "new_ordering": [
+        "62.96",
+        "62.96",
+        "62.96",
+        "62.96",
+        "41.86",
+        "62.96",
+        "41.86"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Pm Coded Factuur 15.pdf",
+      "field": "amount",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "62.96",
+        "62.96",
+        "62.96",
+        "41.86",
+        "62.96",
+        "62.96"
+      ],
+      "new_ordering": [
+        "62.96",
+        "62.96",
+        "41.86",
+        "62.96",
+        "41.86",
+        "62.96",
+        "62.96"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "eekhof 251231 factuur 250017 Handelsonderneming Duister (Bouwbedrijf Van der Donk).pdf",
+      "field": "invoice_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "250017",
+        "5231",
+        "5216"
+      ],
+      "new_ordering": [
+        "250017"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "eekhof 251231 factuur 250017 Handelsonderneming Duister (Bouwbedrijf Van der Donk).pdf",
+      "field": "invoice_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "250017",
+        "5231",
+        "5216"
+      ],
+      "new_ordering": [
+        "250017"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "eekhof 251231 factuur 250017 Handelsonderneming Duister (Bouwbedrijf Van der Donk).pdf",
+      "field": "iban",
+      "stage": "parse_stage",
+      "old_ordering": [
+        ""
+      ],
+      "new_ordering": [
+        "NL38KNAB0777015781"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "eekhof 251231 factuur 250017 Handelsonderneming Duister (Bouwbedrijf Van der Donk).pdf",
+      "field": "iban",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "NL38KNAB0777015781",
+        ""
+      ],
+      "new_ordering": [
+        "NL38KNAB0777015781",
+        "NL38KNAB0777015781"
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "eekhof 251231 factuur 250017 Handelsonderneming Duister (Bouwbedrijf Van der Donk).pdf",
+      "field": "kvk_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "98694081",
+        "3162784"
+      ],
+      "new_ordering": [
+        ""
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "eekhof 251231 factuur 250017 Handelsonderneming Duister (Bouwbedrijf Van der Donk).pdf",
+      "field": "kvk_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "98694081",
+        "3162784"
+      ],
+      "new_ordering": [
+        ""
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "profolux factuur-25-025881.pdf",
+      "field": "kvk_number",
+      "stage": "parse_stage",
+      "old_ordering": [
+        "58064850"
+      ],
+      "new_ordering": [
+        ""
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "profolux factuur-25-025881.pdf",
+      "field": "kvk_number",
+      "stage": "resolver_stage",
+      "old_ordering": [
+        "58064850"
+      ],
+      "new_ordering": [
+        ""
+      ],
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Bauder 24065433.pdf",
+      "field": "kvk_number",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "DTC 500127_26000078.pdf",
+      "field": "invoice_number",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "Gevier 917310_26031451.pdf",
+      "field": "invoice_number",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "PGB 1800001827.pdf",
+      "field": "invoice_number",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "unexplained"
+    },
+    {
+      "pdf": "PGB 1800001827.pdf",
+      "field": "kvk_number",
+      "old_resolver_finalized": false,
+      "new_resolver_finalized": true,
+      "classification": "unexplained"
+    }
+  ],
   "per_phase_winner_diff_totals": {
     "B1": 0,
-    "B2": 0,
-    "B3": 0,
-    "B4": 0,
-    "B5": 0,
-    "B6": 0,
-    "B7": 0,
-    "B8": 0
+    "B2": 32,
+    "B3": 32,
+    "B4": 32,
+    "B5": 32,
+    "B6": 32,
+    "B7": 32,
+    "B8": 32
   },
   "architecture_audit": {
     "ranking_checks": {

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from ui.diagnostics_dialog import DiagnosticsDialog
+from ui.field_review import is_customer_absent_pick, make_customer_absent_pick_candidate
 
 
 def test_override_trace_lines_uses_human_labels() -> None:
@@ -40,6 +41,55 @@ def test_override_trace_lines_uses_human_labels() -> None:
     assert "Een sterkere generieke match won" in text
     assert "highest_confidence" not in text
     assert "generic_preferred" not in text
+
+
+def test_customer_number_section_lines_local_absent_preview() -> None:
+    lines = DiagnosticsDialog._customer_number_section_lines(
+        {"status_nl": "Ontbreekt"},
+        local_selected=make_customer_absent_pick_candidate(),
+    )
+    text = "\n".join(lines)
+    assert "Geen klantnummer" in text
+
+
+def test_absent_click_preview_only_does_not_invoke_apply_callback() -> None:
+    applied: list[tuple[str, dict]] = []
+    dlg = DiagnosticsDialog.__new__(DiagnosticsDialog)
+    dlg._selected_values = {}
+    dlg._diag = {}
+    dlg._on_candidate_click = lambda fid, c: applied.append((fid, c)) or {}
+    dlg._schedule_set_diag = lambda *_a, **_k: None
+    dlg._on_customer_absent_clicked("customer_number")
+    assert not applied
+    assert is_customer_absent_pick(dlg._selected_values.get("customer_number"))
+
+
+def test_selected_by_field_includes_absent_dict() -> None:
+    dlg = DiagnosticsDialog.__new__(DiagnosticsDialog)
+    dlg._diag = {
+        "customer_number": {"value": "740777", "selected_value": "740777"},
+    }
+    dlg._selected_values = {"customer_number": make_customer_absent_pick_candidate()}
+    selected = dlg.selected_by_field()
+    assert is_customer_absent_pick(selected.get("customer_number"))
+    assert selected["customer_number"] is dlg._selected_values["customer_number"]
+
+
+def test_qt_clicked_lambda_preserves_field_id() -> None:
+    """QPushButton.clicked(bool) must not overwrite the field_id default arg."""
+    field_id = "customer_number"
+    received: list[str | bool] = []
+
+    def handler(fid: str | bool) -> None:
+        received.append(fid)
+
+    buggy = lambda fid=field_id: handler(fid)
+    buggy(False)
+    assert received[-1] is False
+
+    fixed = lambda _checked=False, fid=field_id: handler(fid)
+    fixed(False)
+    assert received[-1] == "customer_number"
 
 
 def test_override_trace_lines_do_not_expose_raw_final_reason_code() -> None:

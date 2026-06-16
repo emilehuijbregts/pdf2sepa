@@ -472,6 +472,29 @@ class TestClassifyCandidateAmountType:
             == "incl"
         )
 
+    def test_table_total_column_btw_over_percentage_before_btw_is_vat(self):
+        """Bitasco-style: ``21 % BTW over € … = € …`` must not become a second incl candidate."""
+        ctx = (
+            "Betalingscondities: 30 dagen netto Totaal EUR excl btw € 3.543,71 "
+            ">> 21 % BTW over € 3.543,71 = € 744,18"
+        )
+        assert (
+            _classify_candidate_amount_type(
+                classification_line=ctx,
+                source="table_total_column",
+            )
+            == "vat"
+        )
+
+    def test_table_total_column_btw_over_eur_is_vat(self):
+        assert (
+            _classify_candidate_amount_type(
+                classification_line="Totaal excl >> BTW over € 1.000,00 = € 210,00",
+                source="table_total_column",
+            )
+            == "vat"
+        )
+
 
 class TestInclFirstExtractAndSelect:
     def test_netto_row_plus_totaalbedrag_line_confirms_incl_not_net(self):

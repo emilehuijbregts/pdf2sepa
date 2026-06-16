@@ -98,9 +98,16 @@ def _normalize_confirmed(confirmed: dict[str, Any]) -> dict[str, Any]:
     inv = str(confirmed.get("invoice_number") or "").strip()
     if inv:
         out["invoice_number"] = inv
-    cust = str(confirmed.get("customer_number") or "").strip()
-    if cust:
-        out["customer_number"] = cust
+    raw_cust = confirmed.get("customer_number")
+    if isinstance(raw_cust, dict):
+        from parser.supplier_db import CUSTOMER_NUMBER_MODE_NONE, infer_customer_number_mode_from_result
+
+        if infer_customer_number_mode_from_result(raw_cust) != CUSTOMER_NUMBER_MODE_NONE:
+            pass
+    else:
+        cust = str(raw_cust or "").strip()
+        if cust:
+            out["customer_number"] = cust
     vat = str(confirmed.get("vat_number") or "").strip()
     if vat:
         out["vat_number"] = vat
@@ -201,6 +208,20 @@ def confirm_invoice_fields(
     )
 
     if profile is None:
+        from parser.supplier_db import CUSTOMER_NUMBER_MODE_NONE, infer_customer_number_mode_from_result
+
+        if infer_customer_number_mode_from_result(customer_number_result) == CUSTOMER_NUMBER_MODE_NONE:
+            saved = db.set_customer_number_mode(name, CUSTOMER_NUMBER_MODE_NONE)
+            return ProfileLearnResult(
+                saved=saved,
+                profile=db.get_extraction_profile(name),
+                message=(
+                    f"Profiel opgeslagen voor {name} (geen klantnummer)."
+                    if saved
+                    else "Kon leveranciersprofiel niet opslaan."
+                ),
+                confirmed=norm,
+            )
         return ProfileLearnResult(
             saved=False,
             profile=None,
@@ -223,7 +244,12 @@ def confirm_invoice_fields(
     existing = db.get_extraction_profile(name)
     profile = merge_extraction_profiles(existing, profile)
 
-    saved = db.save_extraction_profile(name, profile, raw_text=raw_text)
+    saved = db.save_extraction_profile(
+        name,
+        profile,
+        raw_text=raw_text,
+        customer_number_result=customer_number_result,
+    )
     if not saved:
         return ProfileLearnResult(
             saved=False,
@@ -231,6 +257,19 @@ def confirm_invoice_fields(
             message="Profiel kon niet worden opgeslagen (validatie mislukt).",
             confirmed=norm,
         )
+
+    from parser.supplier_db import (
+        CUSTOMER_NUMBER_MODE_NONE,
+        customer_number_mode_from_profile,
+        infer_customer_number_mode_from_result,
+    )
+
+    if (
+        infer_customer_number_mode_from_result(customer_number_result) == CUSTOMER_NUMBER_MODE_NONE
+        and customer_number_mode_from_profile(profile) != CUSTOMER_NUMBER_MODE_NONE
+    ):
+        db.set_customer_number_mode(name, CUSTOMER_NUMBER_MODE_NONE)
+        profile = db.get_extraction_profile(name) or profile
 
     cust = norm.get("customer_number")
     iban_s = str(iban or "").strip()

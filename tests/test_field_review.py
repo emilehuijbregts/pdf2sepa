@@ -83,12 +83,14 @@ def test_apply_customer_absent_to_invoice() -> None:
         "status": "confirmed",
         "confidence": 100,
         "user_selected": True,
-        "candidates": inv["customer_number_result"]["candidates"],
+        "user_overridden": True,
+        "candidates": [],
         "resolver_finalized": True,
     }
     apply_resolved_field_result(inv, "customer_number", resolved)
     assert "customer_number" not in inv
     assert inv["customer_number_result"]["absence_state"] == CUSTOMER_ABSENT_STATE
+    assert inv["customer_number_result"].get("user_overridden") is True
 
 
 def test_format_amount_candidate_menu_label() -> None:

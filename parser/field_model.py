@@ -17,11 +17,11 @@ FieldId = Literal[
     "invoice_date",
     "email_domain",
 ]
-FieldStatus = Literal["confirmed", "tentative", "ambiguous", "failed"]
+FieldStatus = Literal["confirmed", "tentative", "ambiguous", "failed", "not_applicable"]
 
 DecisionTraceEntry = dict[str, Any]
 
-_VALID_STATUSES = frozenset({"confirmed", "tentative", "ambiguous", "failed"})
+_VALID_STATUSES = frozenset({"confirmed", "tentative", "ambiguous", "failed", "not_applicable"})
 
 _RESULT_KEY_BY_FIELD: dict[FieldId, str] = {
     "amount": "amount_result",

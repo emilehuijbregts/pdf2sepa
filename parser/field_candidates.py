@@ -72,6 +72,12 @@ _SANHA_KLANT_VALUE_RE = re.compile(
     r"(?is)\bVerzendingswijze\s+Klant\b[^\n]{0,40}\n\s*\S+\s+(\d{5,12})\b"
 )
 _YEAR_SLASH_REF_RE = re.compile(r"(?<![A-Za-z0-9./])(\d{2}/\d{7,})(?!\d)")
+_MULTI_SLASH_INVOICE_RE = re.compile(
+    r"(?<![A-Za-z0-9./])(\d{2,4}/\d{2,4}/\d{5,})(?!\d)"
+)
+_PAYMENT_INVOICE_REF_RE = re.compile(
+    r"(?i)\bvermelden\s+(\d{2,4}/\d{2,4}/\d{5,})\b"
+)
 _NUMMER_DATUM_RE = re.compile(
     r"(?is)\bNummer\s*/\s*Datum\b[\s:]*([A-Za-z0-9][A-Za-z0-9\-\/]{4,})\s*/\s*\d{1,2}[\./-]\d{1,2}[\./-]\d{2,4}\b"
 )
@@ -102,7 +108,8 @@ _CUSTOMER_FIELD_LABEL_RE = re.compile(
     r"relatie(?:\s*nummer|\s*nr\.?)?|relatie|"
     r"customer(?=\s+\d)|customer\s*(?:number|no\.?|code|nr\.?|id)|"
     r"kunden(?:nummer|nr\.?|-\s*nr\.?)|"
-    r"factureren\s+aan(?:\s*(?:nr\.?|nummer|no\.?|id))?)\b"
+    r"factureren\s+aan(?:\s*(?:nr\.?|nummer|no\.?|id))?|"
+    r"lid(?:\s*nummer|\s*nr\.?))\b"
 )
 _REFERENTIE_ONLY_LINE_RE = re.compile(
     r"(?i)\b(?:uw|onze|jullie|your)\s+referentie\b"
@@ -130,6 +137,12 @@ _STRICT_ORDER_HINT_RE = re.compile(
 )
 _CREDIT_INVOICE_HINT_RE = re.compile(
     r"(?i)\b(?:creditnota|credit\s*note|verkoopcredit|creditfactuur|creditnota)\b"
+)
+_CREDIT_NOTE_NUMBER_RE = re.compile(
+    r"(?i)\b(?:creditnota|verkoopcreditnota|credit\s*note)\s+(VCR[\dA-Z+]+)"
+)
+_PARENT_INVOICE_REF_CTX_RE = re.compile(
+    r"(?i)\b(?:fact\.?\s*nr\.?|vereffening\s+met\s+factuurnr)\b"
 )
 _ORDER_VS_INVOICE_PENALTY = 60
 _LABEL_SOURCE_PREFIXES = (
@@ -163,6 +176,122 @@ _REGEX_SOURCE_PREFIXES = (
 _VAT_RELAXED_VALUE_RE = re.compile(
     r"(?i)\b(?:NL\s*)?([\d][\d.\s]{8,22}B[\d.\s]{1,4})\b"
 )
+# Factuurnummer mag nooit uit BTW/VAT-gelabelde context komen.
+_INVOICE_VAT_LABEL_CONTEXT_RE = re.compile(
+    r"(?i)\b(?:btw|vat)(?:\s*|-|\s*)(?:nummer|number|nr\.?)\b|"
+    r"\btax\s*number\b|"
+    r"\bbtw-nummer\b"
+)
+_INVOICE_BANK_TOKEN_RE = re.compile(
+    r"(?i)(?:RABO|INGB|ABNA|TRIO|KNAB|BUNQ|ASNB|BNPA|HAND|COBA|DEUT|GEBA|RABONL)"
+)
+_DEBTOR_ZONE_VAT_RE = re.compile(
+    r"(?i)\b(?:"
+    r"uw\s+bedrijf|your\s+company|factureren\s+aan|invoice\s+address|"
+    r"afleveradres|leveradres|ship\s*to|bill\s*to"
+    r")\b"
+)
+_CUSTOMER_DATE_TOKEN_RE = re.compile(
+    r"^\d{1,2}[\./-]\d{1,2}[\./-]\d{2,4}$|^\d{4}[\./-]\d{1,2}[\./-]\d{1,2}$|^\d{8}$"
+)
+_UNLABELED_CUSTOMER_WHITELIST_SOURCES = frozenset(
+    {
+        "header_table_customer",
+        "uw_klant_k_prefix",
+        "klant_line_k_prefix",
+        "ref_slash_customer",
+        "label_block_same_line",
+        "label_block_next_line",
+        "label",
+        "label_next_line",
+        "collapsed_klantcode_fused",
+        "klantcode_inline",
+        "klantcode_table",
+        "standalone_k_token",
+        "spaced_k_token",
+        "line_only_k_code",
+        "collapsed_k_token",
+        "collapsed_k_near_label",
+        "split_k_line",
+        "pipe_customer",
+        "delivery_block_six_digit",
+        "customer_standalone_line",
+    }
+)
+
+
+def parse_internal_vat_numbers(raw: object) -> list[str]:
+    """Parse settings ``internal_vat_numbers`` (list or comma/semicolon-separated string)."""
+    if raw is None:
+        return []
+    if isinstance(raw, list):
+        out: list[str] = []
+        for x in raw:
+            out.extend(parse_internal_vat_numbers(x))
+        return out
+    if isinstance(raw, str):
+        return [part.strip() for part in re.split(r"[,;]+", raw) if part.strip()]
+    return []
+
+
+def normalize_internal_vat_numbers_for_storage(raw: object) -> list[str]:
+    """Parse and normalize VAT numbers for JSON storage (order preserved, deduped)."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for token in parse_internal_vat_numbers(raw):
+        compact = _compact_nl_vat_token(_normalize_vat_compact(token)) or _normalize_vat_compact(token)
+        if not compact:
+            continue
+        key = compact.upper()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(key)
+    return out
+
+
+def normalize_internal_vat_blacklist(numbers: list[str] | None) -> frozenset[str]:
+    out: set[str] = set()
+    for raw in numbers or []:
+        compact = _compact_nl_vat_token(_normalize_vat_compact(raw)) or _normalize_vat_compact(raw)
+        if compact:
+            out.add(compact.upper())
+    return frozenset(out)
+
+
+def build_internal_vat_blacklist(raw: object) -> frozenset[str]:
+    """Normalize parsed settings value to a compact uppercase blacklist set."""
+    return normalize_internal_vat_blacklist(parse_internal_vat_numbers(raw))
+
+
+def _value_matches_internal_vat(value: str, blacklist: frozenset[str]) -> bool:
+    if not blacklist:
+        return False
+    v = _compact_nl_vat_token(_normalize_vat_compact(value)) or _normalize_vat_compact(value)
+    return bool(v and v in blacklist)
+
+
+def _filter_internal_vat_blacklist(
+    cands: list[IdentFieldCandidate],
+    blacklist: frozenset[str],
+    *,
+    field_id: str,
+) -> list[IdentFieldCandidate]:
+    if not blacklist:
+        return cands
+    out: list[IdentFieldCandidate] = []
+    for c in cands:
+        val = str(c.value or "").strip()
+        if not val:
+            continue
+        if field_id == "kvk_number":
+            if _value_matches_internal_vat(val, blacklist):
+                continue
+        elif _value_matches_internal_vat(val, blacklist):
+            continue
+        out.append(c)
+    return out
+
 
 @dataclass
 class IdentFieldCandidate:
@@ -302,6 +431,8 @@ def _is_preferred_customer_label(label: str) -> bool:
             "betaler",
             "relatie",
             "factureren aan",
+            "lidnummer",
+            "lid nr",
         )
     )
 
@@ -954,6 +1085,23 @@ def _tokens_after_label(line: str, end: int, *, join_spaced_digits: bool) -> lis
     if not after.strip():
         return []
     if join_spaced_digits:
+        m_multi = re.search(
+            r"(?<![A-Za-z0-9./])(\d{2,4}/\d{2,4}/\d{5,})(?!\d)",
+            after or "",
+        )
+        if m_multi:
+            v = _normalize_ident_value(m_multi.group(1).strip(), join_spaced_digits=False)
+            if v:
+                return [v]
+        m_compact = re.match(r"^\s*([A-Za-z0-9][A-Za-z0-9\-/]{3,})\b", after.strip())
+        if m_compact and re.search(r"\d", m_compact.group(1)):
+            compact_val = m_compact.group(1).strip()
+            if "/" not in compact_val and re.fullmatch(r"\d{6,}", compact_val):
+                pass
+            else:
+                v = _normalize_ident_value(compact_val, join_spaced_digits=False)
+                if v:
+                    return [v]
         # PM Coded e.a.: factuurnummer kan zijn "2026 / 15" (spaties rond slash).
         m_slash = re.match(r"^\s*(\d[\d\s]{1,8})\s*/\s*(\d[\d\s]{1,8})\b", after)
         if m_slash:
@@ -1089,8 +1237,10 @@ def _should_reject_ident_candidate(
     ln = str(line or "")
     if _line_has_plausible_iban(ln):
         compact_line = re.sub(r"\s+", "", ln.upper())
-        if val.upper() in compact_line and field_id in ("kvk_number", "vat_number"):
-            if field_id == "kvk_number" and val.isdigit() and len(val) == 8:
+        if field_id == "vat_number" and val.upper() in compact_line:
+            return True
+        if val.upper() in compact_line and field_id == "kvk_number":
+            if val.isdigit() and len(val) == 8:
                 if re.search(rf"\b[A-Z]{{2}}\d+{re.escape(val)}\b", compact_line):
                     return True
     if field_id == "vat_number":
@@ -1153,32 +1303,225 @@ def _kvk_in_business_context(text: str, pos: int) -> bool:
         if 0 <= j < len(lines):
             window.append(lines[j])
     block = "\n".join(window)
+    if not _KVK_LABEL_RE.search(block):
+        return False
     if _KVK_BUSINESS_BLOCK_RE.search(block):
         return True
     hint = _context_hint_at(text, pos)
-    if hint in ("header", "footer") and re.search(
-        r"(?i)\b(?:kvk|btw|vat|iban|handelsregister|chamber)\b", block
-    ):
+    if hint in ("header", "footer") and _KVK_LABEL_RE.search(block):
         return True
     return False
 
 
-def _invoice_candidate_ok(value: str) -> bool:
-    raw = str(value or "")
-    compact = re.sub(r"[\s.\-_/]+", "", raw).upper()
-    if re.fullmatch(r"20\d{2}", raw.strip()):
+def _vat_candidate_allowed(
+    vat: str,
+    *,
+    debtor_norm: str,
+    blacklist: frozenset[str],
+) -> bool:
+    if not vat or not _supplier_vat_shape_ok(vat):
         return False
-    if re.fullmatch(r"(?:NL)?\d{9,12}B\d{2}", compact):
+    if debtor_norm and vat == debtor_norm:
+        return False
+    if _value_matches_internal_vat(vat, blacklist):
+        return False
+    return True
+
+
+def _supplier_vat_shape_ok(vat: str) -> bool:
+    compact = re.sub(r"[^0-9A-Z]", "", str(vat or "").upper())
+    if not compact:
+        return False
+    if re.search(r"(?i)(ADRES|ORDER|TEL|FAX|EMAIL|PCE)", str(vat or "")):
+        return False
+    if re.fullmatch(r"NL\d{9}B\d{2}", compact):
+        return True
+    if re.fullmatch(r"DE\d{9}", compact):
+        return True
+    if re.fullmatch(r"[A-Z]{2}\d{8,12}", compact):
+        return True
+    return False
+
+
+def _filter_footer_vat_when_header_btw_nr(
+    cands: list[IdentFieldCandidate],
+    body: str,
+) -> list[IdentFieldCandidate]:
+    """Drop footer ``BTW:`` duplicates when ``BTW nr.`` exists higher on the page."""
+    has_btw_nr = False
+    header = _header_segment(body)
+    for c in cands:
+        hay = f"{c.label or ''} {(c.meta or {}).get('label_reason', '')}"
+        if re.search(r"(?i)btw\s*nr", hay) and str(c.value or "") in header:
+            has_btw_nr = True
+            break
+    if not has_btw_nr:
+        return cands
+    footer = _footer_segment(body)
+    if not footer.strip():
+        return cands
+    out: list[IdentFieldCandidate] = []
+    for c in cands:
+        val = str(c.value or "")
+        if val and val in footer:
+            hay = f"{c.label or ''} {(c.meta or {}).get('label_reason', '')}"
+            if re.search(r"(?i)btw\s*nr", hay):
+                out.append(c)
+                continue
+            if re.search(r"(?i)btw\s*nr", hay) is None and re.search(
+                r"(?i)after label:\s*btw\s*$", hay
+            ):
+                continue
+            if str(c.source or "") == "regex_fallback":
+                continue
+        out.append(c)
+    return out
+
+
+def _line_in_debtor_zone(text: str, pos: int) -> bool:
+    lines = (text or "").splitlines()
+    if not lines:
+        return False
+    idx = _line_index_at(text, pos)
+    start = max(0, idx - 6)
+    block = "\n".join(lines[start : idx + 1])
+    return bool(_DEBTOR_ZONE_VAT_RE.search(block) or _VAT_DEBTOR_HINT_RE.search(block))
+
+
+def _filter_footer_regex_vat_when_header_labeled(
+    cands: list[IdentFieldCandidate],
+    body: str,
+) -> list[IdentFieldCandidate]:
+    header = _header_segment(body)
+    has_header_labeled = any(
+        isinstance(c.meta, dict)
+        and c.meta.get("extraction_method") == "label_match"
+        and str(c.value or "") in header
+        for c in cands
+    )
+    if not has_header_labeled:
+        return cands
+    footer = _footer_segment(body)
+    if not footer.strip():
+        return cands
+    out: list[IdentFieldCandidate] = []
+    for c in cands:
+        val = str(c.value or "")
+        meta = c.meta if isinstance(c.meta, dict) else {}
+        if (
+            val
+            and val in footer
+            and meta.get("extraction_method") == "regex_fallback"
+        ):
+            continue
+        out.append(c)
+    return out
+
+
+def _line_in_customer_vat_block(lines: list[str], line_idx: int) -> bool:
+    line = lines[line_idx] if 0 <= line_idx < len(lines) else ""
+    if re.search(r"(?i)\bbtw\s*nr\.?\s*:", line or ""):
+        return False
+    if not re.search(r"(?i)\b(?:vat|btw)(?:-|\s*)?number\b", line or ""):
+        return False
+    start = max(0, line_idx - 8)
+    block = "\n".join(lines[start : line_idx + 1])
+    if not re.search(r"(?i)\b(?:customer|niederlande|afnemer|customeraddress)\b", block):
+        return False
+    m_nl = _VAT_RE.search(line or "")
+    if m_nl:
+        return True
+    return bool(
+        re.search(
+            r"(?i)\b(?:customer\s*address|customeraddress|invoice\s*address|uw\s+ref)\b",
+            block,
+        )
+    )
+
+
+def _invoice_compact_token(value: str) -> str:
+    return re.sub(r"[\s.\-_/]+", "", str(value or "")).upper()
+
+
+def _invoice_in_vat_labeled_context(
+    *,
+    line: str = "",
+    label: str = "",
+    context: str = "",
+) -> bool:
+    hay = " ".join((str(line or ""), str(label or ""), str(context or "")))
+    return bool(_INVOICE_VAT_LABEL_CONTEXT_RE.search(hay))
+
+
+def _invoice_candidate_ok(
+    value: str,
+    *,
+    line: str = "",
+    label: str = "",
+    context: str = "",
+    internal_vat_blacklist: frozenset[str] | None = None,
+) -> bool:
+    raw = str(value or "").strip()
+    if not raw:
+        return False
+    if _value_matches_internal_vat(raw, internal_vat_blacklist or frozenset()):
+        return False
+    compact = _invoice_compact_token(raw)
+    if re.fullmatch(r"20\d{2}", raw):
+        return False
+    if re.fullmatch(r"NL\d{9}B\d{2}", compact) or re.fullmatch(
+        r"(?:NL)?\d{9,12}B\d{2}", compact
+    ):
         return False
     if re.fullmatch(r"NL\d{2}[A-Z]{4}\d{10,20}", compact):
         return False
+    if re.fullmatch(r"[A-Z]{4}[A-Z]{2}[A-Z0-9]{2}([A-Z0-9]{3})?", compact):
+        return False
+    if _INVOICE_BANK_TOKEN_RE.search(compact):
+        return False
+    if re.fullmatch(r"NL\d{2}", compact) or (
+        compact.startswith("NL") and len(compact) <= 6 and not re.search(r"\d{3}", compact)
+    ):
+        return False
+    if _invoice_in_vat_labeled_context(line=line, label=label, context=context):
+        return False
     digits = re.sub(r"\D", "", raw)
+    if raw.isdigit() and len(digits) < 5:
+        return False
+    if not re.search(r"\d", raw):
+        return False
     return bool(
-        re.search(r"\d", raw)
-        and len(raw) >= 4
+        len(raw) >= 4
         and (not raw.isdigit() or len(digits) <= 14)
         and not _is_noise_value(raw)
     )
+
+
+def _filter_invoice_number_candidates(
+    cands: list[IdentFieldCandidate],
+    body: str,
+    *,
+    internal_vat_blacklist: frozenset[str] | None = None,
+) -> list[IdentFieldCandidate]:
+    """Hard type guard: drop VAT/IBAN-shaped tokens and VAT-labeled context hits."""
+    text = body or ""
+    blacklist = internal_vat_blacklist or frozenset()
+    out: list[IdentFieldCandidate] = []
+    for cand in cands:
+        val = str(cand.value or "").strip()
+        if not val:
+            continue
+        pos = text.find(val)
+        line = _line_at_pos(text, pos) if pos >= 0 else (cand.context or "")
+        if _invoice_candidate_ok(
+            val,
+            line=line,
+            label=str(cand.label or ""),
+            context=str(cand.context or ""),
+            internal_vat_blacklist=blacklist,
+        ):
+            out.append(cand)
+    return out
 
 
 def _token_from_date_invoice_line(line: str) -> str | None:
@@ -1209,6 +1552,56 @@ def _looks_like_order_token(value: str) -> bool:
     if not digits:
         return False
     return bool(_ORDER_REF_TOKEN_RE.fullmatch(digits))
+
+
+def _collect_credit_note_invoice_candidates(text: str) -> list[IdentFieldCandidate]:
+    """Creditnota-titel ``Creditnota VCR2600003+`` als factuurnummer-kandidaat."""
+    body = text or ""
+    if not _CREDIT_INVOICE_HINT_RE.search(body):
+        return []
+    cands: list[IdentFieldCandidate] = []
+    for m in _CREDIT_NOTE_NUMBER_RE.finditer(body):
+        val = re.sub(r"\++$", "", str(m.group(1) or "").strip())
+        if not val or not _invoice_candidate_ok(val):
+            continue
+        cands.append(
+            IdentFieldCandidate(
+                value=val,
+                source="credit_note_title",
+                confidence=92,
+                context=_line_context_at(body, m.start()),
+                label="Creditnota",
+                meta=_candidate_explain_meta(
+                    extraction_method="regex",
+                    label_reason="credit note title VCR number",
+                    score_breakdown={"base": 92},
+                ),
+            )
+        )
+    return cands
+
+
+def _filter_parent_invoice_refs_on_credit(
+    cands: list[IdentFieldCandidate],
+    text: str,
+) -> list[IdentFieldCandidate]:
+    """Op creditnota's: parent factuur-referenties (Fact.nr. VF…) uit de pool."""
+    body = text or ""
+    if not _CREDIT_INVOICE_HINT_RE.search(body):
+        return cands
+    has_vcr = any(str(c.value or "").upper().startswith("VCR") for c in cands)
+    if not has_vcr:
+        return cands
+    out: list[IdentFieldCandidate] = []
+    for cand in cands:
+        hay = f"{cand.label or ''} {cand.context or ''}"
+        if _PARENT_INVOICE_REF_CTX_RE.search(hay):
+            continue
+        val = str(cand.value or "").strip().upper()
+        if val.startswith("VF") and _PARENT_INVOICE_REF_CTX_RE.search(hay):
+            continue
+        out.append(cand)
+    return out
 
 
 def _filter_order_like_invoice_candidates(
@@ -1316,12 +1709,18 @@ def _table_header_field_count(hdr: str) -> int:
     n = 0
     for pat in (
         r"(?i)\b(?:factuurnr|factuurnummer|factuur\s*nr|fact\.?\s*nr|invoice|nummer)\b",
-        r"(?i)\b(?:betaler|klant|deb|relatie|customer)\b",
-        r"(?i)\b(?:datum|facturatiedatum|procedure)\b",
-        r"(?i)\bordernummer\b",
+        r"(?i)\b(?:betaler|klant(?:nr|nummer)?|deb|relatie|customer)\b",
+        r"(?i)\b(?:datum|facturatiedatum|factuurdatum|verzenddatum|vervaldatum|procedure)\b",
+        r"(?i)\b(?:ordernummer|referentie|project)\b",
     ):
         if re.search(pat, hdr or ""):
             n += 1
+    if re.search(r"(?i)\bfactuur\b", hdr or "") and re.search(
+        r"(?i)\b(?:debiteur|klant|customer|betaler)\b", hdr or ""
+    ):
+        n = max(n, 2)
+    if re.search(r"(?i)klantnr", hdr or "") and re.search(r"(?i)factuurnr", hdr or ""):
+        n = max(n, 2)
     return n
 
 
@@ -1374,15 +1773,20 @@ def _header_word_indices(hdr: str) -> tuple[int | None, int | None]:
             or w == "invoice"
         ):
             inv_i = i
-        if cust_i is None and w in (
-            "betaler",
-            "klant",
-            "debiteur",
-            "debnr",
-            "deb",
-            "customer",
-            "relatie",
-            "client",
+        if cust_i is None and (
+            w in (
+                "betaler",
+                "klant",
+                "klantnr",
+                "klantnummer",
+                "debiteur",
+                "debnr",
+                "deb",
+                "customer",
+                "relatie",
+                "client",
+            )
+            or w.startswith("klant")
         ):
             cust_i = i
     return inv_i, cust_i
@@ -1442,6 +1846,10 @@ def _collect_header_value_table_candidates(
                     and re.search(r"(?i)\b(?:relatie|datum)\b", hdr)
                 )
                 or (
+                    re.search(r"(?i)\bfactuur\b", hdr)
+                    and re.search(r"(?i)\b(?:debiteur|klant|customer|betaler)\b", hdr)
+                )
+                or (
                     re.search(r"(?i)\bnummer\b", hdr)
                     and re.search(r"(?i)\b(?:procedure|facturatiedatum)\b", hdr)
                 )
@@ -1473,26 +1881,52 @@ def _collect_header_value_table_candidates(
                 continue
             ctx = re.sub(r"\s+", " ", val_line).strip()[:160]
             inv_i2, cust_i2 = inv_i, cust_i
-            if inv_i2 is None and has_inv_hdr:
+            debiteur_factuur_hdr = bool(
+                re.search(r"(?i)\bfactuur\b", hdr)
+                and re.search(r"(?i)\b(?:debiteur|klant|customer|betaler)\b", hdr)
+            )
+            if inv_i2 is None and has_inv_hdr and not debiteur_factuur_hdr:
                 inv_i2 = 0
-            if field_kind == "invoice_number" and inv_i2 is not None and inv_i2 < len(vals):
-                _append(
-                    vals[inv_i2],
-                    source="header_table_invoice",
-                    confidence=90 - j,
-                    ctx=ctx,
-                    label=label,
-                )
-            if field_kind == "customer_number" and cust_i2 is not None and cust_i2 < len(vals):
-                _append(
-                    vals[cust_i2],
-                    source="header_table_customer",
-                    confidence=89 - j,
-                    ctx=ctx,
-                    label=label,
-                )
-            if field_kind == "invoice_number" or field_kind == "customer_number":
-                break
+            if field_kind == "invoice_number":
+                inv_pick: str | None = None
+                if inv_i2 is not None and inv_i2 < len(vals):
+                    inv_pick = vals[inv_i2]
+                elif (
+                    re.search(r"(?i)\bfactuurnummer\b", hdr)
+                    and re.search(r"(?i)\bfactuurdatum\b", hdr)
+                    and vals
+                ):
+                    inv_pick = vals[-1]
+                elif (
+                    re.search(r"(?i)\bfactuur\b", hdr)
+                    and re.search(r"(?i)\b(?:debiteur|klant|customer|betaler)\b", hdr)
+                    and vals
+                ):
+                    inv_pick = vals[-1]
+                if inv_pick:
+                    _append(
+                        inv_pick,
+                        source="header_table_invoice",
+                        confidence=90 - j,
+                        ctx=ctx,
+                        label=label,
+                    )
+                    break
+            if field_kind == "customer_number" and vals:
+                cust_pick: str | None = None
+                if debiteur_factuur_hdr and len(vals) >= 2:
+                    cust_pick = vals[0]
+                elif cust_i2 is not None and cust_i2 < len(vals):
+                    cust_pick = vals[cust_i2]
+                if cust_pick:
+                    _append(
+                        cust_pick,
+                        source="header_table_customer",
+                        confidence=89 - j,
+                        ctx=ctx,
+                        label=label,
+                    )
+                    break
     return cands
 
 
@@ -1793,6 +2227,42 @@ def _collect_invoice_fallback_candidates(text: str) -> list[IdentFieldCandidate]
                 )
             )
 
+    for m in _MULTI_SLASH_INVOICE_RE.finditer(body):
+        val = m.group(1).strip()
+        if _invoice_candidate_ok(val):
+            cands.append(
+                IdentFieldCandidate(
+                    value=val,
+                    source="multi_slash_ref",
+                    confidence=82,
+                    context=_line_context_at(body, m.start()),
+                    label="",
+                    meta=_candidate_explain_meta(
+                        extraction_method="regex",
+                        label_reason="regex match: multi-segment slash invoice ref",
+                        score_breakdown={"base": 82},
+                    ),
+                )
+            )
+
+    for m in _PAYMENT_INVOICE_REF_RE.finditer(body):
+        val = m.group(1).strip()
+        if _invoice_candidate_ok(val):
+            cands.append(
+                IdentFieldCandidate(
+                    value=val,
+                    source="payment_reference",
+                    confidence=84,
+                    context=_line_context_at(body, m.start()),
+                    label="Bij betaling vermelden",
+                    meta=_candidate_explain_meta(
+                        extraction_method="regex",
+                        label_reason="payment reference line",
+                        score_breakdown={"base": 84},
+                    ),
+                )
+            )
+
     for m in _NUMMER_DATUM_RE.finditer(body):
         val = m.group(1).strip()
         if _invoice_candidate_ok(val):
@@ -1925,6 +2395,47 @@ def _filter_weak_customer_fallbacks(
     return [c for c in cands if c.source not in _WEAK_CUSTOMER_FALLBACK_SOURCES]
 
 
+def _is_whitelisted_unlabeled_customer_candidate(cand: IdentFieldCandidate) -> bool:
+    src = str(cand.source or "")
+    if src in _UNLABELED_CUSTOMER_WHITELIST_SOURCES:
+        return True
+    if src.startswith("label_block") or src.startswith("klantcode"):
+        return True
+    if _is_k_customer_code(str(cand.value or "")):
+        return True
+    if _has_customer_label_context(label_line=str(cand.label or ""), candidate_line=str(cand.context or "")):
+        return True
+    return False
+
+
+def _filter_unlabeled_customer_fallbacks(
+    cands: list[IdentFieldCandidate],
+) -> list[IdentFieldCandidate]:
+    if _has_labeled_customer_candidate(cands):
+        return cands
+    return [c for c in cands if _is_whitelisted_unlabeled_customer_candidate(c)]
+
+
+def _customer_resolution_allowed(
+    result: IdentFieldResult,
+    cands: list[IdentFieldCandidate],
+) -> bool:
+    val = str(result.value or "").strip()
+    if not val:
+        return True
+    for c in cands:
+        if str(c.value or "").strip().casefold() != val.casefold():
+            continue
+        if _is_whitelisted_unlabeled_customer_candidate(c):
+            return True
+        if _has_customer_label_context(
+            label_line=str(c.label or ""),
+            candidate_line=str(c.context or ""),
+        ):
+            return True
+    return False
+
+
 def _same_line_plausible_customer_values(
     vals: list[str],
     *,
@@ -2045,6 +2556,20 @@ def _customer_value_ok(
             return False
     if re.fullmatch(r"20\d{2}", v):
         return False
+    if re.fullmatch(r"20\d{6}", v) and not labeled:
+        return False
+    if _CUSTOMER_DATE_TOKEN_RE.fullmatch(v) and not labeled:
+        return False
+    if re.fullmatch(r"\d{6,}", v) and not labeled and not _is_k_customer_code(v):
+        ctx = f"{label_line}\n{candidate_line}"
+        if re.search(rf"\b\d+\s*/\s*{re.escape(v)}\b", ctx):
+            return True
+        if re.search(r"(?i)\bafleveradres\b", ctx):
+            return True
+        return False
+    if re.fullmatch(r"[A-Z]\d{4,8}", v) and not labeled:
+        if re.search(r"(?i)\b(?:bron|referentie|levering|ref\.?)\b", str(candidate_line or "")):
+            return False
     compact = re.sub(r"[\s.\-_/]+", "", v).upper()
     if re.fullmatch(r"(?:NL)?\d{9,12}B\d{2}", compact):
         return False
@@ -2352,6 +2877,9 @@ def _collect_customer_fallback_candidates(text: str) -> list[IdentFieldCandidate
         v = str(val or "").strip()
         if not _customer_candidate_ok(v):
             return
+        ctx_line = _line_at_pos(body, pos) if pos >= 0 else ""
+        if not _customer_value_ok(v, label_line=label, candidate_line=ctx_line):
+            return
         cands.append(
             IdentFieldCandidate(
                 value=v,
@@ -2432,6 +2960,8 @@ def _merge_resolved_into_candidates(
 ) -> list[IdentFieldCandidate]:
     rv = str(resolved_value or "").strip()
     if not rv:
+        return candidates
+    if field_id == "invoice_number" and not _invoice_candidate_ok(rv):
         return candidates
     if any(c.value.casefold() == rv.casefold() for c in candidates):
         if field_id == "invoice_date":
@@ -2567,8 +3097,16 @@ def collect_ident_field_candidates(
 
     for i, line in enumerate(lines):
         ctx = re.sub(r"\s+", " ", (line or "")).strip()[:160]
+        if field_kind == "invoice_number" and _invoice_in_vat_labeled_context(line=line):
+            continue
         for rx, src_kind in label_patterns:
             for m in rx.finditer(line or ""):
+                if field_kind == "invoice_number":
+                    pre = (line[: m.start()] or "")
+                    if pre.rstrip().endswith(("btw-", "vat-")) or _invoice_in_vat_labeled_context(
+                        line=pre + line[m.start() : m.end()]
+                    ):
+                        continue
                 label_span = collapse_stutter_chars(line[m.start() : m.end()].strip()) or line[m.start() : m.end()].strip()
                 vals = _tokens_after_label(line, m.end(), join_spaced_digits=join_digits)
                 for j in (0, 1, 2):
@@ -2638,7 +3176,16 @@ def collect_ident_field_candidates(
                             )
                         )
     if field_kind == "invoice_number":
-        cands = [c for c in cands if _invoice_candidate_ok(c.value)]
+        cands = [
+            c
+            for c in cands
+            if _invoice_candidate_ok(
+                c.value,
+                line=c.context or "",
+                label=c.label or "",
+                context=c.context or "",
+            )
+        ]
     elif field_kind == "customer_number":
         cands = [
             c
@@ -2748,6 +3295,7 @@ def extract_invoice_number_result(
     *,
     resolved: str | None = None,
     resolved_source: str | None = None,
+    internal_vat_blacklist: frozenset[str] | None = None,
 ) -> IdentFieldResult:
     cands = collect_ident_field_candidates(
         text,
@@ -2756,15 +3304,51 @@ def extract_invoice_number_result(
         extra_label_res=(_POLIS_LABEL_RE, _RELATIE_LABEL_RE),
     )
     cands.extend(_collect_invoice_fallback_candidates(text))
+    cands.extend(_collect_credit_note_invoice_candidates(text))
     cands = _filter_order_like_invoice_candidates(cands)
+    cands = _filter_parent_invoice_refs_on_credit(cands, text)
+    blacklist = internal_vat_blacklist or frozenset()
+    cands = _filter_invoice_number_candidates(cands, text, internal_vat_blacklist=blacklist)
+    cands = _filter_internal_vat_blacklist(cands, blacklist, field_id="invoice_number")
     cands = _dedupe_candidates(cands)
+    resolved_value = resolved
+    resolved_src = resolved_source
+    if resolved_value and not _invoice_candidate_ok(
+        str(resolved_value).strip(),
+        internal_vat_blacklist=blacklist,
+    ):
+        resolved_value = None
+        resolved_src = None
+    if resolved_value and _value_matches_internal_vat(str(resolved_value), blacklist):
+        resolved_value = None
+        resolved_src = None
     result = build_ident_field_result(
         cands,
-        resolved_value=resolved,
-        resolved_source=resolved_source,
+        resolved_value=resolved_value,
+        resolved_source=resolved_src,
         field_id="invoice_number",
     )
     return result
+
+
+def absent_customer_number_result(*, supplier_profile: bool = False) -> IdentFieldResult:
+    """Deterministic absent outcome: no candidates, no ranking, value always None."""
+    src = "NOT_PRESENT_SUPPLIER_LEVEL"
+    return IdentFieldResult(
+        candidates=[],
+        value=None,
+        confidence=100 if supplier_profile else 0,
+        source=src,
+        status="not_applicable" if supplier_profile else "failed",
+        absence_state=src,
+        decision_trace=[
+            {
+                "kind": "final",
+                "final_decision_reason": "supplier_customer_absent",
+                "winner": {},
+            }
+        ],
+    )
 
 
 def extract_customer_number_result(
@@ -2773,7 +3357,12 @@ def extract_customer_number_result(
     resolved: str | None = None,
     resolved_source: str | None = None,
     supplier_customer_absent: bool = False,
+    customer_number_mode: str | None = None,
 ) -> IdentFieldResult:
+    mode = str(customer_number_mode or "").strip().upper()
+    if supplier_customer_absent or mode == "NONE":
+        return absent_customer_number_result(supplier_profile=True)
+
     body = text or ""
     resolved, resolved_source = _sanitize_legacy_customer_resolved(
         resolved, resolved_source, body
@@ -2804,6 +3393,7 @@ def extract_customer_number_result(
     cands = _prefer_slashed_customer_candidates(cands)
     cands = _drop_short_suffix_customer_candidates(cands)
     cands = _filter_weak_customer_fallbacks(cands)
+    cands = _filter_unlabeled_customer_fallbacks(cands)
     resolved, resolved_source = _reject_weak_resolved_against_candidates(
         resolved, resolved_source, cands
     )
@@ -2816,14 +3406,14 @@ def extract_customer_number_result(
         prefer_k_prefix=_text_has_k_customer_code(body),
         field_id="customer_number",
     )
+    if not _customer_resolution_allowed(result, cands):
+        result.value = None
+        result.status = "failed"
+        result.source = "NOT_FOUND"
     has_value = bool(str(result.value or "").strip())
     if not cands and not has_value:
-        if supplier_customer_absent:
-            result.absence_state = "NOT_PRESENT_SUPPLIER_LEVEL"
-            result.source = "NOT_PRESENT_SUPPLIER_LEVEL"
-        else:
-            result.absence_state = "NOT_FOUND"
-            result.source = "NOT_FOUND"
+        result.absence_state = "NOT_FOUND"
+        result.source = "NOT_FOUND"
         result.status = "failed"
     return result
 
@@ -2870,7 +3460,9 @@ def _collect_vat_candidates_primary(
     body: str,
     *,
     debtor_norm: str,
+    internal_vat_blacklist: frozenset[str] | None = None,
 ) -> list[IdentFieldCandidate]:
+    blacklist = internal_vat_blacklist or frozenset()
     cands: list[IdentFieldCandidate] = []
     line_starts: list[int] = []
     pos = 0
@@ -2878,10 +3470,15 @@ def _collect_vat_candidates_primary(
         line_starts.append(pos)
         pos += len(line) + 1
 
-    for line_idx, line in enumerate(body.splitlines()):
+    all_lines = body.splitlines()
+    for line_idx, line in enumerate(all_lines):
         if _VAT_DEBTOR_HINT_RE.search(line):
             continue
+        if _line_in_customer_vat_block(all_lines, line_idx):
+            continue
         line_pos = line_starts[line_idx] if line_idx < len(line_starts) else 0
+        if _line_in_debtor_zone(body, line_pos):
+            continue
 
         for lm in _VAT_LABEL_RE.finditer(line):
             after = line[lm.end() :]
@@ -2896,7 +3493,7 @@ def _collect_vat_candidates_primary(
                 if m_relaxed:
                     vat = _compact_nl_vat_token(f"NL{m_relaxed.group(1)}")
                     tok_start = m_relaxed.start()
-            if vat and (not debtor_norm or vat != debtor_norm):
+            if vat and _vat_candidate_allowed(vat, debtor_norm=debtor_norm, blacklist=blacklist):
                 abs_pos = line_pos + lm.end() + tok_start
                 cands.append(
                     _vat_candidate_from_token(
@@ -2911,7 +3508,9 @@ def _collect_vat_candidates_primary(
             m_btw = _VAT_BTW_VALUE_RE.search(line)
             if m_btw:
                 compact = _compact_nl_vat_token(m_btw.group(1))
-                if compact and (not debtor_norm or compact != debtor_norm):
+                if compact and _vat_candidate_allowed(
+                    compact, debtor_norm=debtor_norm, blacklist=blacklist
+                ):
                     cands.append(
                         _vat_candidate_from_token(
                             body,
@@ -2925,7 +3524,9 @@ def _collect_vat_candidates_primary(
 
         for m in _VAT_RE.finditer(line):
             vat = _normalize_vat_compact(m.group(0))
-            if not vat or (debtor_norm and vat == debtor_norm):
+            if not vat or not _vat_candidate_allowed(
+                vat, debtor_norm=debtor_norm, blacklist=blacklist
+            ):
                 continue
             abs_pos = line_pos + m.start()
             cands.append(
@@ -2939,6 +3540,24 @@ def _collect_vat_candidates_primary(
                 )
             )
 
+        m_eu_label = re.search(
+            r"(?i)\b(?:vat|btw)(?:-|\s*)?number\s*:\s*([A-Z]{2}[\dA-Z]+)",
+            line or "",
+        )
+        if m_eu_label:
+            eu = re.sub(r"[^0-9A-Z]", "", m_eu_label.group(1).upper())
+            if eu and _vat_candidate_allowed(eu, debtor_norm=debtor_norm, blacklist=blacklist):
+                cands.append(
+                    _vat_candidate_from_token(
+                        body,
+                        line_pos + m_eu_label.start(1),
+                        eu,
+                        extraction_method="label_match",
+                        label_reason="VAT-Number label (EU)",
+                        confidence=91,
+                    )
+                )
+
         if not _VAT_LABEL_RE.search(line):
             m_btw = re.search(
                 r"(?i)\b(?:btw|vat)\s*:\s*([\d.\s]+B[\d.\s]+)",
@@ -2946,7 +3565,9 @@ def _collect_vat_candidates_primary(
             )
             if m_btw:
                 compact = _compact_nl_vat_token(m_btw.group(1))
-                if compact and (not debtor_norm or compact != debtor_norm):
+                if compact and _vat_candidate_allowed(
+                    compact, debtor_norm=debtor_norm, blacklist=blacklist
+                ):
                     cands.append(
                         _vat_candidate_from_token(
                             body,
@@ -2965,13 +3586,21 @@ def _collect_vat_candidates_fallback(
     body: str,
     *,
     debtor_norm: str,
+    internal_vat_blacklist: frozenset[str] | None = None,
 ) -> list[IdentFieldCandidate]:
+    blacklist = internal_vat_blacklist or frozenset()
     cands: list[IdentFieldCandidate] = []
+    lines = body.splitlines()
     for m in _VAT_EU_FALLBACK_RE.finditer(body):
         vat = _normalize_eu_vat_fallback(m.group(1), m.group(2))
-        if not vat or (debtor_norm and vat == debtor_norm):
+        if not vat or not _vat_candidate_allowed(vat, debtor_norm=debtor_norm, blacklist=blacklist):
+            continue
+        line_idx = _line_index_at(body, m.start())
+        if _line_in_customer_vat_block(lines, line_idx):
             continue
         if _VAT_DEBTOR_HINT_RE.search(_line_at_pos(body, m.start())):
+            continue
+        if _line_in_debtor_zone(body, m.start()):
             continue
         cands.append(
             _vat_candidate_from_token(
@@ -3273,13 +3902,16 @@ def extract_kvk_number_result(
     resolved: str | None = None,
     resolved_source: str | None = None,
     debtor_kvk: str | None = None,
+    internal_vat_blacklist: frozenset[str] | None = None,
 ) -> IdentFieldResult:
     body = text or ""
     debtor_norm = _normalize_kvk_digits(debtor_kvk) if debtor_kvk else ""
+    blacklist = internal_vat_blacklist or frozenset()
     cands = _collect_kvk_candidates_primary(body, debtor_norm=debtor_norm)
     if not cands:
         cands = _collect_kvk_candidates_fallback(body, debtor_norm=debtor_norm)
     cands = _filter_ident_contamination(cands, field_id="kvk_number", body=body)
+    cands = _filter_internal_vat_blacklist(cands, blacklist, field_id="kvk_number")
     cands = _dedupe_candidates(cands)
     resolved_norm = _normalize_kvk_digits(resolved) if resolved else None
     return build_ident_field_result(
@@ -3295,15 +3927,33 @@ def extract_vat_number_result(
     resolved: str | None = None,
     resolved_source: str | None = None,
     debtor_vat: str | None = None,
+    internal_vat_blacklist: frozenset[str] | None = None,
 ) -> IdentFieldResult:
     body = text or ""
-    debtor_norm = _normalize_vat_compact(debtor_vat) if debtor_vat else ""
-    cands = _collect_vat_candidates_primary(body, debtor_norm=debtor_norm)
+    _ = debtor_vat  # legacy param; exclusion via internal_vat_blacklist only
+    debtor_norm = ""
+    blacklist = internal_vat_blacklist or frozenset()
+    cands = _collect_vat_candidates_primary(
+        body, debtor_norm=debtor_norm, internal_vat_blacklist=blacklist
+    )
     if not cands:
-        cands = _collect_vat_candidates_fallback(body, debtor_norm=debtor_norm)
+        cands = _collect_vat_candidates_fallback(
+            body, debtor_norm=debtor_norm, internal_vat_blacklist=blacklist
+        )
+    cands = [
+        c
+        for c in cands
+        if _supplier_vat_shape_ok(str(c.value or ""))
+        and not _value_matches_internal_vat(str(c.value or ""), blacklist)
+    ]
+    cands = _filter_footer_vat_when_header_btw_nr(cands, body)
+    cands = _filter_footer_regex_vat_when_header_labeled(cands, body)
     cands = _filter_ident_contamination(cands, field_id="vat_number", body=body)
+    cands = _filter_internal_vat_blacklist(cands, blacklist, field_id="vat_number")
     cands = _dedupe_candidates(cands)
     resolved_norm = _normalize_vat_compact(resolved) if resolved else None
+    if resolved_norm and _value_matches_internal_vat(resolved_norm, blacklist):
+        resolved_norm = None
     return build_ident_field_result(
         cands,
         resolved_value=resolved_norm,

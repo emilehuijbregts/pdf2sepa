@@ -133,12 +133,15 @@ from logic.paths import read_user_data_root, write_user_data_root
 from logic.settings import (
     DEFAULT_SETTINGS,
     apply_legacy_export_dir_migration,
+    format_internal_vat_numbers_for_display,
     load_settings,
     merge_debtor_with_defaults,
     resolve_settings_path,
     save_settings,
+    sync_debtor_vat_output,
     validate_debtor_for_export,
 )
+from parser.field_candidates import normalize_internal_vat_numbers_for_storage
 from output.sepa_xml import (
     exportable_payments_from_decisions,
     format_batch_export_blocked_message,
@@ -146,11 +149,51 @@ from output.sepa_xml import (
     validate_export_batch,
 )
 from parser.pdf_parser import extract_text_strict, format_remittance_text
-from parser.supplier_db import SupplierDB
+from parser.supplier_db import (
+    CUSTOMER_NUMBER_MODE_NONE,
+    SupplierDB,
+    customer_number_authoritative_value,
+    customer_number_is_absent_or_none,
+    customer_number_mode_from_profile,
+    infer_customer_number_mode_from_result,
+)
 from parser.supplier_matcher import match_suppliers, _db_core_matches
 from ui.suppliers_dialog import SuppliersDialog
 
 logger = logging.getLogger(__name__)
+
+# #region agent log (debug mode - session 3d66a1)
+_DEBUG_LOG_3D66A1 = "/Users/eh/Documents/Cursor/PDF2SEPA/.cursor/debug-3d66a1.log"
+
+
+def _dbg_log_3d66a1(
+    *,
+    hypothesis_id: str,
+    location: str,
+    message: str,
+    data: dict[str, Any] | None = None,
+    run_id: str = "pre-fix",
+) -> None:
+    try:
+        import json
+        import time
+
+        payload = {
+            "sessionId": "3d66a1",
+            "hypothesisId": hypothesis_id,
+            "location": location,
+            "message": message,
+            "data": data or {},
+            "timestamp": int(time.time() * 1000),
+            "runId": run_id,
+        }
+        with open(_DEBUG_LOG_3D66A1, "a", encoding="utf-8") as f:
+            f.write(json.dumps(payload, ensure_ascii=False) + "\n")
+    except Exception:
+        return
+
+
+# #endregion
 
 # #region agent log (debug mode)
 _DEBUG_LOG_PATH = "/Users/eh/Documents/Cursor/PDF2SEPA/.cursor/debug-19e810.log"
@@ -353,11 +396,36 @@ _SIGNAL_LABELS: dict[str, str] = {
     "payment_term": "betalingstermijn",
 }
 
+# For customer_number display and decisions: customer_number_result is ALWAYS
+# authoritative when present. Scalar customer_number is display-only fallback
+# and must be ignored if result exists (including NONE/absent states).
+# Read order: result → profile NONE → scalar (only without result dict).
+
+
+def _customer_number_none_mode_active(inv: dict[str, Any]) -> bool:
+    """Klantnummer is niet van toepassing (user pick of profiel ``customer_number_mode=NONE``)."""
+    return customer_number_is_absent_or_none(inv)
+
+
+def _customer_number_none_mode_from_parts(
+    *,
+    snap: dict[str, Any] | None = None,
+    customer_result: dict[str, Any] | None = None,
+) -> bool:
+    """NONE-detectie op snapshot + optioneel los resultaat (rij/cache)."""
+    probe: dict[str, Any] = {}
+    if isinstance(snap, dict):
+        probe.update(snap)
+    if isinstance(customer_result, dict):
+        probe["customer_number_result"] = customer_result
+    return _customer_number_none_mode_active(probe)
+
+
 def _matches_completeness_text(inv: dict[str, Any]) -> str:
     missing: list[str] = []
     if not str(inv.get("invoice_number") or "").strip():
         missing.append("factuurnummer")
-    if not str(inv.get("customer_number") or "").strip():
+    if not customer_number_is_absent_or_none(inv) and not customer_number_authoritative_value(inv):
         missing.append("klantnummer")
     if not str(inv.get("invoice_date") or "").strip():
         missing.append("factuurdatum")
@@ -441,18 +509,26 @@ def _diagnostics_snapshot_from_invoice(inv: dict) -> dict:
 
 def _ident_field_display_from_inv(inv: dict[str, Any], field: str) -> str:
     """Celweergave; ``?`` als parser twijfelt en er kandidaten zijn."""
+    if field == "customer_number":
+        if customer_number_is_absent_or_none(inv):
+            return ""
+        cr = inv.get("customer_number_result")
+        if isinstance(cr, dict):
+            val = customer_number_authoritative_value(inv)
+            if val:
+                return val
+            st = str(cr.get("status") or "").lower()
+            cands = cr.get("candidates")
+            n_cands = len(cands) if isinstance(cands, list) else 0
+            if n_cands and st in ("ambiguous", "tentative", "failed"):
+                if st == "ambiguous" or n_cands >= 2:
+                    return "?"
+            return ""
+        return str(inv.get("customer_number") or "").strip()
     legacy = str(inv.get(field) or "").strip()
     res = inv.get(f"{field}_result")
     if not isinstance(res, dict):
         return legacy
-    absence = str(res.get("absence_state") or "").strip()
-    if (
-        field == "customer_number"
-        and absence == CUSTOMER_ABSENT_STATE
-        and res.get("user_selected")
-        and not str(res.get("value") or legacy).strip()
-    ):
-        return ""
     val = str(res.get("value") or legacy).strip()
     st = str(res.get("status") or "").lower()
     cands = res.get("candidates")
@@ -472,8 +548,14 @@ def _iban_field_from_inv(inv: dict[str, Any]) -> tuple[str, dict[str, Any] | Non
 
 
 def _remittance_display_from_inv(inv: dict[str, Any]) -> str:
-    cust = _ident_field_display_from_inv(inv, "customer_number")
     inv_no = _ident_field_display_from_inv(inv, "invoice_number")
+    if _customer_number_none_mode_active(inv):
+        return format_remittance_text(
+            None,
+            None if inv_no in ("", "?") else inv_no,
+            None,
+        )
+    cust = _ident_field_display_from_inv(inv, "customer_number")
     return format_remittance_text(
         None if cust in ("", "?") else cust,
         None if inv_no in ("", "?") else inv_no,
@@ -597,14 +679,15 @@ DEBTOR_FORM_FIELDS: tuple[tuple[str, str, str, str | None], ...] = (
     (
         "vat",
         "Uw BTW-nummer:",
-        "NL123456789B01",
+        "NL123456789B01, NL987654321B01",
         None,
     ),
 )
 
 _DEBTOR_KVK_VAT_TOOLTIP = (
     "Wordt niet in de SEPA-XML gezet. Wel om uw eigen KvK/BTW op facturen uit te sluiten "
-    "bij het herkennen van leveranciers (wordt nooit als leverancier-KvK of -BTW gebruikt)."
+    "bij het herkennen van leveranciers (wordt nooit als leverancier-KvK of -BTW gebruikt). "
+    "Meerdere BTW-nummers: comma-gescheiden."
 )
 
 def _normalize_debtor_field(key: str, value: str) -> str:
@@ -618,7 +701,9 @@ def _normalize_debtor_field(key: str, value: str) -> str:
         d = re.sub(r"\D", "", str(value or ""))
         return d if len(d) in (7, 8) else ""
     if key == "vat":
-        return re.sub(r"\s+", "", str(value or "")).upper()
+        return format_internal_vat_numbers_for_display(
+            normalize_internal_vat_numbers_for_storage(value)
+        )
     return str(value or "").strip()
 
 class PaymentSource(NamedTuple):
@@ -726,8 +811,6 @@ class SettingsDialog(QDialog):
                 edit.setMaxLength(11)
             elif key == "kvk":
                 edit.setMaxLength(12)
-            elif key == "vat":
-                edit.setMaxLength(20)
             if isinstance(mw, MainWindow):
                 if key == "name":
                     edit.setText(mw.get_debtor_name())
@@ -738,7 +821,7 @@ class SettingsDialog(QDialog):
                 elif key == "kvk":
                     edit.setText(mw.get_debtor_kvk())
                 elif key == "vat":
-                    edit.setText(mw.get_debtor_vat())
+                    edit.setText(mw.get_debtor_vat_display())
             if key in ("kvk", "vat"):
                 edit.setToolTip(_DEBTOR_KVK_VAT_TOOLTIP)
             else:
@@ -1328,9 +1411,14 @@ class MainWindow(QMainWindow):
         self._ensure_debtor_dict()
         return str(self._settings["debtor"].get("kvk") or "").strip()
 
-    def get_debtor_vat(self) -> str:
-        self._ensure_debtor_dict()
-        return str(self._settings["debtor"].get("vat") or "").strip().upper()
+    def get_debtor_vat_numbers(self) -> list[str]:
+        numbers = self._settings.get("internal_vat_numbers")
+        if isinstance(numbers, list):
+            return [str(v).strip() for v in numbers if str(v or "").strip()]
+        return []
+
+    def get_debtor_vat_display(self) -> str:
+        return format_internal_vat_numbers_for_display(self.get_debtor_vat_numbers())
 
     def get_debtor_dict_for_xml(self) -> dict[str, Any]:
         self._ensure_debtor_dict()
@@ -1345,21 +1433,36 @@ class MainWindow(QMainWindow):
 
     def _apply_debtor_and_save(self, updates: dict[str, str]) -> bool:
         self._ensure_debtor_dict()
-        prev: dict[str, str] = deepcopy(self._settings["debtor"])
+        prev_debtor: dict[str, str] = deepcopy(self._settings["debtor"])
+        prev_internal_vat = deepcopy(self._settings.get("internal_vat_numbers"))
         template = DEFAULT_SETTINGS["debtor"]
         try:
             for key, raw in updates.items():
                 if key not in template:
                     continue
+                if key == "vat":
+                    numbers = normalize_internal_vat_numbers_for_storage(raw)
+                    self._settings["internal_vat_numbers"] = numbers
+                    sync_debtor_vat_output(self._settings["debtor"], numbers)
+                    continue
                 self._settings["debtor"][key] = _normalize_debtor_field(key, raw)
         except Exception:
-            self._settings["debtor"] = prev
+            self._settings["debtor"] = prev_debtor
+            if prev_internal_vat is None:
+                self._settings.pop("internal_vat_numbers", None)
+            else:
+                self._settings["internal_vat_numbers"] = prev_internal_vat
             logger.exception("Instellingen debtor-normalisatie mislukt")
             return False
         if not save_settings(self._settings, str(self._settings_path())):
-            self._settings["debtor"] = prev
+            self._settings["debtor"] = prev_debtor
+            if prev_internal_vat is None:
+                self._settings.pop("internal_vat_numbers", None)
+            else:
+                self._settings["internal_vat_numbers"] = prev_internal_vat
             logger.error("Instellingen opslaan mislukt (save_settings heeft False geretourneerd)")
             return False
+        self._invalidate_parsed_batch_cache()
         return True
 
     def _on_open_settings(self) -> None:
@@ -1646,14 +1749,12 @@ class MainWindow(QMainWindow):
         selected = folder.resolve()
         debtor_iban = self.get_debtor_iban() or None
         debtor_kvk = self.get_debtor_kvk() or None
-        debtor_vat = self.get_debtor_vat() or None
 
         def load() -> list[dict]:
             return load_invoices_from_folder(
                 selected,
                 debtor_iban=debtor_iban,
                 debtor_kvk=debtor_kvk,
-                debtor_vat=debtor_vat,
             )
 
         return PaymentSource(name=f"Map: {selected.name}", load=load)
@@ -1688,10 +1789,12 @@ class MainWindow(QMainWindow):
         return unique, skipped
 
     def _debtor_parse_context(self) -> tuple[str | None, str | None, str | None]:
+        numbers = self.get_debtor_vat_numbers()
+        internal_vat_fingerprint = ",".join(numbers) if numbers else None
         return (
             self.get_debtor_iban() or None,
             self.get_debtor_kvk() or None,
-            self.get_debtor_vat() or None,
+            internal_vat_fingerprint,
         )
 
     def _invalidate_parsed_batch_cache(self) -> None:
@@ -1702,19 +1805,18 @@ class MainWindow(QMainWindow):
         folder = self._selected_folder
         if folder is None or not folder.is_dir():
             return []
-        debtor_iban, debtor_kvk, debtor_vat = self._debtor_parse_context()
+        debtor_iban, debtor_kvk, internal_vat_fingerprint = self._debtor_parse_context()
         invoices = load_invoices_from_folder(
             folder,
             debtor_iban=debtor_iban,
             debtor_kvk=debtor_kvk,
-            debtor_vat=debtor_vat,
         )
         self._parsed_batch_cache.store(
             folder,
             invoices,
             debtor_iban=debtor_iban,
             debtor_kvk=debtor_kvk,
-            debtor_vat=debtor_vat,
+            debtor_vat=internal_vat_fingerprint,
         )
         return invoices
 
@@ -1723,12 +1825,12 @@ class MainWindow(QMainWindow):
         folder = self._selected_folder
         if folder is None or not folder.is_dir():
             return None
-        debtor_iban, debtor_kvk, debtor_vat = self._debtor_parse_context()
+        debtor_iban, debtor_kvk, internal_vat_fingerprint = self._debtor_parse_context()
         return self._parsed_batch_cache.get_parsed_invoices(
             folder,
             debtor_iban=debtor_iban,
             debtor_kvk=debtor_kvk,
-            debtor_vat=debtor_vat,
+            debtor_vat=internal_vat_fingerprint,
         )
 
     def _field_user_overridden(self, row: int, field_id: FieldId) -> bool:
@@ -1794,11 +1896,14 @@ class MainWindow(QMainWindow):
                 sup_it.setData(_ROW_VAT_NUMBER_ROLE, vat_no)
 
         cust_it = self._table.item(row, PaymentColumn.CUSTOMER_CODE)
-        cust_disp, _, _, _, cust_res = self._row_ident_fields_from_inv(inv)
-        if cust_it and cust_disp and not self._field_user_overridden(row, "customer_number"):
+        cust_disp, _, desc_disp, _, cust_res = self._row_ident_fields_from_inv(inv)
+        if cust_it and not self._field_user_overridden(row, "customer_number"):
             cust_it.setText(cust_disp)
             if isinstance(cust_res, dict):
                 cust_it.setData(_ROW_CUSTOMER_NUMBER_RESULT_ROLE, deepcopy(cust_res))
+        desc_it = self._table.item(row, PaymentColumn.DESCRIPTION)
+        if desc_it and _customer_number_none_mode_active(inv):
+            desc_it.setText(desc_disp)
 
         disc = (
             self._discount_for_payment([inv], payment)
@@ -1869,6 +1974,12 @@ class MainWindow(QMainWindow):
         name = self._cell_text(row, PaymentColumn.SUPPLIER).strip()
         iban = clean_iban(self._cell_text(row, PaymentColumn.IBAN))
         code = self._cell_text(row, PaymentColumn.CUSTOMER_CODE).strip() or None
+        row_snap = self._get_row_invoice_diagnostics_snapshot(row)
+        cust_res = self._ident_field_result_snapshot_for_row(row, "customer_number")
+        none_mode = _customer_number_none_mode_from_parts(
+            snap=row_snap if isinstance(row_snap, dict) else None,
+            customer_result=cust_res if isinstance(cust_res, dict) else None,
+        )
         sf_key = str(Path(sf).resolve())
         for inv in invoices:
             inv_sf = str(inv.get("source_file") or "").strip()
@@ -1881,7 +1992,9 @@ class MainWindow(QMainWindow):
                 inv["supplier_name"] = name
             if iban:
                 inv["iban"] = iban
-            if code:
+            if none_mode:
+                inv.pop("customer_number", None)
+            elif code and code != "?":
                 inv["customer_number"] = code
             return True
         return False
@@ -1895,13 +2008,13 @@ class MainWindow(QMainWindow):
             return False
         if not self._patch_table_row_into_invoices(row, parsed):
             return False
-        debtor_iban, debtor_kvk, debtor_vat = self._debtor_parse_context()
+        debtor_iban, debtor_kvk, internal_vat_fingerprint = self._debtor_parse_context()
         self._parsed_batch_cache.store(
             folder,
             parsed,
             debtor_iban=debtor_iban,
             debtor_kvk=debtor_kvk,
-            debtor_vat=debtor_vat,
+            debtor_vat=internal_vat_fingerprint,
         )
         return True
 
@@ -1961,13 +2074,13 @@ class MainWindow(QMainWindow):
             matched = match_suppliers(parsed_work, db)
             folder = self._selected_folder
             if folder is not None and folder.is_dir():
-                debtor_iban, debtor_kvk, debtor_vat = self._debtor_parse_context()
+                debtor_iban, debtor_kvk, internal_vat_fingerprint = self._debtor_parse_context()
                 self._parsed_batch_cache.store(
                     folder,
                     parsed_work,
                     debtor_iban=debtor_iban,
                     debtor_kvk=debtor_kvk,
-                    debtor_vat=debtor_vat,
+                    debtor_vat=internal_vat_fingerprint,
                 )
         if matched is None:
             # #region agent log (debug mode)
@@ -2312,8 +2425,11 @@ class MainWindow(QMainWindow):
                 continue
             if inv_no_pay and str(inv.get("invoice_number") or "") != inv_no_pay:
                 continue
-            cn = inv.get("customer_number")
-            cns = str(cn).strip() if cn is not None else ""
+            if _customer_number_none_mode_active(inv):
+                cns = ""
+            else:
+                cn = inv.get("customer_number")
+                cns = str(cn).strip() if cn is not None else ""
             ins = (
                 str(inv.get("invoice_number") or "").strip()
                 if inv.get("invoice_number") is not None
@@ -2521,6 +2637,14 @@ class MainWindow(QMainWindow):
         if spec is None:
             return
         if field_id == "customer_number" and is_customer_absent_pick(cand):
+            # #region agent log (debug mode)
+            _dbg_log_3d66a1(
+                hypothesis_id="H1",
+                location="main_window.py:_apply_field_candidate_pick_to_row",
+                message="routing absent pick",
+                data={"row": row, "cand_source": str(cand.get("source") or "")},
+            )
+            # #endregion
             self._apply_customer_absent_pick_to_row(
                 row,
                 pending_reason="customer_number_absent",
@@ -2579,6 +2703,18 @@ class MainWindow(QMainWindow):
         mark_pending: bool = True,
     ) -> None:
         """Leg vast dat deze leverancier geen klantnummer op de factuur heeft."""
+        # #region agent log (debug mode)
+        _dbg_log_3d66a1(
+            hypothesis_id="H2",
+            location="main_window.py:_apply_customer_absent_pick_to_row:entry",
+            message="absent pick apply start",
+            data={
+                "row": row,
+                "cell_before": self._cell_text(row, PaymentColumn.CUSTOMER_CODE).strip(),
+                "pending_reason": pending_reason,
+            },
+        )
+        # #endregion
         snap = self._field_result_snapshot_for_row(row, "customer_number") or {}
         resolved_dict = dict(snap)
         resolved_dict["value"] = None
@@ -2588,6 +2724,8 @@ class MainWindow(QMainWindow):
         resolved_dict["status"] = "confirmed"
         resolved_dict["confidence"] = 100
         resolved_dict["user_selected"] = True
+        resolved_dict["user_overridden"] = True
+        resolved_dict["candidates"] = []
         resolved_dict["override_reason"] = "user_customer_absent"
         resolved_dict["resolver_finalized"] = True
         resolved_dict = canonicalize_legacy_result_dict(
@@ -2660,6 +2798,22 @@ class MainWindow(QMainWindow):
         payment = self._payment_dict_from_row(row, require_resolved_amount=False)
         decision = self._decision_for_row(row)
         diag = build_diagnostics(snap, payment=payment, decision=decision)
+        # #region agent log (debug mode)
+        cust_block = diag.get("customer_number") if isinstance(diag.get("customer_number"), dict) else {}
+        _dbg_log_3d66a1(
+            hypothesis_id="H5",
+            location="main_window.py:_build_diagnostics_for_row",
+            message="diagnostics built",
+            data={
+                "row": row,
+                "cell": self._cell_text(row, PaymentColumn.CUSTOMER_CODE).strip(),
+                "diag_value_display": str(cust_block.get("value_display") or cust_block.get("value") or ""),
+                "diag_status_nl": str(cust_block.get("status_nl") or ""),
+                "snap_scalar": str(snap.get("customer_number") or ""),
+                "snap_none": customer_number_is_absent_or_none(snap),
+            },
+        )
+        # #endregion
         return diag, limited
 
     @staticmethod
@@ -2703,6 +2857,14 @@ class MainWindow(QMainWindow):
             if field_id == "customer_number" and is_customer_absent_pick(
                 raw_target if isinstance(raw_target, dict) else None
             ):
+                # #region agent log (debug mode)
+                _dbg_log_3d66a1(
+                    hypothesis_id="H4",
+                    location="main_window.py:_confirm_selected_fields_for_row",
+                    message="confirm absent branch",
+                    data={"row": row, "raw_type": type(raw_target).__name__},
+                )
+                # #endregion
                 self._apply_customer_absent_pick_to_row(
                     row,
                     pending_reason="diagnostics_confirm_selection",
@@ -2774,11 +2936,21 @@ class MainWindow(QMainWindow):
             inv = self._get_row_invoice_number(row)
         if inv:
             confirmed["invoice_number"] = inv
-        cust = str(selected_by_field.get("customer_number") or "").strip()
-        if not cust:
+        row_snap = self._get_row_invoice_diagnostics_snapshot(row)
+        cust_res = self._ident_field_result_snapshot_for_row(row, "customer_number")
+        none_mode = _customer_number_none_mode_from_parts(
+            snap=row_snap if isinstance(row_snap, dict) else None,
+            customer_result=cust_res if isinstance(cust_res, dict) else None,
+        )
+        raw_cust = selected_by_field.get("customer_number")
+        if none_mode or is_customer_absent_pick(raw_cust if isinstance(raw_cust, dict) else None):
+            pass
+        elif isinstance(raw_cust, str) and raw_cust.strip():
+            confirmed["customer_number"] = raw_cust.strip()
+        elif not none_mode:
             cust = self._cell_text(row, PaymentColumn.CUSTOMER_CODE).strip()
-        if cust:
-            confirmed["customer_number"] = cust
+            if cust and cust != "?":
+                confirmed["customer_number"] = cust
 
         vat = str(selected_by_field.get("vat_number") or "").strip()
         if vat:
@@ -2876,6 +3048,14 @@ class MainWindow(QMainWindow):
         result_key = FIELD_REVIEW_SPECS[field_id].result_snapshot_key
         field_snap_raw = patched.get(result_key)
         if not isinstance(field_snap_raw, dict):
+            # #region agent log (debug mode)
+            _dbg_log_3d66a1(
+                hypothesis_id="H2",
+                location="main_window.py:_apply_resolved_field_result_to_row:early_return",
+                message="missing field_snap_raw",
+                data={"row": row, "field_id": field_id, "result_key": result_key},
+            )
+            # #endregion
             return
         field_snap = canonicalize_legacy_result_dict(field_snap_raw, field_id=field_id)
 
@@ -2943,19 +3123,42 @@ class MainWindow(QMainWindow):
             elif field_id == "customer_number":
                 cust_it = self._table.item(row, PaymentColumn.CUSTOMER_CODE)
                 if cust_it:
-                    cust_it.setText(str(patched.get("customer_number") or ""))
+                    disp = _ident_field_display_from_inv(patched, "customer_number")
+                    cust_it.setText(disp)
                     cust_it.setData(_ROW_CUSTOMER_NUMBER_RESULT_ROLE, deepcopy(field_snap))
+                    # #region agent log (debug mode)
+                    _dbg_log_3d66a1(
+                        hypothesis_id="H2",
+                        location="main_window.py:_apply_resolved_field_result_to_row:customer",
+                        message="customer cell updated",
+                        data={
+                            "row": row,
+                            "display": disp,
+                            "result_source": str(field_snap.get("source") or ""),
+                            "absence_state": str(field_snap.get("absence_state") or ""),
+                            "scalar_on_patched": str(patched.get("customer_number") or ""),
+                            "none_active": customer_number_is_absent_or_none(patched),
+                        },
+                    )
+                    # #endregion
+                else:
+                    # #region agent log (debug mode)
+                    _dbg_log_3d66a1(
+                        hypothesis_id="H2",
+                        location="main_window.py:_apply_resolved_field_result_to_row:no_cust_it",
+                        message="customer_code cell item missing",
+                        data={"row": row},
+                    )
+                    # #endregion
             elif field_id == "invoice_number":
                 if sup_it:
                     sup_it.setData(_ROW_INVOICE_META_ROLE, str(patched.get("invoice_number") or ""))
                     sup_it.setData(_ROW_INVOICE_NUMBER_RESULT_ROLE, deepcopy(field_snap))
 
             if field_id in ("invoice_number", "customer_number"):
-                cust_for_desc = str(patched.get("customer_number") or "").strip()
-                inv_for_desc = str(patched.get("invoice_number") or "").strip()
                 desc_it = self._table.item(row, PaymentColumn.DESCRIPTION)
                 if desc_it:
-                    desc_it.setText(format_remittance_text(cust_for_desc or None, inv_for_desc or None, None))
+                    desc_it.setText(_remittance_display_from_inv(patched))
 
             if sup_it:
                 sup_it.setData(_ROW_INVOICE_DIAGNOSTICS_ROLE, patched)
@@ -2988,13 +3191,20 @@ class MainWindow(QMainWindow):
         if not iban_clean:
             return
         try:
+            cust_res = self._ident_field_result_snapshot_for_row(row, "customer_number")
+            probe = dict(snap)
+            if isinstance(cust_res, dict):
+                probe["customer_number_result"] = cust_res
+            cell_cust = self._cell_text(row, PaymentColumn.CUSTOMER_CODE).strip()
+            cust_for_match = customer_number_authoritative_value(
+                probe,
+                scalar_fallback=cell_cust if cell_cust and cell_cust != "?" else None,
+            )
             db = SupplierDB(path=self._supplier_db_path())
             supplier, match_info = db.find_supplier_scored(
                 snap.get("supplier_hint") or self._cell_text(row, PaymentColumn.SUPPLIER),
                 iban_clean,
-                snap.get("customer_number")
-                or self._cell_text(row, PaymentColumn.CUSTOMER_CODE).strip()
-                or None,
+                cust_for_match,
                 vat_number=snap.get("vat_number"),
                 kvk_number=snap.get("kvk_number"),
                 email_domain=snap.get("email_domain"),
@@ -3307,11 +3517,15 @@ class MainWindow(QMainWindow):
         inv_ph = str(snap.get("invoice_number") or "").strip()
         if not inv_ph:
             inv_ph = self._get_row_invoice_number(row)
-        cust_ph = str(snap.get("customer_number") or "").strip()
-        if not cust_ph:
-            cust_ph = str(snap.get("pdf_customer_number") or "").strip()
-        if not cust_ph:
-            cust_ph = self._cell_text(row, PaymentColumn.CUSTOMER_CODE).strip()
+        cust_res = self._ident_field_result_snapshot_for_row(row, "customer_number")
+        probe = dict(snap) if isinstance(snap, dict) else {}
+        if isinstance(cust_res, dict):
+            probe["customer_number_result"] = cust_res
+        cell_cust = self._cell_text(row, PaymentColumn.CUSTOMER_CODE).strip()
+        cust_ph = customer_number_authoritative_value(
+            probe,
+            scalar_fallback=cell_cust if cell_cust and cell_cust != "?" else None,
+        ) or ""
         return {
             "amount": amount_ph,
             "invoice": inv_ph,
@@ -3373,6 +3587,12 @@ class MainWindow(QMainWindow):
             )
 
         if profile_saved and learned_profile is not None:
+            if customer_number_mode_from_profile(learned_profile) == CUSTOMER_NUMBER_MODE_NONE:
+                self._apply_customer_absent_pick_to_row(
+                    row,
+                    pending_reason="profile_saved_none_mode",
+                    mark_pending=False,
+                )
             snap = self._get_row_invoice_diagnostics_snapshot(row)
             if isinstance(snap, dict):
                 patched = deepcopy(snap)
@@ -3380,6 +3600,8 @@ class MainWindow(QMainWindow):
                 patched["profile_fields"] = [
                     k for k in ("amount", "invoice_number", "customer_number") if k in learned_profile
                 ]
+                if customer_number_mode_from_profile(learned_profile) == CUSTOMER_NUMBER_MODE_NONE:
+                    patched["extraction_profile"] = dict(learned_profile)
                 sup_it = self._table.item(row, PaymentColumn.SUPPLIER)
                 if sup_it:
                     sup_it.setData(_ROW_INVOICE_DIAGNOSTICS_ROLE, patched)
@@ -3471,9 +3693,19 @@ class MainWindow(QMainWindow):
         ir = self._field_result_snapshot_for_row(row, "iban")
         if isinstance(ir, dict):
             snap["iban_result"] = ir
-        cust = self._cell_text(row, PaymentColumn.CUSTOMER_CODE).strip()
-        if cust:
-            snap["customer_number"] = cust
+        cust_res = self._ident_field_result_snapshot_for_row(row, "customer_number")
+        if isinstance(cust_res, dict):
+            snap["customer_number_result"] = deepcopy(cust_res)
+        cell_cust = self._cell_text(row, PaymentColumn.CUSTOMER_CODE).strip()
+        cell_fb = cell_cust if cell_cust and cell_cust != "?" else None
+        probe = dict(snap)
+        auth = customer_number_authoritative_value(probe, scalar_fallback=cell_fb)
+        if customer_number_is_absent_or_none(probe):
+            snap.pop("customer_number", None)
+        elif auth:
+            snap["customer_number"] = auth
+        else:
+            snap.pop("customer_number", None)
         inv_no = self._get_row_invoice_number(row)
         if inv_no:
             snap["invoice_number"] = inv_no
@@ -3503,14 +3735,9 @@ class MainWindow(QMainWindow):
             def _refresh_diag(_selected: dict[str, Any]) -> dict:
                 return self._build_diagnostics_for_row(row)[0]
 
-            def _on_diag_candidate_click(field_id: str, cand: dict[str, Any]) -> dict:
-                self._apply_field_candidate_pick_to_row(row, field_id, cand)
-                return _refresh_diag({})
-
             dlg = DiagnosticsDialog(
                 diag,
                 parent=self,
-                on_candidate_click=_on_diag_candidate_click,
                 on_confirm_selection=lambda selected: (
                     self._confirm_selected_fields_for_row(row, selected)
                     or _refresh_diag(selected)
@@ -3804,10 +4031,11 @@ class MainWindow(QMainWindow):
                 err_cell = _nl_payment_warning(p.get("warning"))
                 disc = self._discount_for_payment(invoices, p)
                 inv_match = self._match_inv_for_payment(invoices, p)
-                cust, inv_meta, desc, inv_res_snap, cust_res_snap = self._row_ident_fields_from_inv(
-                    inv_match if isinstance(inv_match, dict) else None
-                )
-                if not cust and not inv_meta:
+                if isinstance(inv_match, dict):
+                    cust, inv_meta, desc, inv_res_snap, cust_res_snap = (
+                        self._row_ident_fields_from_inv(inv_match)
+                    )
+                else:
                     cust, inv_meta = self._invoice_fields_for_payment(invoices, p)
                     desc = format_remittance_text(
                         cust if cust else None,

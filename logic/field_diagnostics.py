@@ -15,6 +15,11 @@ from parser.field_adapters import (
     normalize_amount_result_dict,
 )
 from parser.field_model import FieldCandidate, FieldId
+from parser.supplier_db import (
+    CUSTOMER_ABSENT_STATE,
+    customer_number_authoritative_value,
+    customer_number_is_absent_or_none,
+)
 
 _CONTEXT_PREVIEW_MAX = 80
 
@@ -375,10 +380,10 @@ def build_ident_field_diag_block(
     *,
     payment_fallback: str | None = None,
 ) -> dict[str, Any]:
-    """Diagnostics-weergave: ``snap[field]`` (profiel/tabel) gaat vóór verouderde ``*_result``."""
-    legacy = str(snap.get(field) or "").strip() or None
-    if not legacy and payment_fallback:
-        legacy = str(payment_fallback).strip() or None
+    """Diagnostics-weergave; voor ``customer_number`` is ``*_result`` authoritative."""
+    scalar_legacy = str(snap.get(field) or "").strip() or None
+    if not scalar_legacy and payment_fallback:
+        scalar_legacy = str(payment_fallback).strip() or None
     extraction_source = str(snap.get("extraction_source") or "").strip().lower()
     profile_fields = snap.get("profile_fields")
     from_profile = extraction_source == "profile" or (
@@ -386,6 +391,45 @@ def build_ident_field_diag_block(
     )
 
     fr_raw = snap.get(f"{field}_result")
+    if field == "customer_number":
+        probe: dict[str, Any] = dict(snap)
+        if isinstance(fr_raw, dict):
+            probe["customer_number_result"] = fr_raw
+        if customer_number_is_absent_or_none(probe):
+            user_absent = (
+                isinstance(fr_raw, dict)
+                and str(fr_raw.get("absence_state") or "").strip() == CUSTOMER_ABSENT_STATE
+                and bool(fr_raw.get("user_selected"))
+            )
+            return {
+                "value": None,
+                "value_display": "Geen klantnummer",
+                "status": "confirmed" if user_absent else "not_applicable",
+                "needs_attention": False,
+                "status_nl": (
+                    "Geen klantnummer (handmatig gekozen)"
+                    if user_absent
+                    else "Geen klantnummer (leveranciersprofiel)"
+                ),
+                "candidates": [],
+                "resolved_source": str(
+                    (fr_raw or {}).get("source") or "NOT_PRESENT_SUPPLIER_LEVEL"
+                ),
+                **_hybrid_override_meta(fr_raw if isinstance(fr_raw, dict) else None),
+            }
+        if not isinstance(fr_raw, dict):
+            auth = customer_number_authoritative_value(probe, scalar_fallback=scalar_legacy)
+            return {
+                "value": auth,
+                "needs_attention": not auth,
+                "status_nl": "Via extractieprofiel" if auth and from_profile else (
+                    "Aanwezig" if auth else "Ontbreekt"
+                ),
+                "candidates": [],
+                "resolved_source": "profile" if from_profile else None,
+            }
+
+    legacy = scalar_legacy
     if not isinstance(fr_raw, dict):
         return {
             "value": legacy,
@@ -402,30 +446,23 @@ def build_ident_field_diag_block(
     )
     fr = field_result_from_ident(fr_raw, field_id=field_id)
     st = fr.status
-    absence_state = str(fr_raw.get("absence_state") or "").strip()
     cands_out: list[dict[str, Any]] = [
         map_field_candidate_for_diag(c, field_id=field_id) for c in fr.candidates
     ]
 
+    if field == "customer_number":
+        val = customer_number_authoritative_value(
+            {**snap, "customer_number_result": fr_raw},
+            scalar_fallback=legacy,
+        )
+    else:
+        val = legacy or (str(fr.selected_value).strip() if fr.selected_value else None) or None
     if (
-        field == "customer_number"
-        and absence_state == "NOT_PRESENT_SUPPLIER_LEVEL"
-        and fr_raw.get("user_selected")
-        and not str(fr_raw.get("value") or legacy or "").strip()
+        field != "customer_number"
+        and val
+        and legacy
+        and str(fr_raw.get("value") or "").strip() not in ("", val)
     ):
-        return {
-            "value": None,
-            "value_display": "Geen klantnummer",
-            "status": "confirmed",
-            "needs_attention": False,
-            "status_nl": "Geen klantnummer (handmatig gekozen)",
-            "candidates": cands_out,
-            "resolved_source": str(fr_raw.get("source") or "USER_ABSENT_CUSTOMER"),
-            **_hybrid_override_meta(fr_raw),
-        }
-
-    val = legacy or (str(fr.selected_value).strip() if fr.selected_value else None) or None
-    if val and legacy and str(fr_raw.get("value") or "").strip() not in ("", val):
         st = "confirmed"
 
     if val:

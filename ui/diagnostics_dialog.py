@@ -29,6 +29,39 @@ from ui.field_review import (
 )
 from ui.field_rendering import checkmark_prefix, confidence_color
 
+# #region agent log (debug mode - session 3d66a1)
+_DEBUG_LOG_3D66A1 = "/Users/eh/Documents/Cursor/PDF2SEPA/.cursor/debug-3d66a1.log"
+
+
+def _dbg_log_3d66a1(
+    *,
+    hypothesis_id: str,
+    location: str,
+    message: str,
+    data: dict | None = None,
+    run_id: str = "pre-fix",
+) -> None:
+    try:
+        import json
+        import time
+
+        payload = {
+            "sessionId": "3d66a1",
+            "hypothesisId": hypothesis_id,
+            "location": location,
+            "message": message,
+            "data": data or {},
+            "timestamp": int(time.time() * 1000),
+            "runId": run_id,
+        }
+        with open(_DEBUG_LOG_3D66A1, "a", encoding="utf-8") as f:
+            f.write(json.dumps(payload, ensure_ascii=False) + "\n")
+    except Exception:
+        return
+
+
+# #endregion
+
 _DIAG_FIELD_BLOCKS: dict[str, str] = {
     "amount": "amount",
     "vat_number": "vat_number",
@@ -227,7 +260,10 @@ class DiagnosticsDialog(QDialog):
                     needs_attention=bool(customer_number.get("needs_attention")),
                     is_error=False,
                 ),
-                lines=self._simple_value_lines(customer_number),
+                lines=self._customer_number_section_lines(
+                    customer_number,
+                    local_selected=self._selected_values.get("customer_number"),
+                ),
                 extra=self._field_candidates_extra(customer_number, kind="ident", field_id="customer_number"),
             )
         )
@@ -383,7 +419,23 @@ class DiagnosticsDialog(QDialog):
     def _on_confirm_selection_clicked(self) -> None:
         if self._on_confirm_selection is None:
             return
-        updated = self._on_confirm_selection(self.selected_by_field())
+        selected = self.selected_by_field()
+        # #region agent log (debug mode)
+        raw_cust = selected.get("customer_number")
+        _dbg_log_3d66a1(
+            hypothesis_id="H4",
+            location="ui/diagnostics_dialog.py:_on_confirm_selection_clicked",
+            message="confirm selection",
+            data={
+                "customer_type": type(raw_cust).__name__,
+                "customer_absent": is_customer_absent_pick(
+                    raw_cust if isinstance(raw_cust, dict) else None
+                ),
+            },
+            run_id="preview-only",
+        )
+        # #endregion
+        updated = self._on_confirm_selection(selected)
         if isinstance(updated, dict):
             self._schedule_set_diag(updated)
 
@@ -646,6 +698,18 @@ class DiagnosticsDialog(QDialog):
         lines.extend(DiagnosticsDialog._override_trace_lines(section))
         return lines
 
+    @staticmethod
+    def _customer_number_section_lines(
+        section: dict,
+        *,
+        local_selected: Any = None,
+    ) -> list[str]:
+        if is_customer_absent_pick(local_selected if isinstance(local_selected, dict) else None):
+            lines = ["Geen klantnummer (handmatig gekozen)", "Waarde: Geen klantnummer"]
+            lines.extend(DiagnosticsDialog._override_trace_lines(section))
+            return lines
+        return DiagnosticsDialog._simple_value_lines(section)
+
     def _iban_extra(self, iban: dict) -> QWidget | None:
         cands = iban.get("candidates")
         if not isinstance(cands, list) or not cands:
@@ -733,6 +797,9 @@ class DiagnosticsDialog(QDialog):
         rej_by_key, win_by_key = self._trace_maps(field)
 
         selected_val = self._selected_values.get(field_id)
+        absent_selected = field_id == "customer_number" and is_customer_absent_pick(
+            selected_val if isinstance(selected_val, dict) else None
+        )
         selected_cand: dict[str, Any] | None = None
         for c in cands:
             if not isinstance(c, dict):
@@ -742,10 +809,19 @@ class DiagnosticsDialog(QDialog):
             except (TypeError, ValueError):
                 conf = 0
             raw_val = str(c.get("value") or "").strip()
-            is_resolved = bool(c.get("is_resolved")) or (
-                resolved and raw_val == resolved
+            is_resolved = (
+                not absent_selected
+                and (
+                    bool(c.get("is_resolved"))
+                    or (resolved and raw_val == resolved)
+                )
             )
-            is_selected = selected_val is not None and raw_val == str(selected_val).strip()
+            is_selected = (
+                not absent_selected
+                and selected_val is not None
+                and not isinstance(selected_val, dict)
+                and raw_val == str(selected_val).strip()
+            )
             if is_selected:
                 selected_cand = c
             src_key = str(c.get("source") or "").strip()
@@ -819,12 +895,15 @@ class DiagnosticsDialog(QDialog):
                 lw, field, kind=kind, field_id=field_id
             )
             lay.addWidget(lw)
-            if field_id == "customer_number":
-                absent_btn = QPushButton(CUSTOMER_ABSENT_MENU_LABEL_NL)
-                absent_btn.clicked.connect(
-                    lambda fid=field_id: self._on_customer_absent_clicked(fid)
-                )
-                lay.addWidget(absent_btn)
+
+        if field_id == "customer_number":
+            absent_btn = QPushButton(CUSTOMER_ABSENT_MENU_LABEL_NL)
+            absent_btn.clicked.connect(
+                lambda _checked=False, fid=field_id: self._on_customer_absent_clicked(fid)
+            )
+            lay.addWidget(absent_btn)
+            if is_customer_absent_pick(self._selected_values.get("customer_number")):
+                lay.addWidget(QLabel("<b>Gekozen: Geen klantnummer</b>"))
 
         why_chosen = self._why_chosen_lines(field, field_id=field_id)
         if why_chosen:
@@ -846,6 +925,18 @@ class DiagnosticsDialog(QDialog):
     def _on_customer_absent_clicked(self, field_id: str) -> None:
         cand = make_customer_absent_pick_candidate()
         self._selected_values[field_id] = cand
+        # #region agent log (debug mode)
+        _dbg_log_3d66a1(
+            hypothesis_id="H1",
+            location="ui/diagnostics_dialog.py:_on_customer_absent_clicked",
+            message="absent button preview only",
+            data={
+                "field_id": field_id,
+                "cand_absent": bool(cand.get("absent")),
+            },
+            run_id="preview-only",
+        )
+        # #endregion
         self._schedule_set_diag(self._diag)
 
     def _on_candidate_item_clicked(self, field_id: str, item: QListWidgetItem) -> None:
@@ -855,6 +946,5 @@ class DiagnosticsDialog(QDialog):
         if field_id == "customer_number" and is_customer_absent_pick(cand):
             self._on_customer_absent_clicked(field_id)
             return
-        # Local-only preview selection; commit happens via confirm button.
         self._selected_values[field_id] = cand.get("value")
         self._schedule_set_diag(self._diag)

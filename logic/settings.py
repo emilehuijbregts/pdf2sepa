@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from logic.validation import clean_iban, is_plausible_iban
+from parser.field_candidates import normalize_internal_vat_numbers_for_storage
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +31,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "kvk": "",
         "vat": "",
     },
+    "internal_vat_numbers": [],
     "export_dir": "exports",
     "last_invoice_dir": "",
 }
@@ -64,10 +66,34 @@ def merge_debtor_with_defaults(debtor: Any) -> dict[str, str]:
     return merged
 
 
+def coerce_internal_vat_numbers(data: dict[str, Any]) -> list[str]:
+    """Lees canonieke VAT-lijst uit settings (``internal_vat_numbers`` of legacy ``internal_vat_number``)."""
+    if not isinstance(data, dict):
+        return []
+    if "internal_vat_numbers" in data:
+        return normalize_internal_vat_numbers_for_storage(data.get("internal_vat_numbers"))
+    legacy = data.get("internal_vat_number")
+    if legacy is not None and str(legacy).strip():
+        return normalize_internal_vat_numbers_for_storage(legacy)
+    return []
+
+
+def format_internal_vat_numbers_for_display(numbers: list[str] | None) -> str:
+    return ", ".join(numbers or [])
+
+
+def sync_debtor_vat_output(debtor: dict[str, str], internal_vat_numbers: list[str]) -> None:
+    """Schrijf ``debtor.vat`` als write-only sync van het eerste interne nummer."""
+    debtor["vat"] = internal_vat_numbers[0] if internal_vat_numbers else ""
+
+
 def normalize_settings(data: dict[str, Any]) -> dict[str, Any]:
     """Pas debtor-merge en minimum-defaults toe op een geladen settings-dict."""
     out: dict[str, Any] = dict(data)
     out["debtor"] = merge_debtor_with_defaults(out.get("debtor"))
+    numbers = coerce_internal_vat_numbers(out)
+    out["internal_vat_numbers"] = numbers
+    sync_debtor_vat_output(out["debtor"], numbers)
     exp = out.get("export_dir")
     if not isinstance(exp, str) or not str(exp).strip():
         out["export_dir"] = str(DEFAULT_SETTINGS["export_dir"])

@@ -25,6 +25,9 @@ _BATCH6_CASES: list[tuple[str, str, str, str]] = [
         "SIN/10567557",
         "101900683",
     ),
+    ("Venttrade Factuur_1100_220_10020159.pdf", "1100/220/10020159", ""),
+    ("Van den Borne Factuur_4126VF01369.PDF", "4126VF01369", ""),
+    ("Tegeka Factuur93557.pdf", "93557", "10476"),
 ]
 
 
@@ -47,6 +50,7 @@ def test_batch6_expected_values_are_candidates(
     inv_vals = {c.value for c in _real_candidates(inv)}
     cust_vals = {c.value for c in _real_candidates(cust)}
     assert len(inv_vals) >= 1, f"No invoice candidates for {filename}"
-    assert len(cust_vals) >= 1, f"No customer candidates for {filename}"
     assert invoice_number in inv_vals, f"{invoice_number} not in {inv_vals}"
-    assert customer_number in cust_vals, f"{customer_number} not in {cust_vals}"
+    if customer_number:
+        assert len(cust_vals) >= 1, f"No customer candidates for {filename}"
+        assert customer_number in cust_vals, f"{customer_number} not in {cust_vals}"

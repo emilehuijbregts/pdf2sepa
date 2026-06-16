@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from parser.field_candidates import (
     IdentFieldCandidate,
     build_ident_field_result,
@@ -11,6 +13,9 @@ from parser.field_candidates import (
     extract_invoice_number_result,
     extract_kvk_number_result,
     extract_vat_number_result,
+    normalize_internal_vat_blacklist,
+    normalize_internal_vat_numbers_for_storage,
+    parse_internal_vat_numbers,
 )
 from parser.pdf_parser import extract_invoice_data, extract_text_strict
 
@@ -154,12 +159,23 @@ class TestCustomerNumberCandidates:
         assert r.source == "NOT_FOUND"
 
     def test_supplier_level_absent_state(self):
+        text = "Klantnummer: 99999\nFactuur 12345\nTotaal EUR 10,00"
         r = extract_customer_number_result(
-            "Factuur 12345\nTotaal EUR 10,00",
+            text,
             supplier_customer_absent=True,
         )
+        assert r.value is None
+        assert r.candidates == []
+        assert r.status == "not_applicable"
         assert r.absence_state == "NOT_PRESENT_SUPPLIER_LEVEL"
         assert r.source == "NOT_PRESENT_SUPPLIER_LEVEL"
+
+    def test_customer_number_mode_none_skips_extraction(self):
+        text = "Klantnummer: 99999\nFactuur 12345\n"
+        r = extract_customer_number_result(text, customer_number_mode="NONE")
+        assert r.value is None
+        assert r.candidates == []
+        assert r.status == "not_applicable"
 
 
 class TestPolyglassInvoiceCandidates:
@@ -266,6 +282,70 @@ class TestBatch6LayoutSnippets:
         assert "R1126096" in {c.value for c in inv.candidates}
         assert "58181" in {c.value for c in cust.candidates}
 
+    def test_venttrade_multi_slash_invoice(self):
+        text = (
+            "Uw BTW-nummer NL001740777B35\n"
+            "Project / Referentie Ordernummer Verzenddatum Factuurdatum Vervaldatum Factuurnummer\n"
+            "20260052 100004805 14-01-2026 14-01-2026 13-02-2026 1100/220/10020159\n"
+        )
+        inv = extract_invoice_number_result(text)
+        vals = {c.value for c in inv.candidates}
+        assert "1100/220/10020159" in vals
+        assert "NL001740777B35" not in vals
+
+    def test_option_tape_invoice_number_not_vat(self):
+        pdf = (
+            Path(__file__).resolve().parent
+            / "golden_dataset/pdfs/Option tape Verkoopfactuur VF2602902.pdf"
+        )
+        if not pdf.is_file():
+            import pytest
+
+            pytest.skip(f"Missing fixture PDF: {pdf}")
+        text = extract_text_strict(str(pdf))
+        inv = extract_invoice_number_result(text)
+        vals = {c.value for c in inv.candidates if c.source != "fallback_missing"}
+        assert inv.value == "VF2602902"
+        assert "VF2602902" in vals
+        assert "NL001740777B35" not in vals
+
+    def test_resolved_vat_rejected_from_invoice_pool(self):
+        text = "Factuur\nVF2602902\nUw BTW-nummer NL001740777B35\n"
+        inv = extract_invoice_number_result(
+            text,
+            resolved="NL001740777B35",
+            resolved_source="label",
+        )
+        vals = {c.value for c in inv.candidates if c.source != "fallback_missing"}
+        assert inv.value == "VF2602902"
+        assert "NL001740777B35" not in vals
+
+    def test_vte_credit_note_vcr_candidate(self):
+        text = "Creditnota VCR2600003+\nFact.nr. VF2600115+ - Verz.nr.\n"
+        inv = extract_invoice_number_result(text)
+        vals = {c.value for c in inv.candidates if c.source != "fallback_missing"}
+        assert "VCR2600003" in vals
+        assert "VF2600115" not in vals
+
+    def test_van_den_borne_colon_invoice_id(self):
+        text = "Factuurnummer :4126VF01369\n"
+        inv = extract_invoice_number_result(text)
+        assert "4126VF01369" in {c.value for c in inv.candidates}
+
+    def test_bic_not_invoice_candidate(self):
+        from parser.field_candidates import _invoice_candidate_ok
+
+        assert not _invoice_candidate_ok("RABONL2U")
+        assert not _invoice_candidate_ok("NL27")
+
+    def test_tegeka_factuur_debiteur_table_row(self):
+        text = (
+            "Factuur Debiteur Factuur\n"
+            "Bestelbonnr. 20260458 18-03-2026 10476 93557\n"
+        )
+        inv = extract_invoice_number_result(text)
+        assert "93557" in {c.value for c in inv.candidates}
+
 
 class TestPolisInvoiceCandidates:
     def test_polisnummer_spaced_digits(self):
@@ -335,7 +415,7 @@ class TestVatKvkEmailExtraction:
     def test_debtor_kvk_vat_excluded_from_candidates(self):
         text = "KvK 62254448\nLeverancier KvK 24489568\nBTW NL822167037B01"
         kv = extract_kvk_number_result(text, debtor_kvk="62254448")
-        va = extract_vat_number_result(text, debtor_vat="NL148005664B01")
+        va = extract_vat_number_result(text)
         assert kv.value == "24489568"
         assert va.value == "NL822167037B01"
         assert not any(c.value == "62254448" for c in kv.candidates)
@@ -345,6 +425,67 @@ class TestVatKvkEmailExtraction:
         r = extract_kvk_number_result(text)
         real = [c for c in r.candidates if c.source != "fallback_missing"]
         assert len(real) == 0
+
+
+class TestRound4Hardening:
+    def test_parse_internal_vat_numbers_comma_semicolon(self):
+        assert parse_internal_vat_numbers("NL111111111B01, NL222222222B02; NL333333333B03") == [
+            "NL111111111B01",
+            "NL222222222B02",
+            "NL333333333B03",
+        ]
+
+    def test_normalize_internal_vat_numbers_for_storage(self):
+        raw = "NL 148005664 B01, NL813771213B01"
+        assert normalize_internal_vat_numbers_for_storage(raw) == [
+            "NL148005664B01",
+            "NL813771213B01",
+        ]
+
+    def test_internal_vat_blacklist_normalizes_list(self):
+        bl = normalize_internal_vat_blacklist(["NL 148005664 B01", ""])
+        assert bl == frozenset({"NL148005664B01"})
+
+    def test_internal_vat_blacklist_drops_from_invoice_and_vat(self):
+        blacklist = frozenset({"NL148005664B01"})
+        text = "Factuurnummer: NL148005664B01\nBTW NL822167037B01"
+        inv = extract_invoice_number_result(text, internal_vat_blacklist=blacklist)
+        assert not any(c.value == "NL148005664B01" for c in inv.candidates)
+        vat = extract_vat_number_result(text, internal_vat_blacklist=blacklist)
+        assert vat.value == "NL822167037B01"
+
+    def test_vat_on_iban_line_rejected(self):
+        text = "IBAN: NL91 ABNA 0417 1643 00 | fragment AB410COPERBASE"
+        r = extract_vat_number_result(text)
+        assert r.value is None
+
+    def test_wavin_footer_vat_dropped_when_header_labeled(self):
+        text = (
+            "Wavin Nederland B.V.\n"
+            "BTW nr. NL813771213B01\n"
+            + "\n".join(["regel"] * 18)
+            + "\nBTW: NL148005664B01\n"
+        )
+        r = extract_vat_number_result(
+            text,
+            internal_vat_blacklist=frozenset({"NL148005664B01"}),
+        )
+        assert r.value == "NL813771213B01"
+
+    def test_qblades_style_no_customer_without_label(self):
+        text = (
+            "QBlades\n"
+            "INV/2026/00364\n"
+            "KvK 75187760\n"
+            "BTW NL860176113B01\n"
+        )
+        r = extract_customer_number_result(text)
+        assert r.value is None
+
+    def test_unlabeled_date_not_customer_number(self):
+        text = "Referentie 2026-01-23\nTotaal 100,00"
+        r = extract_customer_number_result(text)
+        assert r.value is None
 
 
 class TestIdentExplainability:

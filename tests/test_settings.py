@@ -9,6 +9,7 @@ import pytest
 
 from logic.settings import (
     DEFAULT_SETTINGS,
+    coerce_internal_vat_numbers,
     load_settings,
     save_settings,
     merge_debtor_with_defaults,
@@ -105,3 +106,56 @@ class TestResolveSettingsPath:
         abs_path = "/tmp/my_exports"
         p = resolve_settings_path(abs_path, base_dir=tmp_path)
         assert str(p) == abs_path
+
+
+class TestInternalVatNumbers:
+    def test_coerce_reads_internal_vat_numbers_list(self):
+        data = {"internal_vat_numbers": ["NL148005664B01", "NL813771213B01"]}
+        assert coerce_internal_vat_numbers(data) == [
+            "NL148005664B01",
+            "NL813771213B01",
+        ]
+
+    def test_coerce_ignores_debtor_vat(self):
+        data = {
+            "debtor": {"vat": "NL148005664B01"},
+            "internal_vat_numbers": ["NL813771213B01"],
+        }
+        assert coerce_internal_vat_numbers(data) == ["NL813771213B01"]
+
+    def test_normalize_syncs_debtor_vat_output(self):
+        data = {
+            "debtor": {"name": "X", "iban": "", "bic": "", "kvk": "", "vat": "OLD"},
+            "internal_vat_numbers": ["NL148005664B01", "NL813771213B01"],
+        }
+        out = normalize_settings(data)
+        assert out["internal_vat_numbers"] == [
+            "NL148005664B01",
+            "NL813771213B01",
+        ]
+        assert out["debtor"]["vat"] == "NL148005664B01"
+
+    def test_multi_vat_roundtrip_save_reload(self, tmp_path):
+        p = tmp_path / "settings.json"
+        data = {
+            "debtor": {
+                "name": "Test",
+                "iban": "",
+                "bic": "",
+                "kvk": "",
+                "vat": "",
+            },
+            "internal_vat_numbers": [
+                "NL148005664B01",
+                "NL813771213B01",
+            ],
+            "export_dir": "exports",
+            "last_invoice_dir": "",
+        }
+        assert save_settings(data, str(p))
+        loaded = load_settings(str(p))
+        assert loaded["internal_vat_numbers"] == [
+            "NL148005664B01",
+            "NL813771213B01",
+        ]
+        assert loaded["debtor"]["vat"] == "NL148005664B01"

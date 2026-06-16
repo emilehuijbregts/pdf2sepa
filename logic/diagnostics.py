@@ -17,6 +17,12 @@ from logic.profile_learning import can_offer_profile_learning
 from logic.validation import clean_iban, mask_iban_for_log
 from parser.field_adapters import normalize_amount_result_dict
 from parser.field_model import FieldId, _LEGACY_VALUE_KEY_BY_FIELD, _RESULT_KEY_BY_FIELD
+from parser.supplier_db import (
+    CUSTOMER_NUMBER_MODE_NONE,
+    customer_number_authoritative_value,
+    customer_number_is_absent_or_none,
+    infer_customer_number_mode_from_result,
+)
 
 # --- NL label maps (single source for diagnostics popup; UI may import these) ---
 
@@ -353,9 +359,21 @@ def overlay_field_result(
     out[result_key] = copy.deepcopy(field_result)
     legacy_key = _LEGACY_VALUE_KEY_BY_FIELD.get(field_id)
     if legacy_key and field_id in ("invoice_number", "customer_number", "iban"):
-        val = str(field_result.get("value") or "").strip()
-        if val:
-            out[legacy_key] = clean_iban(val) if field_id == "iban" else val
+        if field_id == "customer_number":
+            if infer_customer_number_mode_from_result(field_result) == CUSTOMER_NUMBER_MODE_NONE:
+                out.pop(legacy_key, None)
+            else:
+                val = str(field_result.get("selected_value") or field_result.get("value") or "").strip()
+                if val:
+                    out[legacy_key] = val
+                else:
+                    out.pop(legacy_key, None)
+        else:
+            val = str(field_result.get("value") or "").strip()
+            if val:
+                out[legacy_key] = clean_iban(val) if field_id == "iban" else val
+            elif field_id == "invoice_number":
+                out.pop(legacy_key, None)
     return out
 
 
@@ -447,9 +465,9 @@ def build_diagnostics(
         inv_no = str(pay.get("invoice_number") or "").strip()
     inv_no_val = inv_no or None
 
-    cust_no = str(snap.get("customer_number") or "").strip()
-    cust_empty = not cust_no
-    cust_val = cust_no or None
+    cust_auth = customer_number_authoritative_value(snap)
+    cust_empty = customer_number_is_absent_or_none(snap) or not cust_auth
+    cust_val = None if customer_number_is_absent_or_none(snap) else (cust_auth or None)
 
     iban_fallback = str(pay.get("iban") or "").strip() if pay else None
     iban_block = build_iban_diag_block(

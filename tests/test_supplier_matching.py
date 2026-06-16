@@ -11,7 +11,7 @@ from unittest.mock import patch
 import pytest
 
 from parser.profile_learner import learn_profile_from_confirmation
-from parser.supplier_db import SupplierDB
+from parser.supplier_db import CUSTOMER_NUMBER_MODE_NONE, SupplierDB
 from parser.supplier_matcher import match_suppliers
 from tests.test_profile_extractor import (
     CONFIRMED_2BA,
@@ -131,25 +131,48 @@ class TestAliasMatch:
 
 
 class TestCustomerCodeMatch:
-    def test_code_only_needs_review(self, db_with_suppliers):
-        """Customer code only → needs_review."""
+    def test_code_only_confirmed_with_db_iban_anchor(self, db_with_suppliers):
+        """Customer code + supplier DB IBAN (no PDF IBAN) → confirmed."""
         inv = {"supplier_hint": None, "iban": None, "customer_number": "1012146"}
         result = match_suppliers([inv], db_with_suppliers)[0]
         assert result["supplier_name"] == "Wavin Nederland B.V."
+        assert result["match_status"] == "confirmed"
+        assert result["db_core_matches"] == ["IBAN", "Klantnummer"]
+        assert result["match_info"].get("db_iban_anchor") is True
+
+    def test_code_only_needs_review_without_db_iban(self, tmp_path):
+        """Customer code only without supplier IBAN → needs_review."""
+        data = {
+            "suppliers": [
+                {
+                    "name": "No IBAN Supplier",
+                    "iban": "",
+                    "discount": 0.0,
+                    "aliases": [],
+                    "customer_codes": ["9999"],
+                },
+            ]
+        }
+        p = tmp_path / "suppliers.json"
+        p.write_text(json.dumps(data), encoding="utf-8")
+        db = SupplierDB(path=str(p))
+        inv = {"supplier_hint": None, "iban": None, "customer_number": "9999"}
+        result = match_suppliers([inv], db)[0]
         assert result["match_status"] == "needs_review"
+        assert result["db_core_matches"] == ["Klantnummer"]
 
     def test_code_match_fills_iban(self, db_with_suppliers):
         inv = {"supplier_hint": None, "iban": None, "customer_number": "1012146"}
         result = match_suppliers([inv], db_with_suppliers)[0]
         assert result["iban"] == "NL25CITI0266075452"
 
-    def test_code_plus_alias_needs_review(self, db_with_suppliers):
-        """Klantnummer + alias: alleen één kernkenmerk → needs_review."""
+    def test_code_plus_alias_confirmed_with_db_iban_anchor(self, db_with_suppliers):
+        """Klantnummer + alias + supplier DB IBAN → confirmed (IBAN + klantnummer)."""
         inv = {"supplier_hint": "Wavin NL", "iban": None, "customer_number": "1012146"}
         result = match_suppliers([inv], db_with_suppliers)[0]
         assert result["supplier_name"] == "Wavin Nederland B.V."
-        assert result["match_status"] == "needs_review"
-        assert result["db_core_matches"] == ["Klantnummer"]
+        assert result["match_status"] == "confirmed"
+        assert result["db_core_matches"] == ["IBAN", "Klantnummer"]
 
 
 class TestPolarisCoreMatches:
@@ -530,6 +553,55 @@ class TestExtractionProfile:
         )
         assert ok is True
         assert db_with_suppliers.get_extraction_profile("Technische Unie B.V.") is not None
+
+    def test_save_customer_number_mode_none_from_result(self, db_with_suppliers):
+        absent_result = {
+            "value": None,
+            "absence_state": "NOT_PRESENT_SUPPLIER_LEVEL",
+            "source": "USER_ABSENT_CUSTOMER",
+            "status": "confirmed",
+            "user_selected": True,
+        }
+        ok = db_with_suppliers.save_extraction_profile(
+            "SALO B.V.",
+            {},
+            raw_text=TEXT_LAST_AMOUNT,
+            customer_number_result=absent_result,
+        )
+        assert ok is True
+        ep = db_with_suppliers.get_extraction_profile("SALO B.V.")
+        assert ep is not None
+        assert ep.get("customer_number_mode") == CUSTOMER_NUMBER_MODE_NONE
+        assert "customer_number" not in ep
+        assert db_with_suppliers.get_customer_number_mode("SALO B.V.") == CUSTOMER_NUMBER_MODE_NONE
+
+    def test_match_suppliers_respects_customer_number_mode_none(self, db_with_suppliers):
+        db_with_suppliers.set_customer_number_mode("SALO B.V.", CUSTOMER_NUMBER_MODE_NONE)
+        inv = {
+            "supplier_hint": "SALO B.V.",
+            "iban": "NL64ABNA0589033654",
+            "customer_number": "3503",
+            "raw_text": TEXT_LAST_AMOUNT,
+            "amount": 1551.22,
+            "amount_result": {
+                "status": "confirmed",
+                "source": "TEST",
+                "value": "1551.22",
+                "candidates": [{"value": "1551.22"}],
+            },
+            "customer_number_result": {
+                "value": "3503",
+                "status": "confirmed",
+                "source": "label",
+                "candidates": [{"value": "3503", "source": "label", "confidence": 90}],
+            },
+        }
+        result = match_suppliers([inv], db_with_suppliers)[0]
+        assert result.get("customer_number") is None
+        cr = result.get("customer_number_result") or {}
+        assert cr.get("value") is None
+        assert cr.get("status") == "not_applicable"
+        assert cr.get("absence_state") == "NOT_PRESENT_SUPPLIER_LEVEL"
 
 
 class TestProfilePipeline:

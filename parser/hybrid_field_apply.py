@@ -15,7 +15,7 @@ from parser.field_resolver import (
     resolve_field,
 )
 from parser.profile_extractor import extract_with_profile, validate_profile
-from parser.supplier_db import SupplierDB
+from parser.supplier_db import SupplierDB, customer_number_mode_from_profile, CUSTOMER_NUMBER_MODE_NONE
 
 _HYBRID_FIELD_IDS: tuple[FieldId, ...] = (
     "amount",
@@ -169,6 +169,20 @@ def apply_hybrid_field_extraction(
     amount_tentative = str(amount_status or "").strip().lower() == "tentative"
 
     for field_id in _HYBRID_FIELD_IDS:
+        if (
+            field_id == "customer_number"
+            and profile
+            and customer_number_mode_from_profile(profile) == CUSTOMER_NUMBER_MODE_NONE
+        ):
+            from parser.pdf_parser import build_absent_customer_number_snapshot
+
+            apply_resolved_field_result(
+                invoice_copy,
+                field_id,
+                build_absent_customer_number_snapshot(),
+            )
+            continue
+
         generic_dict = _generic_result_dict(invoice, invoice_copy, field_id)
         generic_fr = field_result_from_legacy_dict(generic_dict, field_id=field_id)
 

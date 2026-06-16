@@ -4,29 +4,34 @@
     "iban": "NL31INGB0663727200",
     "bic": "INGBNL2A",
     "kvk": "62254448",
-    "vat": "NL148005664B01"
+    "vat": "NL001740777B35"
   },
   "export_dir": "/Users/eh/Documents/Cursor/PDF2SEPA/exports",
-  "last_invoice_dir": "/Volumes/KINGSTON/Facturen om te testen/Batch 6",
-  "window_width": 1512,
-  "window_height": 949,
-  "window_x": 0,
-  "window_y": 33,
+  "last_invoice_dir": "tests/Batch 6/Qblades test",
+  "window_width": 1140,
+  "window_height": 560,
+  "window_x": 69,
+  "window_y": 327,
   "column_widths": {
-    "0": 320,
-    "1": 183,
-    "2": 69,
-    "3": 94,
-    "4": 177,
-    "5": 368,
+    "0": 110,
+    "1": 151,
+    "2": 53,
+    "3": 65,
+    "4": 166,
+    "5": 196,
     "6": 50,
     "7": 87,
     "8": 85,
-    "9": 252,
-    "10": 648,
-    "11": 220,
+    "9": 84,
+    "10": 226,
+    "11": 112,
     "12": 100,
-    "13": 475,
+    "13": 134,
     "14": 30
-  }
+  },
+  "internal_vat_numbers": [
+    "NL001740777B35",
+    "NL813771213B01",
+    "NL148005664B01"
+  ]
 }

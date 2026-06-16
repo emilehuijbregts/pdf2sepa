@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from parser.pdf_parser import (
     extract_invoice_data,
+    load_internal_vat_blacklist,
     normalize_amount,
     extract_amount_excl_vat,
     format_remittance_text,
@@ -13,9 +16,86 @@ from parser.pdf_parser import (
 )
 
 
+def _patch_internal_vat_settings(tmp_path, monkeypatch, numbers: list[str]) -> None:
+    settings_path = tmp_path / "settings.json"
+    settings_path.write_text(
+        json.dumps({"internal_vat_numbers": numbers}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("parser.pdf_parser._settings_json_path", lambda: settings_path)
+
+
 # ---------------------------------------------------------------------------
 # Regression: customer number label variants
 # ---------------------------------------------------------------------------
+
+class TestBatch6Round1Fixes:
+    def test_salo_soft_hyphen_invoice_date(self):
+        text = "Factuurdatum 8\u00ad1\u00ad2026\n"
+        d = extract_invoice_data(text)
+        assert d.get("invoice_date") == "2026-01-08"
+
+    def test_ubbink_table_total_amount(self):
+        text = (
+            "Goederen Kosten Korting Nettobedrag BTW 21% Totaal\n"
+            "1.093,10EUR 0,00EUR 511,79EUR 581,31EUR 122,08EUR 703,39EUR\n"
+        )
+        d = extract_invoice_data(text)
+        assert d.get("amount") == 703.39
+
+    def test_besli_btw_bedrag_table_column_not_incl_payable(self):
+        text = (
+            "Betalingsconditie: 30 dagen netto Totaal regels: 9 Totaal excl. Btw € 454,51\n"
+            "Totaal VWB : 0,00 Btw bedrag 21% € 95,45\n"
+            "KvK 09117206 - BTW nr: NL809336844B01 Totaal incl Btw € 549,96\n"
+        )
+        d = extract_invoice_data(text)
+        ar = d.get("amount_result") or {}
+        assert ar.get("value") == "549.96"
+        assert ar.get("status") == "confirmed"
+        incl_vals = {
+            str(c.get("value"))
+            for c in (ar.get("candidates") or [])
+            if str(c.get("type") or "") == "incl"
+        }
+        assert "95.45" not in incl_vals
+        assert "549.96" in incl_vals
+
+    def test_aluned_btw_percent_x_table_column_not_incl(self):
+        text = (
+            "Nettobedrag BTW Totaal\n"
+            "BTW 21% x € 1.595,63 : € 335,08\n"
+            "Totaal te betalen incl. BTW : € 1.930,71\n"
+        )
+        d = extract_invoice_data(text)
+        ar = d.get("amount_result") or {}
+        assert ar.get("value") == "1930.71"
+        assert ar.get("status") == "confirmed"
+        by_val = {str(c.get("value")): c.get("type") for c in (ar.get("candidates") or [])}
+        assert by_val.get("335.08") == "vat"
+        incl_vals = {
+            str(c.get("value"))
+            for c in (ar.get("candidates") or [])
+            if str(c.get("type") or "") == "incl"
+        }
+        assert "335.08" not in incl_vals
+        assert "1930.71" in incl_vals
+
+    def test_qblades_derived_excl_plus_vat(self):
+        text = "Excl. btw € 328,30\nBTW 21% € 68,94\n"
+        d = extract_invoice_data(text)
+        assert d.get("amount") == 397.24
+
+    def test_vt_te_voldoen_amount(self):
+        text = "Subtotaal 270,50\nBTW 21% 56,81\nTe voldoen € 327,31\n"
+        d = extract_invoice_data(text)
+        assert d.get("amount") == 327.31
+
+    def test_wasco_factuurbedrag_incl_btw(self):
+        text = "Factuurbedrag EUR(Incl. BTW) 65,51\n"
+        d = extract_invoice_data(text)
+        assert d.get("amount") == 65.51
+
 
 class TestCustomerNumberExtraction:
     def test_klantnummer_colon(self):
@@ -296,6 +376,56 @@ class TestIbanExtraction:
         d = extract_invoice_data("IBAN: NL25 CITI 0266 0754 52")
         assert d["iban"] == "NL25CITI0266075452"
 
+    def test_tegeka_shaped_cross_line_iban(self):
+        d = extract_invoice_data("IBAN:\nNL07 RABO 0375 2943 84\nTotaal 100,00")
+        assert d["iban"] == "NL07RABO0375294384"
+
+    def test_ocr_nlo7_zero_confusion_iban(self):
+        d = extract_invoice_data("Rabobank Zeist\nIBAN: NLO7RABO 0375 2943 84\nBIC/SWIFT: RABONL2U")
+        assert d["iban"] == "NL07RABO0375294384"
+
+    def test_bankrekening_label_iban_reconstruction(self):
+        d = extract_invoice_data("Bankrekening NL07 RABO 0375 2943 84\n")
+        assert d["iban"] == "NL07RABO0375294384"
+
+
+class TestRound4Batch6Integration:
+    def test_qblades_customer_number_null(self):
+        from pathlib import Path
+
+        from parser.pdf_parser import extract_text_strict
+
+        pdf = Path(__file__).resolve().parent / "Batch 6" / "Qblades INV_2026_00364.pdf"
+        if not pdf.is_file():
+            pytest.skip(f"Missing fixture PDF: {pdf}")
+        d = extract_invoice_data(extract_text_strict(str(pdf)))
+        assert d.get("customer_number") is None
+
+    def test_wavin_supplier_vat(self, tmp_path, monkeypatch):
+        from pathlib import Path
+
+        from parser.pdf_parser import extract_text_strict
+
+        pdf = Path(__file__).resolve().parent / "Batch 6" / "Wavin Factuur 7012239207.pdf"
+        if not pdf.is_file():
+            pytest.skip(f"Missing fixture PDF: {pdf}")
+        _patch_internal_vat_settings(tmp_path, monkeypatch, ["NL148005664B01"])
+        d = extract_invoice_data(extract_text_strict(str(pdf)))
+        assert d.get("vat_number") == "NL813771213B01"
+
+    def test_tegeka_iban_from_pdf(self):
+        from pathlib import Path
+
+        from logic.invoice_folder_loader import load_invoice_from_pdf_path
+
+        pdf = Path(__file__).resolve().parent / "Batch 6" / "Tegeka Factuur93557.pdf"
+        if not pdf.is_file():
+            pytest.skip(f"Missing fixture PDF: {pdf}")
+        data = load_invoice_from_pdf_path(pdf.resolve())
+        if not data.get("iban"):
+            pytest.skip("IBAN requires OCR dependencies for Tegeka PDF")
+        assert data["iban"] == "NL07RABO0375294384"
+
 
 class TestInvoiceDateExtraction:
     def test_prefers_recent_labeled_date_over_older_reference(self):
@@ -458,25 +588,29 @@ class TestSupplierHint:
 class TestDebtorKvkVatExclusion:
     """Eigen KvK/BTW (debiteur) mogen nooit als leveranciervelden landen."""
 
-    def test_picks_next_kvk_when_first_is_debtor(self):
+    def test_picks_next_kvk_when_first_is_debtor(self, tmp_path, monkeypatch):
         text = "KvK 62254448\nLeverancier KvK 24489568\nBTW NL822167037B01"
-        d = extract_invoice_data(
-            text,
-            debtor_kvk="62254448",
-            debtor_vat="NL148005664B01",
-        )
+        _patch_internal_vat_settings(tmp_path, monkeypatch, ["NL148005664B01"])
+        d = extract_invoice_data(text, debtor_kvk="62254448")
         assert d["kvk_number"] == "24489568"
         assert d["vat_number"] == "NL822167037B01"
 
-    def test_no_supplier_kvk_vat_when_only_debtor_numbers(self):
+    def test_no_supplier_kvk_vat_when_only_debtor_numbers(self, tmp_path, monkeypatch):
         text = "Factuur\nKvK 62254448 BTW NL148005664B01\nBedrag 100,00"
+        _patch_internal_vat_settings(tmp_path, monkeypatch, ["NL148005664B01"])
+        d = extract_invoice_data(text, debtor_kvk="62254448")
+        assert d["kvk_number"] is None
+        assert d["vat_number"] is None
+
+    def test_debtor_vat_param_ignored_for_exclusion(self, tmp_path, monkeypatch):
+        text = "Factuur\nKvK 62254448 BTW NL148005664B01\nBedrag 100,00"
+        _patch_internal_vat_settings(tmp_path, monkeypatch, [])
         d = extract_invoice_data(
             text,
             debtor_kvk="62254448",
             debtor_vat="NL148005664B01",
         )
-        assert d["kvk_number"] is None
-        assert d["vat_number"] is None
+        assert d["vat_number"] == "NL148005664B01"
 
     def test_polaris_footer_ocr_vat_dotted(self):
         footer = (
@@ -520,6 +654,38 @@ class TestDebtorKvkVatExclusion:
             for c in cands
             if c.get("value") == "footer-shop.nl"
         )
+
+
+class TestLoadInternalVatBlacklist:
+    def test_loads_from_internal_vat_numbers(self, tmp_path):
+        settings_path = tmp_path / "settings.json"
+        settings_path.write_text(
+            json.dumps(
+                {
+                    "internal_vat_numbers": [
+                        "NL148005664B01",
+                        "NL813771213B01",
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        bl = load_internal_vat_blacklist(settings_path)
+        assert bl == frozenset({"NL148005664B01", "NL813771213B01"})
+
+    def test_ignores_debtor_vat_field(self, tmp_path):
+        settings_path = tmp_path / "settings.json"
+        settings_path.write_text(
+            json.dumps(
+                {
+                    "debtor": {"vat": "NL148005664B01"},
+                    "internal_vat_numbers": [],
+                }
+            ),
+            encoding="utf-8",
+        )
+        bl = load_internal_vat_blacklist(settings_path)
+        assert bl == frozenset()
 
 
 # ---------------------------------------------------------------------------

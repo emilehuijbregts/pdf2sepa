@@ -169,6 +169,41 @@ def _has_strong_anchor(match_info: dict) -> bool:
         or match_info.get("customer_code_match")
     )
 
+
+def _invoice_has_pdf_iban(invoice: dict) -> bool:
+    iban = str(invoice.get("iban") or "").strip()
+    if iban:
+        return True
+    for raw in invoice.get("all_ibans") or []:
+        if str(raw or "").strip():
+            return True
+    return False
+
+
+def _apply_db_iban_anchor(
+    match_info: dict,
+    *,
+    invoice: dict,
+    supplier: dict,
+    db: SupplierDB,
+) -> None:
+    """Credit IBAN core match from supplier DB when PDF has no IBAN but identity matched."""
+    if match_info.get("iban_match") or _invoice_has_pdf_iban(invoice):
+        return
+    sup_iban = db._clean_iban(supplier.get("iban") or "")
+    if not sup_iban:
+        return
+    has_identity = bool(
+        match_info.get("customer_code_match")
+        or match_info.get("kvk_match")
+        or match_info.get("vat_match")
+        or match_info.get("alias_match")
+    )
+    if not has_identity:
+        return
+    match_info["iban_match"] = True
+    match_info["db_iban_anchor"] = True
+
 def _status_reason(match_info: dict, status: str) -> str:
     core = _db_core_matches(match_info)
     core_set = {c.casefold() for c in core}
@@ -333,6 +368,7 @@ def match_suppliers(invoices: list[dict], db: SupplierDB) -> list[dict]:
             invoice_copy["supplier_db_traits_not_on_invoice"] = _supplier_db_traits_not_on_invoice(
                 supplier, match_info
             )
+            _apply_db_iban_anchor(match_info, invoice=invoice, supplier=supplier, db=db)
             core_matches = _db_core_matches(match_info)
             invoice_copy["db_core_matches"] = core_matches
             invoice_copy["db_core_match_count"] = len(core_matches)

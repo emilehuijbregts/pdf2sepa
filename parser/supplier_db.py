@@ -26,6 +26,85 @@ from parser.profile_extractor import validate_profile
 
 logger = logging.getLogger(__name__)
 
+CUSTOMER_NUMBER_MODE_NONE = "NONE"
+CUSTOMER_ABSENT_STATE = "NOT_PRESENT_SUPPLIER_LEVEL"
+_CUSTOMER_ABSENT_PICK_SOURCES = frozenset(
+    {"USER_ABSENT_CUSTOMER", CUSTOMER_ABSENT_STATE}
+)
+
+
+def customer_number_mode_from_profile(profile: dict | None) -> str | None:
+    """Return ``NONE`` when the supplier profile disables customer-number extraction."""
+    if not isinstance(profile, dict):
+        return None
+    mode = str(profile.get("customer_number_mode") or "").strip().upper()
+    if mode == CUSTOMER_NUMBER_MODE_NONE:
+        return CUSTOMER_NUMBER_MODE_NONE
+    return None
+
+
+def infer_customer_number_mode_from_result(result: dict | None) -> str | None:
+    """Map a finalized customer_number_result snapshot to a profile mode."""
+    if not isinstance(result, dict):
+        return None
+    if str(result.get("absence_state") or "").strip() == CUSTOMER_ABSENT_STATE:
+        return CUSTOMER_NUMBER_MODE_NONE
+    src = str(result.get("source") or "").strip()
+    if src in _CUSTOMER_ABSENT_PICK_SOURCES:
+        return CUSTOMER_NUMBER_MODE_NONE
+    if result.get("absent") is True:
+        return CUSTOMER_NUMBER_MODE_NONE
+    return None
+
+
+def _customer_number_value_from_result_dict(result: dict) -> str | None:
+    """Active value from a result snapshot; None when absent/NONE or empty."""
+    if infer_customer_number_mode_from_result(result) == CUSTOMER_NUMBER_MODE_NONE:
+        return None
+    for key in ("selected_value", "value"):
+        raw = result.get(key)
+        if raw is not None and str(raw).strip():
+            return str(raw).strip()
+    return None
+
+
+def customer_number_is_absent_or_none(inv: dict[str, Any] | None) -> bool:
+    """True when result or profile says NONE/absent (ignores stale scalar)."""
+    if not isinstance(inv, dict):
+        return False
+    cr = inv.get("customer_number_result")
+    if isinstance(cr, dict) and infer_customer_number_mode_from_result(cr) == CUSTOMER_NUMBER_MODE_NONE:
+        return True
+    ep = inv.get("extraction_profile")
+    return isinstance(ep, dict) and customer_number_mode_from_profile(ep) == CUSTOMER_NUMBER_MODE_NONE
+
+
+def customer_number_authoritative_value(
+    inv: dict[str, Any] | None,
+    *,
+    scalar_fallback: str | None = None,
+) -> str | None:
+    """
+    Result-first read for display/decisions.
+
+    When ``customer_number_result`` is present it is authoritative (including
+    NONE/absent). Scalar ``customer_number`` is only used when no result dict
+    exists. ``pdf_customer_number`` is never used here (audit-only).
+    """
+    if not isinstance(inv, dict):
+        fb = str(scalar_fallback or "").strip()
+        return fb or None
+    if customer_number_is_absent_or_none(inv):
+        return None
+    cr = inv.get("customer_number_result")
+    if isinstance(cr, dict):
+        return _customer_number_value_from_result_dict(cr)
+    scalar = inv.get("customer_number")
+    if scalar is not None and str(scalar).strip():
+        return str(scalar).strip()
+    fb = str(scalar_fallback or "").strip()
+    return fb or None
+
 
 class SupplierDB:
     """
@@ -1036,14 +1115,55 @@ class SupplierDB:
         except Exception:
             return None
 
+    def get_customer_number_mode(self, supplier_name: str) -> str | None:
+        """Leveranciersniveau klantnummer-modus (``NONE`` = geen klantnummer op factuur)."""
+        return customer_number_mode_from_profile(self.get_extraction_profile(supplier_name))
+
+    def set_customer_number_mode(self, supplier_name: str, mode: str | None) -> bool:
+        """Persist ``customer_number_mode`` on the supplier extraction profile."""
+        try:
+            target_clean = self._clean_name(supplier_name)
+            if not target_clean:
+                return False
+            supplier: dict | None = None
+            for s in self.suppliers:
+                if self._clean_name(s.get("name") or "") == target_clean:
+                    supplier = s
+                    break
+            if supplier is None:
+                return False
+
+            existing_ep = supplier.get("extraction_profile")
+            merged: dict[str, Any] = dict(existing_ep) if isinstance(existing_ep, dict) else {}
+            norm = str(mode or "").strip().upper()
+            if norm == CUSTOMER_NUMBER_MODE_NONE:
+                merged["customer_number_mode"] = CUSTOMER_NUMBER_MODE_NONE
+                merged.pop("customer_number", None)
+            elif "customer_number_mode" in merged:
+                merged.pop("customer_number_mode", None)
+            else:
+                return True
+
+            supplier["extraction_profile"] = merged
+            self.save()
+            return True
+        except Exception:
+            return False
+
     def save_extraction_profile(
-        self, supplier_name: str, profile: dict, *, raw_text: str
+        self,
+        supplier_name: str,
+        profile: dict,
+        *,
+        raw_text: str,
+        customer_number_result: dict | None = None,
     ) -> bool:
         """
         Sla extractieprofiel op na validatie tegen ``raw_text``.
 
         ``raw_text`` is verplicht (PDF-tekst op moment van bevestiging).
-        Bij mislukte validatie: warning, geen persist.
+        Bij mislukte validatie: warning, geen persist — behalve voor
+        ``customer_number_mode`` (leverancier heeft geen klantnummer).
         """
 
         try:
@@ -1093,7 +1213,13 @@ class SupplierDB:
                 if validate_profile(raw_text, field_spec, {key: confirmed[key]}):
                     validated_fields[key] = dict(field)
 
-            if not validated_fields:
+            mode = (
+                infer_customer_number_mode_from_result(customer_number_result)
+                or customer_number_mode_from_profile(profile)
+            )
+            mode_none = mode == CUSTOMER_NUMBER_MODE_NONE
+
+            if not validated_fields and not mode_none:
                 logger.warning(
                     "extraction_profile validatie mislukt voor %r (geen velden)",
                     supplier_name,
@@ -1107,6 +1233,11 @@ class SupplierDB:
                 merged["learned_from"] = lf
             for key, spec in validated_fields.items():
                 merged[key] = spec
+            if mode_none:
+                merged["customer_number_mode"] = CUSTOMER_NUMBER_MODE_NONE
+                merged.pop("customer_number", None)
+            elif "customer_number" in validated_fields:
+                merged.pop("customer_number_mode", None)
 
             supplier["extraction_profile"] = merged
             self.save()

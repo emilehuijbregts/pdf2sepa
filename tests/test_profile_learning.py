@@ -10,6 +10,7 @@ import pytest
 
 from logic.profile_learning import (
     ProfileLearnResult,
+    _normalize_confirmed,
     can_offer_profile_learning,
     confirm_invoice_fields,
     confirmed_amount_xml,
@@ -17,6 +18,8 @@ from logic.profile_learning import (
     profile_field_keys_missing,
     profile_learning_block_reason,
 )
+from parser.supplier_db import CUSTOMER_NUMBER_MODE_NONE
+from ui.field_review import CUSTOMER_ABSENT_PICK_SOURCE, CUSTOMER_ABSENT_STATE, make_customer_absent_pick_candidate
 from tests.test_profile_extractor import CONFIRMED_2BA, TEXT_2BA
 
 
@@ -121,6 +124,18 @@ class TestMergeExtractionProfiles:
         assert merged["learned_from"] == "new.pdf"
 
 
+class TestNormalizeConfirmed:
+    def test_skips_absent_customer_pick_dict(self) -> None:
+        norm = _normalize_confirmed({"customer_number": make_customer_absent_pick_candidate()})
+        assert "customer_number" not in norm
+
+    def test_does_not_stringify_absent_dict(self) -> None:
+        cand = make_customer_absent_pick_candidate()
+        norm = _normalize_confirmed({"customer_number": cand})
+        for val in norm.values():
+            assert "USER_ABSENT_CUSTOMER" not in str(val)
+
+
 class TestConfirmInvoiceFields:
     def test_confirm_only_no_save(self) -> None:
         db = MagicMock()
@@ -194,6 +209,29 @@ class TestConfirmInvoiceFields:
         assert result.saved is False
         assert result.profile is not None
         assert "validatie" in result.message
+
+    def test_save_none_mode_when_profile_learn_fails(self) -> None:
+        db = MagicMock()
+        db.set_customer_number_mode.return_value = True
+        db.get_extraction_profile.return_value = {"customer_number_mode": CUSTOMER_NUMBER_MODE_NONE}
+        absent_result = {
+            "value": None,
+            "absence_state": CUSTOMER_ABSENT_STATE,
+            "source": CUSTOMER_ABSENT_PICK_SOURCE,
+            "status": "confirmed",
+            "user_selected": True,
+        }
+        result = confirm_invoice_fields(
+            raw_text=TEXT_2BA,
+            source_file="x.pdf",
+            supplier_name="Qblades",
+            confirmed={},
+            db=db,
+            save_profile=True,
+            customer_number_result=absent_result,
+        )
+        assert result.saved is True
+        db.set_customer_number_mode.assert_called_once_with("Qblades", CUSTOMER_NUMBER_MODE_NONE)
 
     def test_empty_supplier_name(self) -> None:
         db = MagicMock()
