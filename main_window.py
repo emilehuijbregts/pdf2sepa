@@ -351,6 +351,18 @@ def _agent_log(hypothesis_id: str, location: str, message: str, data: dict) -> N
 
 APP_BASE = Path(__file__).resolve().parent
 
+_SUPPLIER_MATCH_REVIEW_STATUSES = frozenset(
+    {"needs_review", "unmatched", "no_hint", "new", "load_failed"}
+)
+
+_MATCH_STATUS_TO_ENGINE_REASON: dict[str, str] = {
+    "unmatched": "unmatched_supplier",
+    "needs_review": "needs_review",
+    "no_hint": "no_supplier_hint",
+    "new": "unmatched_supplier",
+    "load_failed": "pdf_read_failed",
+}
+
 _ERROR_REASON_NL: dict[str, str] = {
     "no_supplier_hint": "Geen leveranciersnaam herkend in PDF; voeg een alias toe of vul handmatig in.",
     "unmatched_supplier": "Leverancier niet gevonden in database; controleer IBAN of aliassen.",
@@ -983,6 +995,8 @@ class MainWindow(QMainWindow):
         self._approval_store = UserApprovalStore(self._user_data_dir / "user_approvals.json")
         self._pending_engine_row_ids: set[str] = set()
         self._pending_engine_idempotency: set[str] = set()
+        self._rows_requiring_reapproval: set[str] = set()
+        self._rows_requiring_reapproval_rows: set[int] = set()
         self._parsed_batch_cache = ParsedInvoiceBatchCache()
         self._engine_rerun_timer = QTimer(self)
         self._engine_rerun_timer.setSingleShot(True)
@@ -1587,27 +1601,34 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         # #endregion
-        for r in range(self._table.rowCount()):
-            if self._is_row_blank(r):
-                continue
-            dec = self._decision_for_row(r)
-            st = dec.get("status")
-            if st == DECISION_INCLUDED:
-                color = self._COLOR_CONFIRMED
-            elif st == DECISION_NEEDS_REVIEW:
-                # Engine-driven UX nuance: unknown supplier (but otherwise parse OK)
-                # should stand out separately from other review reasons.
-                rc = str(dec.get("reason_code") or "")
-                color = self._COLOR_AMOUNT_TENTATIVE if rc == "unmatched_supplier" else self._COLOR_NEEDS_REVIEW
-            elif st == DECISION_EXCLUDED:
-                color = self._COLOR_ERROR
-            else:
-                color = self._COLOR_NEEDS_REVIEW
-            for c in range(self._table.columnCount()):
-                it = self._table.item(r, c)
-                if it:
-                    it.setBackground(color)
-                    it.setForeground(self._TEXT_COLOR_ON_TINT)
+        prev_suppress = self._suppress_table_item_changed
+        blocked = self._table.blockSignals(True)
+        self._suppress_table_item_changed = True
+        try:
+            for r in range(self._table.rowCount()):
+                if self._is_row_blank(r):
+                    continue
+                dec = self._decision_for_row(r)
+                st = dec.get("status")
+                if st == DECISION_INCLUDED:
+                    color = self._COLOR_CONFIRMED
+                elif st == DECISION_NEEDS_REVIEW:
+                    # Engine-driven UX nuance: unknown supplier (but otherwise parse OK)
+                    # should stand out separately from other review reasons.
+                    rc = str(dec.get("reason_code") or "")
+                    color = self._COLOR_AMOUNT_TENTATIVE if rc == "unmatched_supplier" else self._COLOR_NEEDS_REVIEW
+                elif st == DECISION_EXCLUDED:
+                    color = self._COLOR_ERROR
+                else:
+                    color = self._COLOR_NEEDS_REVIEW
+                for c in range(self._table.columnCount()):
+                    it = self._table.item(r, c)
+                    if it:
+                        it.setBackground(color)
+                        it.setForeground(self._TEXT_COLOR_ON_TINT)
+        finally:
+            self._suppress_table_item_changed = prev_suppress
+            self._table.blockSignals(blocked)
 
     def _restore_column_widths(self) -> None:
         saved = self._settings.get("column_widths")
@@ -3108,11 +3129,6 @@ class MainWindow(QMainWindow):
                 )
                 new_err.setToolTip(self._compose_error_tooltip(error_msg="", decision_trace=new_trace))
                 self._table.setItem(row, PaymentColumn.ERROR, new_err)
-                self._table.setItem(
-                    row,
-                    PaymentColumn.STATUS,
-                    self._item_readonly(decision_status_label_nl(DECISION_NEEDS_REVIEW)),
-                )
             elif field_id == "iban":
                 iban_it = self._table.item(row, PaymentColumn.IBAN)
                 if iban_it:
@@ -3861,7 +3877,12 @@ class MainWindow(QMainWindow):
             sup_item.setData(_ROW_INVOICE_DIAGNOSTICS_ROLE, invoice_diagnostics_snapshot)
         sup_item.setData(
             _ROW_ROW_ID_ROLE,
-            row_id or f"{supplier}|{invoice_number_meta}|{pdf_name}",
+            row_id
+            or _stable_payment_row_id(
+                supplier=supplier,
+                invoice_number=str(invoice_number_meta or ""),
+                pdf=pdf_name,
+            ),
         )
         # Keep original supplier name for safe rename during "Voeg toe / update".
         # This prevents update_supplier() from failing when the user corrected the name in the table.
@@ -4103,7 +4124,11 @@ class MainWindow(QMainWindow):
                     customer_number_result_snapshot=cust_res_snap,
                     iban_result_snapshot=iban_res_snap,
                     decision=p.get("decision") if isinstance(p.get("decision"), dict) else None,
-                    row_id=f"{str(p.get('supplier_name') or '')}|{inv_meta}|{pdf}",
+                    row_id=_stable_payment_row_id(
+                        supplier=str(p.get("supplier_name") or ""),
+                        invoice_number=inv_meta,
+                        pdf=pdf,
+                    ),
                     invoice_diagnostics_snapshot=_diagnostics_snapshot_from_invoice(inv_match or {}),
                 )
             needs_review_invs = [
@@ -4159,7 +4184,11 @@ class MainWindow(QMainWindow):
                     customer_number_result_snapshot=cust_res_r,
                     iban_result_snapshot=iban_res_r,
                     decision=inv.get("decision") if isinstance(inv.get("decision"), dict) else None,
-                    row_id=f"{_error_row_supplier(inv)}|{inv_meta_r}|{pdf_r}",
+                    row_id=_stable_payment_row_id(
+                        supplier=_error_row_supplier(inv),
+                        invoice_number=inv_meta_r,
+                        pdf=pdf_r,
+                    ),
                     invoice_diagnostics_snapshot=_diagnostics_snapshot_from_invoice(inv),
                 )
             for inv, reason in other_errors:
@@ -4226,7 +4255,11 @@ class MainWindow(QMainWindow):
                     customer_number_result_snapshot=cust_res_e,
                     iban_result_snapshot=iban_res_e,
                     decision=inv.get("decision") if isinstance(inv.get("decision"), dict) else None,
-                    row_id=f"{_error_row_supplier(inv)}|{inv_meta_e}|{pdf_e}",
+                    row_id=_stable_payment_row_id(
+                        supplier=_error_row_supplier(inv),
+                        invoice_number=inv_meta_e,
+                        pdf=pdf_e,
+                    ),
                     invoice_diagnostics_snapshot=_diagnostics_snapshot_from_invoice(inv),
                 )
             self._auto_resize_columns_to_content()
@@ -4563,7 +4596,11 @@ class MainWindow(QMainWindow):
         for r in rows:
             if r < 0 or r >= self._table.rowCount() or self._is_row_blank(r):
                 continue
-            p = self._payment_dict_from_row(r)
+            try:
+                p = self._payment_dict_from_row(r)
+            except ValueError:
+                invalid_rows.append(r + 1)
+                continue
             err = self._validate_single_payment_row(p)
             if err:
                 invalid_rows.append(r + 1)
@@ -4572,7 +4609,10 @@ class MainWindow(QMainWindow):
             for r in rows:
                 if r < 0 or r >= self._table.rowCount() or self._is_row_blank(r):
                     continue
-                p = self._payment_dict_from_row(r)
+                try:
+                    p = self._payment_dict_from_row(r)
+                except ValueError:
+                    continue
                 err = self._validate_single_payment_row(p)
                 if err and "bedrag" in err:
                     amount_hints.append(r + 1)
@@ -4592,56 +4632,72 @@ class MainWindow(QMainWindow):
             )
             return
 
-        base_run_id = self._active_run_id or self._pinned_run_id
-        base_map = dict(self._decision_store.committed_decision_map(base_run_id)) if base_run_id else {}
-        approved_map: dict[str, dict[str, Any]] = {}
+        self._engine_rerun_timer.stop()
         for r in rows:
             if r < 0 or r >= self._table.rowCount() or self._is_row_blank(r):
                 continue
             rid = self._row_id(r)
-            dec = build_decision(
-                status=DECISION_INCLUDED,
-                reason_code=REASON_USER_APPROVED,
-                reason_detail="context_menu_approve",
-                editable=False,
-                requires_rerun=False,
-                causal_inputs=["user_approve"],
-                input_fields={
-                    "row_id": rid,
-                    "supplier_name": self._cell_text(r, PaymentColumn.SUPPLIER),
-                    "iban": self._cell_text(r, PaymentColumn.IBAN),
-                    "amount": self._cell_text(r, PaymentColumn.AMOUNT),
-                    "invoice_number": self._get_row_invoice_number(r),
-                },
-            )
-            approved_map[rid] = dict(dec)
-            base_map[rid] = dict(dec)
-            self._set_row_decision(r, dec)
+            self._pending_engine_row_ids.discard(rid)
+            self._rows_requiring_reapproval.discard(rid)
+            self._rows_requiring_reapproval_rows.discard(r)
 
-        run_id = str(uuid.uuid4())
-        run = self._decision_store.begin_run(
-            run_id=run_id,
-            input_snapshot_hash=stable_hash({"action": "user_approve", "base_run_id": base_run_id or "", "rows": sorted(approved_map.keys())}),
-            decision_map=base_map,
-        )
-        self._decision_store.commit_run(run.run_id)
-        self._pinned_run_id = run.run_id
-        self._active_run_id = run.run_id
+        approved_map: dict[str, dict[str, Any]] = {}
+        prev_suppress = self._suppress_table_item_changed
+        blocked = self._table.blockSignals(True)
+        self._suppress_table_item_changed = True
+        try:
+            for r in rows:
+                if r < 0 or r >= self._table.rowCount() or self._is_row_blank(r):
+                    continue
+                rid = self._row_id(r)
+                dec = build_decision(
+                    status=DECISION_INCLUDED,
+                    reason_code=REASON_USER_APPROVED,
+                    reason_detail="context_menu_approve",
+                    editable=False,
+                    requires_rerun=False,
+                    causal_inputs=["user_approve"],
+                    input_fields={
+                        "row_id": rid,
+                        "supplier_name": self._cell_text(r, PaymentColumn.SUPPLIER),
+                        "iban": self._cell_text(r, PaymentColumn.IBAN),
+                        "amount": self._cell_text(r, PaymentColumn.AMOUNT),
+                        "invoice_number": self._get_row_invoice_number(r),
+                    },
+                )
+                approved_map[rid] = dict(dec)
+                self._set_row_decision(r, dec)
 
-        # Persist approvals for this batch.
-        batch_key = stable_hash(
+            self._commit_decision_map_patch(approved_map)
+
+            batch_key = self._batch_approval_key()
+            self._approval_store.upsert_batch(batch_key, approved_map)
+
+            self._apply_row_colors()
+            self._set_status(f"{len(approved_map)} rij(en) handmatig goedgekeurd.")
+            self._refresh_export_batch_status_label()
+        finally:
+            self._suppress_table_item_changed = prev_suppress
+            self._table.blockSignals(blocked)
+
+    def _batch_approval_key(self) -> str:
+        return stable_hash(
             {
                 "folder": str(self._selected_folder.resolve()) if self._selected_folder else "",
                 "suppliers_path": self._supplier_db_path(),
             }
         )
-        self._approval_store.upsert_batch(batch_key, approved_map)
 
-        self._apply_row_colors()
-        self._set_status(f"{len(approved_map)} rij(en) handmatig goedgekeurd.")
-        self._refresh_export_batch_status_label()
+    def _revoke_user_approval_for_row(self, row: int) -> None:
+        rid = self._row_id(row)
+        legacy = self._legacy_row_id(row)
+        keys = {rid}
+        if legacy != rid:
+            keys.add(legacy)
+        self._approval_store.remove_from_batch(self._batch_approval_key(), keys)
 
     def _mark_rows_as_error(self, rows: list[int]) -> None:
+        decision_updates: dict[str, dict[str, Any]] = {}
         for r in rows:
             if r < 0 or r >= self._table.rowCount() or self._is_row_blank(r):
                 continue
@@ -4655,7 +4711,9 @@ class MainWindow(QMainWindow):
                 causal_inputs=["user_mark_error"],
                 input_fields={"row_id": rid},
             )
+            decision_updates[rid] = dec
             self._set_row_decision(r, dec)
+        self._commit_decision_map_patch(decision_updates)
         self._apply_row_colors()
         self._refresh_export_batch_status_label()
 
@@ -5159,7 +5217,7 @@ class MainWindow(QMainWindow):
         inv = self._get_row_invoice_number(row)
         sup = self._cell_text(row, PaymentColumn.SUPPLIER)
         pdf = self._cell_text(row, PaymentColumn.PDF)
-        rid = f"{sup}|{inv}|{pdf}".strip()
+        rid = _stable_payment_row_id(supplier=sup, invoice_number=inv, pdf=pdf)
         if sup_it:
             sup_it.setData(_ROW_ROW_ID_ROLE, rid)
         return rid
@@ -5413,6 +5471,12 @@ class MainWindow(QMainWindow):
             run_id="post-fix",
         )
         row_id = self._row_id(row)
+        prev = self._decision_for_row(row)
+        prev_reason = str(prev.get("reason_code") or "")
+        if prev_reason == REASON_USER_APPROVED:
+            self._rows_requiring_reapproval.add(row_id)
+            self._rows_requiring_reapproval_rows.add(row)
+            self._revoke_user_approval_for_row(row)
         self._pending_engine_row_ids.add(row_id)
         pending_decision = build_decision(
             status=DECISION_NEEDS_REVIEW,
@@ -5424,9 +5488,85 @@ class MainWindow(QMainWindow):
             input_fields={"row_id": self._row_id(row), "reason": reason},
         )
         self._set_row_decision(row, pending_decision)
+        self._commit_decision_map_patch({row_id: pending_decision})
         idempotency = stable_hash({"row_id": row_id, "decision": pending_decision, "reason": reason})
         self._pending_engine_idempotency.add(idempotency)
         self._engine_rerun_timer.start(250)
+
+    def _row_supplier_match_status(self, row: int) -> str:
+        snap = self._get_row_invoice_diagnostics_snapshot(row)
+        if not isinstance(snap, dict):
+            snap = self._minimal_diagnostics_snapshot_from_row(row)
+        return self._match_status_for_profile_gate(row, snap)
+
+    def _supplier_match_needs_review(self, row: int) -> bool:
+        return self._row_supplier_match_status(row) in _SUPPLIER_MATCH_REVIEW_STATUSES
+
+    def _supplier_review_reason_for_row(self, row: int) -> str:
+        ms = self._row_supplier_match_status(row)
+        if ms in _MATCH_STATUS_TO_ENGINE_REASON:
+            return _MATCH_STATUS_TO_ENGINE_REASON[ms]
+        err_it = self._table.item(row, PaymentColumn.ERROR)
+        trace = err_it.data(_ROW_DECISION_TRACE_ROLE) if err_it else None
+        if isinstance(trace, dict):
+            rc = str(trace.get("supplier_match_status") or trace.get("reason_code") or "").strip()
+            if rc in _MATCH_STATUS_TO_ENGINE_REASON.values():
+                return rc
+        return "needs_review"
+
+    def _decision_after_pending_rerun(
+        self,
+        row: int,
+        rid: str,
+        *,
+        validation_error: str | None,
+        amount: Any,
+    ) -> dict[str, Any]:
+        if validation_error:
+            return build_decision(
+                status=DECISION_NEEDS_REVIEW,
+                reason_code="row_validation_failed",
+                reason_detail=validation_error,
+                editable=True,
+                requires_rerun=False,
+                causal_inputs=["iban", "amount", "execution_date"],
+                input_fields={"row_id": rid, "error": validation_error},
+            )
+        needs_reapproval = (
+            row in self._rows_requiring_reapproval_rows or rid in self._rows_requiring_reapproval
+        )
+        if needs_reapproval:
+            self._rows_requiring_reapproval_rows.discard(row)
+            self._rows_requiring_reapproval.discard(rid)
+            return build_decision(
+                status=DECISION_NEEDS_REVIEW,
+                reason_code=REASON_MANUAL_PENDING,
+                reason_detail="user_approval_revoked_after_field_change",
+                editable=True,
+                requires_rerun=True,
+                causal_inputs=["user_approve", "field_change"],
+                input_fields={"row_id": rid, "reason": "reapproval_required"},
+            )
+        if self._supplier_match_needs_review(row):
+            reason_code = self._supplier_review_reason_for_row(row)
+            return build_decision(
+                status=DECISION_NEEDS_REVIEW,
+                reason_code=reason_code,
+                reason_detail=None,
+                editable=True,
+                requires_rerun=reason_code in ("needs_review", "unmatched_supplier"),
+                causal_inputs=["supplier_match"],
+                input_fields={"row_id": rid, "match_status": self._row_supplier_match_status(row)},
+            )
+        return build_decision(
+            status=DECISION_INCLUDED,
+            reason_code="included_validated",
+            reason_detail=None,
+            editable=False,
+            requires_rerun=False,
+            causal_inputs=["iban", "amount", "execution_date"],
+            input_fields={"row_id": rid, "amount": amount},
+        )
 
     def _commit_pending_engine_updates(self) -> None:
         # #region agent log (debug mode)
@@ -5539,43 +5679,12 @@ class MainWindow(QMainWindow):
                 self._set_row_decision(row, dec)
                 continue
             validation_error = self._validate_single_payment_row(p)
-            # #region agent log (debug mode)
-            _dbg_log(
-                hypothesis_id="H3",
-                location="main_window.py:_rerun_engine_for_rows:row",
-                message="rerun row outcome",
-                data={
-                    "row": int(row),
-                    "row_id": rid,
-                    "validation_error": validation_error,
-                    "supplier": str(p.get("supplier_name") or "")[:80],
-                    "decision_status": (
-                        DECISION_INCLUDED if not validation_error else DECISION_NEEDS_REVIEW
-                    ),
-                },
-                run_id="post-fix",
+            dec = self._decision_after_pending_rerun(
+                row,
+                rid,
+                validation_error=validation_error,
+                amount=p.get("amount"),
             )
-            # #endregion
-            if validation_error:
-                dec = build_decision(
-                    status=DECISION_NEEDS_REVIEW,
-                    reason_code="row_validation_failed",
-                    reason_detail=validation_error,
-                    editable=True,
-                    requires_rerun=False,
-                    causal_inputs=["iban", "amount", "execution_date"],
-                    input_fields={"row_id": rid, "error": validation_error},
-                )
-            else:
-                dec = build_decision(
-                    status=DECISION_INCLUDED,
-                    reason_code="included_validated",
-                    reason_detail=None,
-                    editable=False,
-                    requires_rerun=False,
-                    causal_inputs=["iban", "amount", "execution_date"],
-                    input_fields={"row_id": rid, "amount": p.get("amount")},
-                )
             decision_map[rid] = dec
             self._set_row_decision(row, dec)
             try:

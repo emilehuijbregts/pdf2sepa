@@ -160,6 +160,38 @@ class UserApprovalStore:
         except Exception:
             return {}
 
+    def remove_from_batch(self, batch_key: str, row_ids: set[str]) -> None:
+        """Verwijder goedkeuringen voor gegeven row_ids uit een batch."""
+        if not row_ids:
+            return
+        p = self.path
+        try:
+            try:
+                existing_txt = p.read_text(encoding="utf-8")  # type: ignore[attr-defined]
+                data = json.loads(existing_txt or "{}")
+            except FileNotFoundError:
+                return
+            if not isinstance(data, dict):
+                return
+            batches = data.get("batches")
+            if not isinstance(batches, dict):
+                return
+            merged = batches.get(batch_key)
+            if not isinstance(merged, dict):
+                return
+            for rid in row_ids:
+                merged.pop(rid, None)
+            batches[batch_key] = merged
+            payload = {"version": self.version, "batches": batches}
+            text = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
+            try:
+                p.parent.mkdir(parents=True, exist_ok=True)  # type: ignore[attr-defined]
+            except Exception:
+                pass
+            p.write_text(text, encoding="utf-8")  # type: ignore[attr-defined]
+        except Exception:
+            return
+
     def upsert_batch(self, batch_key: str, approvals: dict[str, dict[str, Any]]) -> None:
         p = self.path
         try:
