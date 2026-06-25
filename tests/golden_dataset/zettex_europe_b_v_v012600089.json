@@ -1,0 +1,13 @@
+{
+  "source_file": "Zettex Verkoopfactuur V012600089.pdf",
+  "invoice_number": "V012600089",
+  "supplier_name": "Zettex Europe B.V.",
+  "iban": "NL54ABNA0141473894",
+  "amount": "76.45",
+  "amount_status": "confirmed",
+  "customer_code": "521628",
+  "description": "521628 / V012600089",
+  "discount_percentage": "0.00",
+  "invoice_date": "2026-01-09",
+  "payment_terms_days": 30
+}

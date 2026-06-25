@@ -1,0 +1,13 @@
+{
+  "source_file": "Wasco 8714252002430_5660148.pdf",
+  "invoice_number": "5660148",
+  "supplier_name": "Wasco Groothandelsgroep B.V.",
+  "iban": "NL43INGB0675875943",
+  "amount": "65.51",
+  "amount_status": "confirmed",
+  "customer_code": "20115",
+  "description": "20115 / 5660148",
+  "discount_percentage": "0.00",
+  "invoice_date": "2026-01-09",
+  "payment_terms_days": 30
+}

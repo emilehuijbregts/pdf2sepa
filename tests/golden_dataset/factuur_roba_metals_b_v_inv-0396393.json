@@ -1,0 +1,13 @@
+{
+  "source_file": "Roba INV-0396393.PDF",
+  "invoice_number": "INV-0396393",
+  "supplier_name": "Factuur Roba Metals B.V.",
+  "iban": "NL02ABNA0556739590",
+  "amount": "2010.29",
+  "amount_status": "confirmed",
+  "customer_code": "C05630",
+  "description": "C05630 / INV-0396393",
+  "discount_percentage": "0.00",
+  "invoice_date": "2026-02-04",
+  "payment_terms_days": 30
+}

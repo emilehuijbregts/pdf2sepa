@@ -1,0 +1,13 @@
+{
+  "source_file": "Schoonwijk Factuur 260241.pdf",
+  "invoice_number": "260241",
+  "supplier_name": "Schoonwijk",
+  "iban": "NL80RABO0198899637",
+  "amount": "4831.53",
+  "amount_status": "confirmed",
+  "customer_code": "269",
+  "description": "269 / 260241",
+  "discount_percentage": "0.00",
+  "invoice_date": "2026-03-20",
+  "payment_terms_days": 1
+}

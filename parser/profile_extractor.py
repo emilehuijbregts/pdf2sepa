@@ -31,10 +31,16 @@ STRATEGIES = (
     "same_line_last_amount",
     "same_line_after_colon",
     "next_line_first_token",
+    "next_line_last_amount",
     "same_line_first_amount",
     "same_line_first_iban",
     "next_line_first_iban",
     "derived_excl_plus_vat",
+    "factuur_inline_pagina",
+)
+
+_FACTUUR_INLINE_PAGINA_RE = re.compile(
+    r"(?i)\bFactuur\s+([A-Za-z0-9][A-Za-z0-9\-\/]{4,})\s+Pagina\b"
 )
 
 _EXCL_BTW_LINE_RE = re.compile(
@@ -264,6 +270,15 @@ def _extract_next_line_first_token(lines: list[str], label_line_idx: int) -> str
     return None
 
 
+def _extract_next_line_last_amount(lines: list[str], label_line_idx: int) -> float | None:
+    for j in range(label_line_idx + 1, len(lines)):
+        ln = (lines[j] or "").strip()
+        if not ln:
+            continue
+        return _extract_amount_on_line(ln, "same_line_last_amount")
+    return None
+
+
 def _apply_strategy(
     lines: list[str],
     label_line_idx: int,
@@ -279,10 +294,15 @@ def _apply_strategy(
         return _extract_after_colon(line, label)
     if strategy == "next_line_first_token":
         return _extract_next_line_first_token(lines, label_line_idx)
+    if strategy == "next_line_last_amount":
+        return _extract_next_line_last_amount(lines, label_line_idx)
     if strategy == "same_line_first_iban":
         return _first_iban_on_line(line)
     if strategy == "next_line_first_iban":
         return _extract_next_line_first_iban(lines, label_line_idx)
+    if strategy == "factuur_inline_pagina":
+        m = _FACTUUR_INLINE_PAGINA_RE.search(line or "")
+        return m.group(1).strip() if m else None
     return None
 
 

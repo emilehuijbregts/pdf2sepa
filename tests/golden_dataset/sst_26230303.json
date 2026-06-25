@@ -1,0 +1,13 @@
+{
+  "source_file": "sst Factuur 26230303.pdf",
+  "invoice_number": "26230303",
+  "supplier_name": "SST",
+  "iban": "NL11INGB0007651085",
+  "amount": "1249.91",
+  "amount_status": "confirmed",
+  "customer_code": "9080",
+  "description": "9080 / 26230303",
+  "discount_percentage": "0.00",
+  "invoice_date": "2026-02-13",
+  "payment_terms_days": 30
+}

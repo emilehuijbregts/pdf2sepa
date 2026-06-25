@@ -1,0 +1,13 @@
+{
+  "source_file": "Qblades INV_2026_00364.pdf",
+  "invoice_number": "INV/2026/00364",
+  "supplier_name": "DG Europe B.V.",
+  "iban": "NL31RABO0172459192",
+  "amount": "397.24",
+  "amount_status": "confirmed",
+  "customer_code": "",
+  "description": "740777 / INV/2026/00364",
+  "discount_percentage": "0.00",
+  "invoice_date": "2026-01-23",
+  "payment_terms_days": 30
+}

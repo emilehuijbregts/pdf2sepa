@@ -136,6 +136,10 @@ _STRICT_ORDER_HINT_RE = re.compile(
     r"(?i)\b(?:ordernummer|order\s*(?:nr\.?|number|no\.?)|bestel(?:nummer|nr\.?)|"
     r"purchase\s*order|po\s*number)\b"
 )
+_PAKBON_HINT_RE = re.compile(
+    r"(?i)\b(?:pakbon(?:nummer|-nummer)?|packing\s*slip|leveringsbon|afleverbon)\b"
+)
+_PAYMENT_TERM_DG_RE = re.compile(r"(?i)^\d{1,3}dg$")
 _CREDIT_INVOICE_HINT_RE = re.compile(
     r"(?i)\b(?:creditnota|credit\s*note|verkoopcredit|creditfactuur|creditnota)\b"
 )
@@ -876,6 +880,10 @@ def _candidate_conflict_type(
             return "reference_number"
     if field_id == "customer_number":
         val = str(cand.value or "").strip()
+        if src == "label_block_same_line" and _is_preferred_customer_label(str(cand.label or "")):
+            return None
+        if _PAKBON_HINT_RE.search(hay):
+            return "order_number"
         if src.startswith("header_table"):
             if re.fullmatch(r"(?i)(?:VF-?\d{4,}|F\d{5,}|[A-Z]{1,3}-\d{4,})", val):
                 return "invoice_number"
@@ -1511,6 +1519,10 @@ def _invoice_candidate_ok(
         return False
     if _invoice_in_vat_labeled_context(line=line, label=label, context=context):
         return False
+    if _line_has_plausible_iban(line or "") or re.search(r"(?i)\bbic\s*:", line or ""):
+        compact_digits = re.sub(r"\D", "", raw)
+        if raw.isdigit() or (re.fullmatch(r"\d{3,6}", raw) and not re.search(r"[A-Za-z]", raw)):
+            return False
     digits = re.sub(r"\D", "", raw)
     if raw.isdigit() and len(digits) < 5:
         short_digit_ok = (
@@ -1543,8 +1555,11 @@ def _filter_invoice_number_candidates(
         val = str(cand.value or "").strip()
         if not val:
             continue
-        pos = text.find(val)
-        line = _line_at_pos(text, pos) if pos >= 0 else (cand.context or "")
+        line = (cand.context or "").strip()
+        if not line:
+            pos = text.find(val)
+            if pos >= 0:
+                line = _line_at_pos(text, pos)
         effective_label = str(cand.label or "")
         if str(cand.source or "").startswith("header_table_"):
             # Volledige kopregel kan BTW/Klant-kolommen bevatten; geen VAT-context voor waarde.
@@ -2738,6 +2753,10 @@ def _customer_value_ok(
     )
     if _is_order_or_reference_token(v, line=label_line):
         return False
+    if _PAKBON_HINT_RE.search(f"{label_line}\n{candidate_line}"):
+        return False
+    if _PAYMENT_TERM_DG_RE.fullmatch(v):
+        return False
     if str(v).upper().startswith(("VF", "VO")) and re.search(r"\d", str(v)):
         return False
     if re.fullmatch(r"(?i)F\d{5,}", v):
@@ -3307,9 +3326,17 @@ def collect_ident_field_candidates(
                 vals = _tokens_after_label(line, m.end(), join_spaced_digits=join_digits)
                 for j in (0, 1, 2):
                     if j > 0:
+                        if field_kind == "customer_number" and vals:
+                            break
                         if i + j >= len(lines):
                             break
                         nxt = lines[i + j]
+                        if field_kind == "customer_number" and _PAKBON_HINT_RE.search(nxt or ""):
+                            continue
+                        if field_kind == "invoice_number" and _CUSTOMER_FIELD_LABEL_RE.search(
+                            nxt or ""
+                        ):
+                            continue
                         ctx_n = re.sub(r"\s+", " ", (nxt or "")).strip()[:160]
                         table_vals: list[str] | None = None
                         if _table_header_field_count(line) >= 2:

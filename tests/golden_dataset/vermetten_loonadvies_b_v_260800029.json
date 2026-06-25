@@ -1,0 +1,13 @@
+{
+  "source_file": "Vermetten Invoice 260800029.pdf",
+  "invoice_number": "260800029",
+  "supplier_name": "Vermetten Loonadvies B.V.",
+  "iban": "NL41RABO0323466575",
+  "amount": "64.86",
+  "amount_status": "confirmed",
+  "customer_code": "118014",
+  "description": "118014 / 260800029",
+  "discount_percentage": "0.00",
+  "invoice_date": "2026-01-27",
+  "payment_terms_days": 15
+}

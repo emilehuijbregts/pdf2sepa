@@ -212,6 +212,15 @@ def _extract_next_line_first_token(lines: list[str], label_line_idx: int) -> str
     return None
 
 
+def _extract_next_line_last_amount(lines: list[str], label_line_idx: int) -> float | None:
+    for j in range(label_line_idx + 1, len(lines)):
+        ln = (lines[j] or "").strip()
+        if not ln:
+            continue
+        return _extract_amount_on_line(ln, "same_line_last_amount")
+    return None
+
+
 def _apply_strategy(
     lines: list[str],
     label_line_idx: int,
@@ -227,10 +236,18 @@ def _apply_strategy(
         return _extract_after_colon(line, label)
     if strategy == "next_line_first_token":
         return _extract_next_line_first_token(lines, label_line_idx)
+    if strategy == "next_line_last_amount":
+        return _extract_next_line_last_amount(lines, label_line_idx)
     if strategy == "same_line_first_iban":
         return _first_iban_on_line(line)
     if strategy == "next_line_first_iban":
         return _extract_next_line_first_iban(lines, label_line_idx)
+    if strategy == "factuur_inline_pagina":
+        m = re.search(
+            r"(?i)\bFactuur\s+([A-Za-z0-9][A-Za-z0-9\-\/]{4,})\s+Pagina\b",
+            line or "",
+        )
+        return m.group(1).strip() if m else None
     return None
 
 
@@ -614,15 +631,15 @@ def _learn_field_amount_label_next_line(
         decs = _positive_amounts_on_line(next_ln)
         if not any(abs(d - target) <= _AMOUNT_TOLERANCE for d in decs):
             continue
-        tok = _extract_next_line_first_token(lines, i)
-        if not tok:
-            continue
-        got = normalize_amount_decimal(tok)
-        if got is None or abs(got - target) > _AMOUNT_TOLERANCE:
+        if len(decs) >= 2 and abs(decs[-1] - target) <= _AMOUNT_TOLERANCE:
+            strategy = "next_line_last_amount"
+        elif decs and abs(decs[0] - target) <= _AMOUNT_TOLERANCE:
+            strategy = "next_line_first_token"
+        else:
             continue
         return {
             "label": label_text,
-            "strategy": "next_line_first_token",
+            "strategy": strategy,
             "confirmed_value": _format_confirmed_amount(amount),
         }
     return None
@@ -939,6 +956,25 @@ def _format_confirmed_for_spec(field_id: FieldId, value: Any) -> str:
     return str(value).strip()
 
 
+def _learn_field_invoice_inline_pagina(
+    lines: list[str],
+    value: str,
+) -> dict[str, str] | None:
+    target = str(value or "").strip()
+    if not target:
+        return None
+    rx = re.compile(r"(?i)\bFactuur\s+([A-Za-z0-9][A-Za-z0-9\-\/]{4,})\s+Pagina\b")
+    for line in lines:
+        m = rx.search(line or "")
+        if m and m.group(1).strip().casefold() == target.casefold():
+            return {
+                "label": "Factuur",
+                "strategy": "factuur_inline_pagina",
+                "confirmed_value": m.group(1).strip(),
+            }
+    return None
+
+
 def _learn_field_spec(
     raw_text: str,
     field_id: FieldId,
@@ -993,7 +1029,11 @@ def _learn_field_spec(
         spec = _learn_field_email_domain(raw_text, lines, str(confirmed))
     else:
         val_s = _format_confirmed_for_spec(field_id, confirmed)
-        spec = _learn_field_string(raw_text, lines, field_id, val_s)
+        spec = None
+        if field_id == "invoice_number":
+            spec = _learn_field_invoice_inline_pagina(lines, val_s)
+        if spec is None:
+            spec = _learn_field_string(raw_text, lines, field_id, val_s)
         if spec is None and context:
             spec = _learn_field_string_from_context(lines, field_id, val_s, context)
 

@@ -1,0 +1,13 @@
+{
+  "source_file": "Ubbink INV_SIN_10567557_101900683_Origineel_0_M.pdf",
+  "invoice_number": "SIN/10567557",
+  "supplier_name": "Ubbink B.V.",
+  "iban": "NL71INGB0674192974",
+  "amount": "691.76",
+  "amount_status": "confirmed",
+  "customer_code": "101900683",
+  "description": "101900683 / SIN/10567557",
+  "discount_percentage": "2.00",
+  "invoice_date": "2026-02-26",
+  "payment_terms_days": 15
+}

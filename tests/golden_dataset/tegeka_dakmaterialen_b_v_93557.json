@@ -1,0 +1,13 @@
+{
+  "source_file": "Tegeka Factuur93557.pdf",
+  "invoice_number": "93557",
+  "supplier_name": "Tegeka Dakmaterialen B.V.",
+  "iban": "NL07RABO0375294384",
+  "amount": "19880.86",
+  "amount_status": "confirmed",
+  "customer_code": "10476",
+  "description": "10476 / 93557",
+  "discount_percentage": "0.00",
+  "invoice_date": "2026-03-18",
+  "payment_terms_days": 30
+}

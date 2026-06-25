@@ -42,7 +42,7 @@
       "email_domains": [
         "salo.nl"
       ],
-      "default_payment_term_days": 0
+      "default_payment_term_days": 14
     },
     {
       "name": "Bosta B.V.",
@@ -1112,7 +1112,7 @@
         "DG Europe B.V."
       ],
       "customer_codes": [],
-      "default_payment_term_days": 0,
+      "default_payment_term_days": 30,
       "vat_rate": 21,
       "vat_numbers": [
         "NL860176113B01"
@@ -1163,7 +1163,7 @@
       "customer_codes": [
         "046769"
       ],
-      "default_payment_term_days": 0,
+      "default_payment_term_days": 30,
       "vat_rate": 21,
       "vat_numbers": [
         "DE8660050101"
@@ -1183,7 +1183,7 @@
       "customer_codes": [
         "017650"
       ],
-      "default_payment_term_days": 0,
+      "default_payment_term_days": 30,
       "vat_rate": 21,
       "vat_numbers": [
         "NL005977915B01"
@@ -1220,7 +1220,7 @@
       "customer_codes": [
         "52111087"
       ],
-      "default_payment_term_days": 0,
+      "default_payment_term_days": 30,
       "vat_rate": 21,
       "vat_numbers": [
         "NL805119607B01"
@@ -1242,7 +1242,7 @@
       "customer_codes": [
         "C05630"
       ],
-      "default_payment_term_days": 0,
+      "default_payment_term_days": 30,
       "vat_rate": 21,
       "vat_numbers": [
         "NL007469184B01"
@@ -1264,7 +1264,7 @@
       "customer_codes": [
         "3267"
       ],
-      "default_payment_term_days": 0,
+      "default_payment_term_days": 14,
       "vat_rate": 21,
       "vat_numbers": [
         "NL855554381B01"
@@ -1274,7 +1274,40 @@
       ],
       "email_domains": [
         "sforsoftware.nl"
-      ]
+      ],
+      "extraction_profile": {
+        "learned_from": "S for Software (IAprog B.V.) Factuur 2026001645.pdf",
+        "amount": {
+          "label": "Te betalen",
+          "strategy": "same_line_last_amount",
+          "confirmed_value": "121.00",
+          "confidence": 100
+        },
+        "invoice_number": {
+          "label": "Factuurnummer",
+          "strategy": "same_line_after_colon",
+          "confirmed_value": "2026001645",
+          "confidence": 100
+        },
+        "customer_number": {
+          "label": "Klantnummer",
+          "strategy": "same_line_after_colon",
+          "confirmed_value": "3267",
+          "confidence": 100
+        },
+        "kvk_number": {
+          "label": "KvK",
+          "strategy": "same_line_after_colon",
+          "confirmed_value": "64172023",
+          "confidence": 100
+        },
+        "invoice_date": {
+          "label": "Factuurdatum",
+          "strategy": "same_line_after_colon",
+          "confirmed_value": "2026-02-05",
+          "confidence": 100
+        }
+      }
     },
     {
       "name": "SAMEDIA",
@@ -1286,7 +1319,7 @@
       "customer_codes": [
         "58181"
       ],
-      "default_payment_term_days": 0,
+      "default_payment_term_days": 30,
       "vat_rate": 21,
       "vat_numbers": [
         "DE141994165"
@@ -1307,7 +1340,7 @@
         "1004563"
       ],
       "default_payment_term_days": 14,
-      "vat_rate": 21,
+      "vat_rate": 0,
       "vat_numbers": [
         "BE0434581477"
       ],
@@ -1609,7 +1642,46 @@
       ],
       "email_domains": [
         "vanwalraven.com"
-      ]
+      ],
+      "extraction_profile": {
+        "learned_from": "van Walraven Factuur_801083_VP601987.pdf",
+        "customer_number": {
+          "label": "Debiteurnummer",
+          "strategy": "same_line_after_colon",
+          "confirmed_value": "801083",
+          "confidence": 100
+        },
+        "vat_number": {
+          "label": "BTW",
+          "strategy": "same_line_after_colon",
+          "confirmed_value": "NL009432395B01",
+          "confidence": 100
+        },
+        "kvk_number": {
+          "label": "K.v.K",
+          "strategy": "same_line_after_colon",
+          "confirmed_value": "16037183",
+          "confidence": 100
+        },
+        "invoice_date": {
+          "label": "Factuurdatum",
+          "strategy": "same_line_after_colon",
+          "confirmed_value": "2026-03-17",
+          "confidence": 100
+        },
+        "amount": {
+          "label": "Te betalen",
+          "strategy": "next_line_last_amount",
+          "confirmed_value": "1410.07",
+          "confidence": 100
+        },
+        "invoice_number": {
+          "label": "Factuur",
+          "strategy": "factuur_inline_pagina",
+          "confirmed_value": "VP601987",
+          "confidence": 100
+        }
+      }
     },
     {
       "name": "Henrie van der Donk Timmer- en onderhoudswerk",
@@ -1632,11 +1704,12 @@
       ]
     },
     {
-      "name": "VentTrade International BV,",
+      "name": "VentTrade International B.V.",
       "iban": "NL25RABO0309081084",
       "discount": 0.0,
       "aliases": [
-        "VentTrade International BV,"
+        "VentTrade International BV,",
+        "VentTrade International B.V."
       ],
       "customer_codes": [],
       "default_payment_term_days": 30,
@@ -1649,7 +1722,16 @@
       ],
       "email_domains": [
         "venttrade.com"
-      ]
+      ],
+      "extraction_profile": {
+        "learned_from": "Venttrade Factuur_1100_220_10020159.pdf",
+        "amount": {
+          "label": "Totaal",
+          "strategy": "same_line_last_amount",
+          "confirmed_value": "605.00",
+          "confidence": 100
+        }
+      }
     },
     {
       "name": "Vermetten Loonadvies B.V.",
@@ -1759,6 +1841,43 @@
       "email_domains": [
         "zettex.com"
       ]
+    },
+    {
+      "name": "Vent-Axia B.V.",
+      "iban": "NL21INGB0004686488",
+      "discount": 0.0,
+      "aliases": [
+        "Vent-Axia B.V."
+      ],
+      "customer_codes": [
+        "219073"
+      ],
+      "default_payment_term_days": 30,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL807521942B01"
+      ],
+      "kvk_numbers": [
+        "17110442"
+      ],
+      "email_domains": [
+        "vent-axia.nl"
+      ],
+      "extraction_profile": {
+        "learned_from": "Vent axia 26801599.PDF",
+        "amount": {
+          "label": "te voldoen",
+          "strategy": "same_line_last_amount",
+          "confirmed_value": "1246.69",
+          "confidence": 100
+        },
+        "invoice_number": {
+          "label": "Factuurnummer : ",
+          "strategy": "same_line_after_colon",
+          "confirmed_value": "26801599",
+          "confidence": 100
+        }
+      }
     }
   ]
 }

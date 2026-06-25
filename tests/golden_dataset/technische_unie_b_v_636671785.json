@@ -1,0 +1,13 @@
+{
+  "source_file": "Tu 636671785.PDF",
+  "invoice_number": "636671785",
+  "supplier_name": "Technische Unie B.V.",
+  "iban": "NL71ABNA0804385750",
+  "amount": "802.82",
+  "amount_status": "confirmed",
+  "customer_code": "3903168",
+  "description": "3903168 / 636671785",
+  "discount_percentage": "0.00",
+  "invoice_date": "2026-01-06",
+  "payment_terms_days": 7
+}

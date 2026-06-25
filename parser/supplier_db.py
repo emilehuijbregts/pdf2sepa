@@ -532,7 +532,7 @@ class SupplierDB:
                             info["customer_code_match"] = True
                             reasons.append("customer_code_match")
                             break
-                    if clean_codes and not info["customer_code_match"]:
+                    if clean_codes and not info["customer_code_match"] and not info["iban_match"]:
                         rejection_reasons.append("customer_code_mismatch_reject")
                         rejected.append(
                             {

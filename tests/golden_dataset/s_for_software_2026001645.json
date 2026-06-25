@@ -1,0 +1,13 @@
+{
+  "source_file": "S for Software (IAprog B.V.) Factuur 2026001645.pdf",
+  "invoice_number": "2026001645",
+  "supplier_name": "S for Software",
+  "iban": "NL17RABO0100918549",
+  "amount": "121.00",
+  "amount_status": "confirmed",
+  "customer_code": "3267",
+  "description": "3267 / 2026001645",
+  "discount_percentage": "0.00",
+  "invoice_date": "2026-02-05",
+  "payment_terms_days": 14
+}

@@ -198,3 +198,28 @@ class TestLearnProfileFromResolvedFields:
         assert profile is not None
         assert profile["amount"]["strategy"] == "derived_excl_plus_vat"
         assert profile["amount"]["confirmed_value"] == "397.24"
+
+    def test_learns_walraven_inline_invoice_and_te_betalen_amount(self):
+        text = (
+            "Factuur VP601987 Pagina 1 / 1\n"
+            "Debiteurnummer 801083\n"
+            "Goederen Excl. BTW% Bedrag Val. Te betalen\n"
+            "1.165,35 1.165,35 21,00 244,72 EUR 1.410,07\n"
+        )
+        learnable = prepare_learnable_field_results(
+            {},
+            dialog_confirmed={
+                "invoice_number": "VP601987",
+                "customer_number": "801083",
+                "amount": Decimal("1410.07"),
+            },
+        )
+        profile = learn_profile_from_resolved_fields(
+            raw_text=text,
+            source_file="walraven.pdf",
+            field_results=learnable,
+        )
+        assert profile is not None
+        assert profile["invoice_number"]["strategy"] == "factuur_inline_pagina"
+        assert profile["amount"]["strategy"] == "next_line_last_amount"
+        assert profile["amount"]["label"] == "Te betalen"

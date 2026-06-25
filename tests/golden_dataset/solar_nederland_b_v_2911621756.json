@@ -1,0 +1,13 @@
+{
+  "source_file": "Solar_factuur_2911621756.pdf",
+  "invoice_number": "2911621756",
+  "supplier_name": "Solar Nederland B.V.",
+  "iban": "NL19INGB0651444888",
+  "amount": "1452.92",
+  "amount_status": "confirmed",
+  "customer_code": "2075618",
+  "description": "2075618 / 2911621756",
+  "discount_percentage": "0.00",
+  "invoice_date": "2026-02-03",
+  "payment_terms_days": 30
+}

@@ -1,0 +1,13 @@
+{
+  "source_file": "Van den Borne Factuur_4126VF01369.PDF",
+  "invoice_number": "4126VF01369",
+  "supplier_name": "Van den Borne B.V.",
+  "iban": "NL73RABO0152910123",
+  "amount": "99.22",
+  "amount_status": "confirmed",
+  "customer_code": "410-001724",
+  "description": "410-001724 / 4126VF01369",
+  "discount_percentage": "0.00",
+  "invoice_date": "2026-02-09",
+  "payment_terms_days": 30
+}

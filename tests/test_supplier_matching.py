@@ -407,6 +407,39 @@ class TestScoringGuards:
         assert info.get("vat_match") is False
         assert info.get("kvk_match") is False
 
+    def test_iban_anchor_survives_customer_code_mismatch(self, tmp_path):
+        data = {
+            "suppliers": [
+                {
+                    "name": "Vent-Axia B.V.",
+                    "iban": "NL21INGB0004686488",
+                    "discount": 0.0,
+                    "aliases": ["Vent-Axia B.V."],
+                    "customer_codes": ["219073"],
+                    "vat_numbers": ["NL807521942B01"],
+                    "kvk_numbers": ["17110442"],
+                    "email_domains": ["vent-axia.nl"],
+                },
+            ]
+        }
+        p = tmp_path / "suppliers.json"
+        p.write_text(json.dumps(data), encoding="utf-8")
+        db = SupplierDB(path=str(p))
+        inv = {
+            "supplier_hint": "Vent-Axia B.V.",
+            "iban": "NL21INGB0004686488",
+            "customer_number": "26003076",
+            "vat_number": "NL807521942B01",
+            "kvk_number": "17110442",
+            "email_domain": "vent-axia.nl",
+        }
+        result = match_suppliers([inv], db)[0]
+        assert result["supplier_name"] == "Vent-Axia B.V."
+        assert result["match_status"] == "confirmed"
+        info = result.get("match_info") or {}
+        assert info.get("iban_match") is True
+        assert info.get("customer_code_match") is False
+
     def test_vat_kvk_only_never_confirms(self, tmp_path):
         data = {
             "suppliers": [

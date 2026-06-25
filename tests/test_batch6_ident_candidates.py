@@ -28,6 +28,7 @@ _BATCH6_CASES: list[tuple[str, str, str, str]] = [
     ("Venttrade Factuur_1100_220_10020159.pdf", "1100/220/10020159", ""),
     ("Van den Borne Factuur_4126VF01369.PDF", "4126VF01369", ""),
     ("Tegeka Factuur93557.pdf", "93557", "10476"),
+    ("Vent axia 26801599.PDF", "26801599", "219073"),
 ]
 
 
@@ -54,3 +55,20 @@ def test_batch6_expected_values_are_candidates(
     if customer_number:
         assert len(cust_vals) >= 1, f"No customer candidates for {filename}"
         assert customer_number in cust_vals, f"{customer_number} not in {cust_vals}"
+
+
+@pytest.mark.parametrize("filename,invoice_number,customer_number", _BATCH6_CASES)
+def test_batch6_expected_values_win(
+    filename: str,
+    invoice_number: str,
+    customer_number: str,
+) -> None:
+    pdf = BATCH6 / filename
+    if not pdf.is_file():
+        pytest.skip(f"Missing fixture PDF: {pdf}")
+    text = extract_text_strict(str(pdf))
+    inv = extract_invoice_number_result(text)
+    cust = extract_customer_number_result(text)
+    assert inv.value == invoice_number, f"{filename}: got {inv.value!r}"
+    if customer_number:
+        assert cust.value == customer_number, f"{filename}: got {cust.value!r}"

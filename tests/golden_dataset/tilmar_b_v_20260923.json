@@ -1,0 +1,13 @@
+{
+  "source_file": "Tilmar Factuur Tilmar 20260923.pdf",
+  "invoice_number": "20260923",
+  "supplier_name": "Tilmar B.V.",
+  "iban": "NL52INGB0685114546",
+  "amount": "2148.09",
+  "amount_status": "confirmed",
+  "customer_code": "13009666",
+  "description": "13009666 / 20260923",
+  "discount_percentage": "0.00",
+  "invoice_date": "2026-03-12",
+  "payment_terms_days": 30
+}

@@ -1,0 +1,13 @@
+{
+  "source_file": "Van Gestel dakbedekking VF260027.pdf",
+  "invoice_number": "VF260027",
+  "supplier_name": "Van Gestel Dakbedekking B.V.",
+  "iban": "NL26RABO0106995243",
+  "amount": "232.93",
+  "amount_status": "confirmed",
+  "customer_code": "11127",
+  "description": "11127 / VF260027",
+  "discount_percentage": "0.00",
+  "invoice_date": "2026-02-12",
+  "payment_terms_days": 14
+}

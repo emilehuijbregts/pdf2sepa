@@ -1,0 +1,13 @@
+{
+  "source_file": "vd donk Factuur 25041 Wouter Duister.pdf",
+  "invoice_number": "25041",
+  "supplier_name": "Henrie van der Donk Timmer- en onderhoudswerk",
+  "iban": "NL15RABO0133696146",
+  "amount": "442.53",
+  "amount_status": "confirmed",
+  "customer_code": "",
+  "description": "",
+  "discount_percentage": "0.00",
+  "invoice_date": "2025-12-31",
+  "payment_terms_days": 14
+}

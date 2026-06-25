@@ -1,0 +1,13 @@
+{
+  "source_file": "Rems Rechnung-2612498.pdf",
+  "invoice_number": "2612498",
+  "supplier_name": "REMS",
+  "iban": "DE86600501010405684227",
+  "amount": "375.66",
+  "amount_status": "confirmed",
+  "customer_code": "046769",
+  "description": "046769 / 2612498",
+  "discount_percentage": "0.00",
+  "invoice_date": "2026-03-06",
+  "payment_terms_days": 30
+}

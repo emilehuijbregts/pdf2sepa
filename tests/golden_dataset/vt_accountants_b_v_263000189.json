@@ -1,0 +1,13 @@
+{
+  "source_file": "Vt Factuur_263000189.pdf",
+  "invoice_number": "263000189",
+  "supplier_name": "VT accountants B.V.",
+  "iban": "NL53RABO0108671402",
+  "amount": "327.31",
+  "amount_status": "confirmed",
+  "customer_code": "12001",
+  "description": "12001 / 263000189",
+  "discount_percentage": "0.00",
+  "invoice_date": "2026-04-01",
+  "payment_terms_days": 30
+}

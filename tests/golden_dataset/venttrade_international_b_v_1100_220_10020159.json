@@ -1,0 +1,13 @@
+{
+  "source_file": "Venttrade Factuur_1100_220_10020159.pdf",
+  "invoice_number": "1100/220/10020159",
+  "supplier_name": "VentTrade International B.V.",
+  "iban": "NL25RABO0309081084",
+  "amount": "605.00",
+  "amount_status": "confirmed",
+  "customer_code": "",
+  "description": "",
+  "discount_percentage": "0.00",
+  "invoice_date": "2026-01-14",
+  "payment_terms_days": 30
+}

@@ -1,0 +1,13 @@
+{
+  "source_file": "Wavin Factuur 7012239207.pdf",
+  "invoice_number": "7012239207",
+  "supplier_name": "Wavin Nederland B.V.",
+  "iban": "NL25CITI0266075452",
+  "amount": "8.63",
+  "amount_status": "confirmed",
+  "customer_code": "1012146",
+  "description": "1012146 / 7012239207",
+  "discount_percentage": "2.00",
+  "invoice_date": "2026-01-16",
+  "payment_terms_days": 8
+}

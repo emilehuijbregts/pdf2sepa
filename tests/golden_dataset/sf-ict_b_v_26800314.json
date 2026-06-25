@@ -1,0 +1,13 @@
+{
+  "source_file": "SF inv26800314.pdf",
+  "invoice_number": "26800314",
+  "supplier_name": "SF-ICT B.V.",
+  "iban": "NL14SNSB0924226188",
+  "amount": "614.93",
+  "amount_status": "confirmed",
+  "customer_code": "",
+  "description": "",
+  "discount_percentage": "0.00",
+  "invoice_date": "2026-02-20",
+  "payment_terms_days": 14
+}

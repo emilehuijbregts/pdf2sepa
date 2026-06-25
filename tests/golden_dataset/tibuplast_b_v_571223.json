@@ -1,0 +1,13 @@
+{
+  "source_file": "Tibuplast 571223.pdf",
+  "invoice_number": "571223",
+  "supplier_name": "Tibuplast B.V.",
+  "iban": "NL78INGB0675940400",
+  "amount": "1034.61",
+  "amount_status": "confirmed",
+  "customer_code": "12993485",
+  "description": "12993485 / 571223",
+  "discount_percentage": "0.00",
+  "invoice_date": "2026-02-17",
+  "payment_terms_days": 30
+}

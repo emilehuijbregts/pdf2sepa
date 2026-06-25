@@ -304,7 +304,27 @@ class TestBatch6LayoutSnippets:
     def test_walraven_inline_factuur_pagina(self):
         text = "Factuur VP601987 Pagina 1 / 1\nDebiteurnummer 801083\n"
         inv = extract_invoice_number_result(text)
+        assert inv.value == "VP601987"
         assert "VP601987" in {c.value for c in inv.candidates}
+
+    def test_vent_axia_debiteur_not_pakbon(self):
+        text = (
+            "Factuurnummer : 26801599 d.d. 05-02-2026 Vervaldatum : 07-03-2026\n"
+            "Ordernr. Vent-Axia : 22603170 Debiteurnummer : 219073\n"
+            "Pakbonnummer : 26003076 d.d. 05-02-2026 Betalingstermijn : 30 dagen\n"
+        )
+        cust = extract_customer_number_result(text)
+        assert cust.value == "219073"
+        assert cust.status == "confirmed"
+
+    def test_wentzel_deb_nr_not_payment_term_dg(self):
+        text = (
+            "5216JW 'S-Hertogenbosch Uw deb.nr.: 994 Betalingscond.: 14dg 1,5% | Netto 45dg\n"
+            "Bij betaling vermelden: 994 - VF00269858\n"
+        )
+        cust = extract_customer_number_result(text)
+        assert cust.value == "994"
+        assert cust.status == "confirmed"
 
     def test_samedia_customer_and_invoice_lines(self):
         text = "Customer 58181 SAMEDIAGmbH\nINVOICE R1126096 30/01/2026\n"

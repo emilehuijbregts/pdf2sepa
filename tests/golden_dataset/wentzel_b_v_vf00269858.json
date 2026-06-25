@@ -1,0 +1,13 @@
+{
+  "source_file": "Wentzel Verkoopfactuur_VF00269858.pdf",
+  "invoice_number": "VF00269858",
+  "supplier_name": "Wentzel B.V.",
+  "iban": "NL87ABNA0466392842",
+  "amount": "5352.86",
+  "amount_status": "confirmed",
+  "customer_code": "994",
+  "description": "994 / VF00269858",
+  "discount_percentage": "1.50",
+  "invoice_date": "2026-03-18",
+  "payment_terms_days": 14
+}
