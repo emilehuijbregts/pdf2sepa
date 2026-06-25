@@ -492,12 +492,15 @@ def _build_result(
         st = "confirmed" if conf >= LOW_CONFIDENCE else "tentative"
 
     trace_out = list(decision_trace)
+    winner_meta = winner.meta if isinstance(winner.meta, dict) else {}
+    profile_validated = bool(winner_meta.get("profile_validated"))
     if (
         field_id == "amount"
         and amount_profile_review_cap
         and winner.value is not None
         and str(src).strip().lower() == "profile"
         and st == "confirmed"
+        and not profile_validated
     ):
         st = "tentative"
         if conf > 75:

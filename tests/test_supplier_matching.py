@@ -306,6 +306,7 @@ class TestUnmatched:
 
 class TestIbanMismatch:
     def test_iban_mismatch_hard_reject(self, db_with_suppliers):
+        """Wrong IBAN + single alias signal is insufficient to propose a supplier."""
         inv = {
             "supplier_hint": "Wavin NL",
             "iban": "NL99XXXX0000000001",
@@ -314,6 +315,42 @@ class TestIbanMismatch:
         result = match_suppliers([inv], db_with_suppliers)[0]
         assert result["match_status"] == "unmatched"
         assert result.get("supplier_name") is None
+
+    def test_iban_mismatch_matches_on_vat_kvk_email(self, tmp_path):
+        """IBAN mismatch must not block match when other identity signals agree."""
+        data = {
+            "suppliers": [
+                {
+                    "name": "DG Europe B.V.",
+                    "iban": "NL31RABO01234567890",
+                    "discount": 0.0,
+                    "aliases": ["DG Europe B.V."],
+                    "customer_codes": [],
+                    "vat_numbers": ["NL860176113B01"],
+                    "kvk_numbers": ["75187760"],
+                    "email_domains": ["qblades.com"],
+                }
+            ]
+        }
+        p = tmp_path / "suppliers.json"
+        p.write_text(json.dumps(data), encoding="utf-8")
+        db = SupplierDB(path=str(p))
+        inv = {
+            "supplier_hint": "DG EUROPE B.V.",
+            "iban": "NL31RABO0172459192",
+            "vat_number": "NL860176113B01",
+            "kvk_number": "75187760",
+            "email_domain": "qblades.com",
+            "raw_text": "Excl. btw 100\nBTW 21% 21",
+        }
+        result = match_suppliers([inv], db)[0]
+        assert result["supplier_name"] == "DG Europe B.V."
+        assert result["match_status"] == "needs_review"
+        assert result.get("iban_mismatch") is True
+        assert result.get("iban") == "NL31RABO01234567890"
+        info = result.get("match_info") or {}
+        assert info.get("iban_mismatch") is True
+        assert info.get("iban_match") is False
 
 
 class TestMatchInfo:

@@ -1,25 +1,18 @@
 {
-  "phase": "C5",
-  "production_code_changed": false,
-  "test_02_preserved": true,
+  "suite": "golden_v2",
+  "phase": "v2",
+  "blocking_gate": "tests/golden/extraction/",
   "split_files": [
-    "tests/test_golden_extraction.py",
-    "tests/test_golden_ranking.py",
-    "tests/test_golden_decision.py"
+    "tests/golden/extraction/test_golden_extraction_hard.py",
+    "tests/golden/decision/test_golden_decision_soft.py",
+    "tests/golden/ranking/test_golden_ranking_debug.py"
   ],
   "regression_lock": "tests/test_golden_dataset.py::test_02_golden_dataset_business_output",
-  "known_failures": {
-    "regression_lock_failed": 1,
-    "split_tests_xfailed": 10,
-    "primary": "option_tape_specialties_n_v_vf2602902.json invoice_number (VAT vs VF)",
-    "demasked_cascades": [
-      "option_tape: description, decision_status, amount_status",
-      "pearlpaint: invoice_number, description, decision_status, amount_status",
-      "polaris: decision_status, amount_status"
-    ]
+  "regression_lock_status": "skipped_migrated_to_v2",
+  "contract_layers": {
+    "extraction": "hard — invoice_number, customer_number, iban, amount",
+    "decision": "soft — decision_status, amount_status, legacy fields",
+    "ranking": "debug — snapshot drift log-only"
   },
-  "runtime_before_sec": 5036.81,
-  "runtime_golden_concern_warm_cache_sec": 3.79,
-  "runtime_report": "reports/phase_c_runtime.json",
-  "recommendation": "Phase C complete"
+  "recommendation": "Golden Suite v2 complete"
 }

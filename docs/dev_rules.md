@@ -124,6 +124,26 @@ De golden dataset is de enige bron van waarheid voor engine-output correctheid.
 
 Elke wijziging buiten de UI-laag MOET gevalideerd worden tegen de golden dataset.
 
+**Golden Suite v2 — drie contractlagen**
+
+| Laag | Pad | Contract | CI-blokkering |
+|------|-----|----------|-----------------|
+| Extraction (hard) | `tests/golden/extraction/` | `invoice_number`, `customer_number`, `iban`, `amount` — exact match | **JA** |
+| Decision (soft) | `tests/golden/decision/` | `decision_status`, `amount_status`, legacy velden — mismatch = warning | Nee |
+| Ranking (debug) | `tests/golden/ranking/` | snapshot drift — log only | Nee |
+
+Blocking gate (minimaal verplicht na parser/engine-wijzigingen):
+
+```bash
+python3 -m pytest tests/golden/extraction/
+```
+
+Volledige golden v2 (alleen extraction faalt hard):
+
+```bash
+python3 -m pytest tests/golden/
+```
+
 13. VERPLICHTE TEST TRIGGER (HARD)
 
 Na ELKE wijziging in één van deze gebieden:
@@ -141,7 +161,9 @@ python3 -m pytest
 
 OF minimaal:
 
-golden dataset test suite
+```bash
+python3 -m pytest tests/golden/extraction/
+```
 
 14. NO TEST = INVALID CHANGE (HARD BLOCK)
 
@@ -152,6 +174,12 @@ Als de golden dataset tests niet zijn gedraaid:
 ❌ geen verdere development toegestaan
 
 15. GOLDEN DATASET MISMATCH = STOP (HARD)
+
+**Hard contract (extraction):** mismatch op `invoice_number`, `customer_number`, `iban` of `amount` = STOP.
+
+**Soft contract (decision/legacy):** mismatch op status of secundaire velden = onderzoeken, geen automatische CI-block.
+
+**Debug (ranking):** snapshot drift = signaal only, geen fail.
 
 Als golden dataset output verandert:
 

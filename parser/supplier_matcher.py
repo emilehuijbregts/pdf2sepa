@@ -549,6 +549,12 @@ def match_suppliers(invoices: list[dict], db: SupplierDB) -> list[dict]:
                 )
                 invoice_copy["extraction_source"] = "generic"
                 invoice_copy["profile_fields"] = []
+            extraction_profile = db.get_extraction_profile(supplier["name"])
+            if isinstance(extraction_profile, dict):
+                invoice_copy["extraction_profile"] = extraction_profile
+            from parser.pdf_parser import apply_customer_number_profile_override
+
+            apply_customer_number_profile_override(invoice_copy, extraction_profile)
         else:
             inv_iban = str(invoice.get("iban") or "").strip()
             inv_hint = str(invoice.get("supplier_hint") or "").strip()

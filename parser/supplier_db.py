@@ -43,6 +43,16 @@ def customer_number_mode_from_profile(profile: dict | None) -> str | None:
     return None
 
 
+def customer_number_profile_locked(profile: dict | None) -> bool:
+    """True when the supplier extraction profile write-locks customer_number (mode NONE)."""
+    return customer_number_mode_from_profile(profile) == CUSTOMER_NUMBER_MODE_NONE
+
+
+def supplier_customer_number_locked(db: "SupplierDB", supplier_name: str) -> bool:
+    """DB lookup: whether customer_number is write-locked for this supplier."""
+    return customer_number_profile_locked(db.get_extraction_profile(supplier_name))
+
+
 def infer_customer_number_mode_from_result(result: dict | None) -> str | None:
     """Map a finalized customer_number_result snapshot to a profile mode."""
     if not isinstance(result, dict):
@@ -452,6 +462,7 @@ class SupplierDB:
         """
         empty_info: dict = {
             "iban_match": False,
+            "iban_mismatch": False,
             "alias_match": False,
             "fuzzy_match": False,
             "fuzzy_score": 0.0,
@@ -484,16 +495,11 @@ class SupplierDB:
                 if iban_clean:
                     sup_iban = self._clean_iban(s.get("iban") or "")
                     if sup_iban and iban_clean != sup_iban:
-                        rejection_reasons.append("iban_mismatch_reject")
-                        rejected.append(
-                            {
-                                "supplier": supplier_name,
-                                "reasons": rejection_reasons,
-                                "flags": dict(info),
-                            }
-                        )
-                        continue
-                    if sup_iban and iban_clean == sup_iban:
+                        # Soft mismatch: other identity signals may still match; resolver
+                        # keeps DB IBAN and UI may prompt to update supplier master data.
+                        info["iban_mismatch"] = True
+                        reasons.append("iban_mismatch")
+                    elif sup_iban and iban_clean == sup_iban:
                         info["iban_match"] = True
                         reasons.append("iban_match")
 
@@ -579,6 +585,16 @@ class SupplierDB:
                         }
                     )
                     continue
+                if info.get("iban_mismatch") and n < 2:
+                    rejection_reasons.append("iban_mismatch_insufficient_signals")
+                    rejected.append(
+                        {
+                            "supplier": supplier_name,
+                            "reasons": rejection_reasons,
+                            "flags": dict(info),
+                        }
+                    )
+                    continue
                 if n <= 0:
                     rejection_reasons.append("no_match_signals")
                     rejected.append(
@@ -640,6 +656,19 @@ class SupplierDB:
 
         except Exception:
             return None, dict(empty_info)
+
+    def supplier_exists_by_name(self, name: str) -> bool:
+        """Return True when a supplier record exists for the cleaned canonical name."""
+        try:
+            target_clean = self._clean_name(name)
+            if not target_clean:
+                return False
+            for s in self.suppliers:
+                if self._clean_name(s.get("name") or "") == target_clean:
+                    return True
+            return False
+        except Exception:
+            return False
 
     def find_supplier(
         self,
@@ -828,7 +857,9 @@ class SupplierDB:
                 if cand is not None and strong_identity:
                     existing = cand
             if existing is not None:
-                if code_raw:
+                ep = existing.get("extraction_profile")
+                cust_locked = customer_number_profile_locked(ep if isinstance(ep, dict) else None)
+                if code_raw and not cust_locked:
                     merged = list(existing.get("customer_codes") or [])
                     if not isinstance(merged, list):
                         merged = []
@@ -868,12 +899,15 @@ class SupplierDB:
                 return True
 
             n_before = len(self.suppliers)
+            add_codes: list[str] = []
+            if code_raw:
+                add_codes = [code_raw]
             self.add_supplier(
                 name,
                 iban,
                 discount,
                 aliases=[name],
-                customer_codes=[code_raw] if code_raw else [],
+                customer_codes=add_codes,
                 vat_numbers=[vat_raw] if vat_raw else [],
                 kvk_numbers=[kvk_raw] if kvk_raw else [],
                 email_domains=[dom_raw] if dom_raw else [],
@@ -1218,6 +1252,9 @@ class SupplierDB:
                 or customer_number_mode_from_profile(profile)
             )
             mode_none = mode == CUSTOMER_NUMBER_MODE_NONE
+
+            if mode_none:
+                validated_fields.pop("customer_number", None)
 
             if not validated_fields and not mode_none:
                 logger.warning(

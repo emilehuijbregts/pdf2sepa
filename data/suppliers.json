@@ -12,9 +12,16 @@
       "customer_codes": [
         "1012146"
       ],
-      "vat_numbers": [],
-      "kvk_numbers": [],
-      "email_domains": []
+      "vat_numbers": [
+        "NL001580486B01"
+      ],
+      "kvk_numbers": [
+        "05025930"
+      ],
+      "email_domains": [
+        "wavin.com"
+      ],
+      "default_payment_term_days": 8
     },
     {
       "name": "SALO B.V.",
@@ -26,9 +33,16 @@
       "customer_codes": [
         "3503"
       ],
-      "vat_numbers": [],
-      "kvk_numbers": [],
-      "email_domains": []
+      "vat_numbers": [
+        "NL863538587B01"
+      ],
+      "kvk_numbers": [
+        "85183687"
+      ],
+      "email_domains": [
+        "salo.nl"
+      ],
+      "default_payment_term_days": 0
     },
     {
       "name": "Bosta B.V.",
@@ -59,9 +73,16 @@
       "customer_codes": [
         "3903168"
       ],
-      "vat_numbers": [],
-      "kvk_numbers": [],
-      "email_domains": []
+      "vat_numbers": [
+        "NL004502863B01"
+      ],
+      "kvk_numbers": [
+        "38235014"
+      ],
+      "email_domains": [
+        "technischeunie.cof"
+      ],
+      "default_payment_term_days": 7
     },
     {
       "name": "2ba",
@@ -1081,6 +1102,662 @@
       ],
       "email_domains": [
         "pmcoded.nl"
+      ]
+    },
+    {
+      "name": "DG Europe B.V.",
+      "iban": "NL31RABO0172459192",
+      "discount": 0.0,
+      "aliases": [
+        "DG Europe B.V."
+      ],
+      "customer_codes": [],
+      "default_payment_term_days": 0,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL860176113B01"
+      ],
+      "kvk_numbers": [
+        "75187760"
+      ],
+      "email_domains": [
+        "qblades.com"
+      ],
+      "extraction_profile": {
+        "learned_from": "Qblades INV_2026_00364.pdf",
+        "amount": {
+          "strategy": "derived_excl_plus_vat",
+          "label_excl": "Excl. btw",
+          "label_btw": "BTW 21%",
+          "confirmed_value": "397.24",
+          "confidence": 100
+        },
+        "customer_number_mode": "NONE"
+      }
+    },
+    {
+      "name": "VTE Smarter Solutions B.V.",
+      "iban": "NL38INGB0675408105",
+      "discount": 0.0,
+      "aliases": [
+        "VTE Smarter Solutions B.V."
+      ],
+      "customer_codes": [],
+      "default_payment_term_days": 0,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL809101178B01"
+      ],
+      "kvk_numbers": [],
+      "email_domains": [
+        "vte-smartersolutions.com"
+      ]
+    },
+    {
+      "name": "REMS",
+      "iban": "DE86600501010405684227",
+      "discount": 0.0,
+      "aliases": [
+        "REMS"
+      ],
+      "customer_codes": [
+        "046769"
+      ],
+      "default_payment_term_days": 0,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "DE8660050101"
+      ],
+      "kvk_numbers": [],
+      "email_domains": [
+        "rems.de"
+      ]
+    },
+    {
+      "name": "Technisch Handelsbureau Rensa B.V.",
+      "iban": "NL77RABO0384373100",
+      "discount": 0.0,
+      "aliases": [
+        "Technisch Handelsbureau Rensa B.V."
+      ],
+      "customer_codes": [
+        "017650"
+      ],
+      "default_payment_term_days": 0,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL005977915B01"
+      ],
+      "kvk_numbers": [
+        "09051635"
+      ],
+      "email_domains": [
+        "rensa.nl"
+      ],
+      "extraction_profile": {
+        "learned_from": "Rensa 017650_26033768.pdf",
+        "vat_number": {
+          "label": "BTW-nummer",
+          "strategy": "same_line_after_colon",
+          "confirmed_value": "NL005977915B01",
+          "confidence": 100
+        },
+        "email_domain": {
+          "label": "E-mail",
+          "strategy": "same_line_after_colon",
+          "confirmed_value": "rensa.nl",
+          "confidence": 100
+        }
+      }
+    },
+    {
+      "name": "Rexel Nederland B.V.",
+      "iban": "NL96INGB0666763100",
+      "discount": 0.0,
+      "aliases": [
+        "Rexel Nederland B.V."
+      ],
+      "customer_codes": [
+        "52111087"
+      ],
+      "default_payment_term_days": 0,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL805119607B01"
+      ],
+      "kvk_numbers": [
+        "24267850"
+      ],
+      "email_domains": [
+        "rexel.nl"
+      ]
+    },
+    {
+      "name": "Factuur Roba Metals B.V.",
+      "iban": "NL02ABNA0556739590",
+      "discount": 0.0,
+      "aliases": [
+        "Factuur Roba Metals B.V."
+      ],
+      "customer_codes": [
+        "C05630"
+      ],
+      "default_payment_term_days": 0,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL007469184B01"
+      ],
+      "kvk_numbers": [
+        "30073109"
+      ],
+      "email_domains": [
+        "robametals.com"
+      ]
+    },
+    {
+      "name": "S for Software",
+      "iban": "NL17RABO0100918549",
+      "discount": 0.0,
+      "aliases": [
+        "S for Software"
+      ],
+      "customer_codes": [
+        "3267"
+      ],
+      "default_payment_term_days": 0,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL855554381B01"
+      ],
+      "kvk_numbers": [
+        "64172023"
+      ],
+      "email_domains": [
+        "sforsoftware.nl"
+      ]
+    },
+    {
+      "name": "SAMEDIA",
+      "iban": "DE87512108005895011200",
+      "discount": 0.0,
+      "aliases": [
+        "SAMEDIA"
+      ],
+      "customer_codes": [
+        "58181"
+      ],
+      "default_payment_term_days": 0,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "DE141994165"
+      ],
+      "kvk_numbers": [],
+      "email_domains": [
+        "samedia.com"
+      ]
+    },
+    {
+      "name": "Sanha",
+      "iban": "BE38370115758372",
+      "discount": 2.0,
+      "aliases": [
+        "Sanha"
+      ],
+      "customer_codes": [
+        "1004563"
+      ],
+      "default_payment_term_days": 14,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "BE0434581477"
+      ],
+      "kvk_numbers": [],
+      "email_domains": [
+        "sanha.com"
+      ]
+    },
+    {
+      "name": "Schoonwijk",
+      "iban": "NL80RABO0198899637",
+      "discount": 0.0,
+      "aliases": [
+        "Schoonwijk"
+      ],
+      "customer_codes": [
+        "269"
+      ],
+      "default_payment_term_days": 1,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL866632281B01"
+      ],
+      "kvk_numbers": [
+        "94090165"
+      ],
+      "email_domains": [
+        "schoonwijk.nl"
+      ]
+    },
+    {
+      "name": "SealEco B.V.",
+      "iban": "NL17RABO0114964246",
+      "discount": 0.0,
+      "aliases": [
+        "SealEco B.V."
+      ],
+      "customer_codes": [
+        "100844"
+      ],
+      "default_payment_term_days": 30,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL805708480B01"
+      ],
+      "kvk_numbers": [
+        "05059245"
+      ],
+      "email_domains": [
+        "sealeco.nl"
+      ]
+    },
+    {
+      "name": "SF-ICT B.V.",
+      "iban": "NL14SNSB0924226188",
+      "discount": 0.0,
+      "aliases": [
+        "SF-ICT B.V."
+      ],
+      "customer_codes": [],
+      "default_payment_term_days": 14,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL855376600B01"
+      ],
+      "kvk_numbers": [
+        "63734044"
+      ],
+      "email_domains": [
+        "sf-ict.nl"
+      ],
+      "extraction_profile": {
+        "learned_from": "SF inv26800314.pdf",
+        "invoice_number": {
+          "label": "Factuurnummer: ",
+          "strategy": "same_line_after_colon",
+          "confirmed_value": "26800314",
+          "confidence": 100
+        },
+        "amount": {
+          "label": "Totaal (incl.BTW)",
+          "strategy": "same_line_last_amount",
+          "confirmed_value": "614.93",
+          "confidence": 100
+        }
+      }
+    },
+    {
+      "name": "Solar Nederland B.V.",
+      "iban": "NL19INGB0651444888",
+      "discount": 0.0,
+      "aliases": [
+        "Solar Nederland B.V."
+      ],
+      "customer_codes": [
+        "2075618"
+      ],
+      "default_payment_term_days": 30,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL001302668B01"
+      ],
+      "kvk_numbers": [
+        "09013687"
+      ],
+      "email_domains": [
+        "solarnederland.nl.solar"
+      ],
+      "extraction_profile": {
+        "learned_from": "Solar_factuur_2911621756.pdf",
+        "amount": {
+          "label": "Factuurbedrag",
+          "strategy": "same_line_last_amount",
+          "confirmed_value": "1452.92",
+          "confidence": 100
+        },
+        "customer_number": {
+          "label": "Klantnummer",
+          "strategy": "same_line_after_colon",
+          "confirmed_value": "2075618",
+          "confidence": 100
+        }
+      }
+    },
+    {
+      "name": "SST",
+      "iban": "NL11INGB0007651085",
+      "discount": 0.0,
+      "aliases": [
+        "SST"
+      ],
+      "customer_codes": [
+        "9080"
+      ],
+      "default_payment_term_days": 30,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL817018116B01"
+      ],
+      "kvk_numbers": [
+        "17159422"
+      ],
+      "email_domains": [
+        "sst-benelux.nl"
+      ]
+    },
+    {
+      "name": "Tegeka Dakmaterialen B.V.",
+      "iban": "NL07RABO0375294384",
+      "discount": 0.0,
+      "aliases": [
+        "Tegeka Dakmaterialen B.V."
+      ],
+      "customer_codes": [
+        "10476"
+      ],
+      "default_payment_term_days": 30,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL809512208B01"
+      ],
+      "kvk_numbers": [
+        "30171071"
+      ],
+      "email_domains": [
+        "tegeka.nl"
+      ]
+    },
+    {
+      "name": "Tibuplast B.V.",
+      "iban": "NL78INGB0675940400",
+      "discount": 0.0,
+      "aliases": [
+        "Tibuplast B.V."
+      ],
+      "customer_codes": [
+        "12993485"
+      ],
+      "default_payment_term_days": 30,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL808917377B01"
+      ],
+      "kvk_numbers": [
+        "17125343"
+      ],
+      "email_domains": [
+        "tibuplast.nl"
+      ]
+    },
+    {
+      "name": "Tilmar B.V.",
+      "iban": "NL52INGB0685114546",
+      "discount": 0.0,
+      "aliases": [
+        "11-4-2026 Rr Tilmar BV",
+        "Tilmar B.V."
+      ],
+      "customer_codes": [
+        "13009666"
+      ],
+      "default_payment_term_days": 30,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL812382705B01"
+      ],
+      "kvk_numbers": [
+        "04071530"
+      ],
+      "email_domains": [
+        "tilmar.nl"
+      ]
+    },
+    {
+      "name": "Ubbink B.V.",
+      "iban": "NL71INGB0674192974",
+      "discount": 2.0,
+      "aliases": [
+        "Ubbink B.V."
+      ],
+      "customer_codes": [
+        "101900683"
+      ],
+      "default_payment_term_days": 15,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL001204907B01"
+      ],
+      "kvk_numbers": [
+        "09036422"
+      ],
+      "email_domains": [
+        "ubbink.nl"
+      ]
+    },
+    {
+      "name": "Van den Borne B.V.",
+      "iban": "NL73RABO0152910123",
+      "discount": 0.0,
+      "aliases": [
+        "Van den Borne B.V."
+      ],
+      "customer_codes": [
+        "410-001724"
+      ],
+      "default_payment_term_days": 30,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL007561726B01"
+      ],
+      "kvk_numbers": [
+        "17054352"
+      ],
+      "email_domains": [
+        "vandenborne.nl"
+      ]
+    },
+    {
+      "name": "Van Gestel Dakbedekking B.V.",
+      "iban": "NL26RABO0106995243",
+      "discount": 0.0,
+      "aliases": [
+        "Van Gestel Dakbedekking BV",
+        "Van Gestel Dakbedekking B.V."
+      ],
+      "customer_codes": [
+        "11127"
+      ],
+      "default_payment_term_days": 14,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL860132894B01"
+      ],
+      "kvk_numbers": [
+        "75077558"
+      ],
+      "email_domains": [
+        "vangesteldakbedekking.nl"
+      ]
+    },
+    {
+      "name": "Van Walraven B.V.",
+      "iban": "NL27RABO0135262577",
+      "discount": 0.0,
+      "aliases": [
+        "Habraken Van Walraven B.V.",
+        "Van Walraven B.V."
+      ],
+      "customer_codes": [
+        "801083"
+      ],
+      "default_payment_term_days": 14,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL009432395B01"
+      ],
+      "kvk_numbers": [
+        "16037183"
+      ],
+      "email_domains": [
+        "vanwalraven.com"
+      ]
+    },
+    {
+      "name": "Henrie van der Donk Timmer- en onderhoudswerk",
+      "iban": "NL15RABO0133696146",
+      "discount": 0.0,
+      "aliases": [
+        "Henrie van der Donk Timmer- en onderhoudswerk"
+      ],
+      "customer_codes": [],
+      "default_payment_term_days": 14,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL148658982B01"
+      ],
+      "kvk_numbers": [
+        "17158094"
+      ],
+      "email_domains": [
+        "home.nl"
+      ]
+    },
+    {
+      "name": "VentTrade International BV,",
+      "iban": "NL25RABO0309081084",
+      "discount": 0.0,
+      "aliases": [
+        "VentTrade International BV,"
+      ],
+      "customer_codes": [],
+      "default_payment_term_days": 30,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL808406115B01"
+      ],
+      "kvk_numbers": [
+        "13043168"
+      ],
+      "email_domains": [
+        "venttrade.com"
+      ]
+    },
+    {
+      "name": "Vermetten Loonadvies B.V.",
+      "iban": "NL41RABO0323466575",
+      "discount": 0.0,
+      "aliases": [
+        "Vermetten Loonadvies B.V."
+      ],
+      "customer_codes": [
+        "118014"
+      ],
+      "default_payment_term_days": 15,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL857963661B01"
+      ],
+      "kvk_numbers": [
+        "69675171"
+      ],
+      "email_domains": [
+        "vermetten.nl"
+      ]
+    },
+    {
+      "name": "VT accountants B.V.",
+      "iban": "NL53RABO0108671402",
+      "discount": 0.0,
+      "aliases": [
+        "VT accountants B.V."
+      ],
+      "customer_codes": [
+        "12001"
+      ],
+      "default_payment_term_days": 30,
+      "vat_rate": 21,
+      "vat_numbers": [],
+      "kvk_numbers": [
+        "32027802"
+      ],
+      "email_domains": [
+        "vtaccountants.nl"
+      ]
+    },
+    {
+      "name": "Wasco Groothandelsgroep B.V.",
+      "iban": "NL43INGB0675875943",
+      "discount": 0.0,
+      "aliases": [
+        "3782440 Wasco Groothandelsgroep B.V.",
+        "Wasco Groothandelsgroep B.V."
+      ],
+      "customer_codes": [
+        "20115"
+      ],
+      "default_payment_term_days": 30,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NR08055426"
+      ],
+      "kvk_numbers": [
+        "08055426"
+      ],
+      "email_domains": [
+        "wasco.nl"
+      ]
+    },
+    {
+      "name": "Wentzel B.V.",
+      "iban": "NL87ABNA0466392842",
+      "discount": 1.5,
+      "aliases": [
+        "Wentzel B.V."
+      ],
+      "customer_codes": [
+        "994"
+      ],
+      "default_payment_term_days": 14,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL808310288B01"
+      ],
+      "kvk_numbers": [
+        "34116979"
+      ],
+      "email_domains": [
+        "wentzel.nl"
+      ]
+    },
+    {
+      "name": "Zettex Europe B.V.",
+      "iban": "NL54ABNA0141473894",
+      "discount": 0.0,
+      "aliases": [
+        "Zettex Europe B.V."
+      ],
+      "customer_codes": [
+        "521628"
+      ],
+      "default_payment_term_days": 30,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL809483403B01"
+      ],
+      "kvk_numbers": [
+        "24316789"
+      ],
+      "email_domains": [
+        "zettex.com"
       ]
     }
   ]

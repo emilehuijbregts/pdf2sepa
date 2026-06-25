@@ -1,15 +1,24 @@
-"""Phase C — golden extraction concern tests (mirrors test_02 field sources)."""
+"""
+Golden Suite v2 split:
+
+- extraction = hard contract (must never break)
+- decision = soft behavior contract (allowed to evolve)
+- ranking = debug signal only (non-blocking)
+
+This prevents engine improvements from causing false regressions.
+"""
 
 from __future__ import annotations
+
+from decimal import Decimal
 
 import pytest
 
 from tests.golden_test_support import (
-    EXTRACTION_FIELDS,
+    HARD_EXTRACTION_FIELDS,
     PipelineOutput,
     golden_actual,
     golden_expected,
-    is_known_golden_field_failure,
     iter_golden_cases,
     iter_profile_field_cases,
     load_pipeline_with_payments,
@@ -29,7 +38,7 @@ def pipeline_output() -> PipelineOutput:
 
 
 def _golden_extraction_params() -> list[tuple[object, str]]:
-    return [(case, field) for case in iter_golden_cases() for field in EXTRACTION_FIELDS]
+    return [(case, field) for case in iter_golden_cases() for field in HARD_EXTRACTION_FIELDS]
 
 
 def _profile_extraction_params() -> list[object]:
@@ -38,12 +47,13 @@ def _profile_extraction_params() -> list[object]:
 
 @pytest.mark.parametrize(("golden_case", "field"), _golden_extraction_params())
 def test_extraction_field(golden_case, field: str, pipeline_output: PipelineOutput) -> None:
-    if is_known_golden_field_failure(golden_case, field):
-        pytest.xfail("pre-existing golden mismatch; demasked by Phase C atomic test")
     inv = pipeline_output.invoices_by_pdf.get(golden_case.source_file)
     pay = pipeline_output.payments_by_pdf.get(golden_case.source_file)
     expected = golden_expected(golden_case, field)
     actual = golden_actual(golden_case, field, inv, pay) if inv is not None else None
+    if field == "amount" and actual is not None:
+        expected = str(Decimal(str(expected)).quantize(Decimal("0.01")))
+        actual = str(Decimal(str(actual)).quantize(Decimal("0.01")))
     assert inv is not None and actual == expected, (
         f"Golden extraction mismatch:\n\n"
         f"File: {golden_case.json_path.name}\n\n"

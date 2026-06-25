@@ -1,4 +1,4 @@
-"""Read-only helpers for golden concern-split tests (Phase C). No pytest fixtures."""
+"""Read-only helpers for golden concern-split tests (Golden Suite v2). No pytest fixtures."""
 
 from __future__ import annotations
 
@@ -39,42 +39,33 @@ MATCHED_CACHE_FILE = CACHE_DIR / "golden_matched_v1.pkl"
 PIPELINE_CACHE_FILE = CACHE_DIR / "golden_pipeline_v1.pkl"
 SNAPSHOT_PATH = APP_BASE / "tests" / "snapshots" / "phase_a_ranking_snapshot.json"
 
-EXTRACTION_FIELDS: tuple[str, ...] = (
+HARD_EXTRACTION_FIELDS: tuple[str, ...] = (
     "invoice_number",
-    "supplier_name",
+    "customer_number",
     "iban",
-    "customer_code",
+    "amount",
+)
+
+SOFT_DECISION_FIELDS: tuple[str, ...] = (
+    "decision_status",
+    "amount_status",
+)
+
+SOFT_LEGACY_FIELDS: tuple[str, ...] = (
+    "supplier_name",
     "description",
     "invoice_date",
     "payment_terms_days",
     "discount_percentage",
 )
 
-DECISION_FIELDS: tuple[str, ...] = (
-    "amount",
-    "decision_status",
-    "amount_status",
-)
+SOFT_GOLDEN_FIELDS: tuple[str, ...] = SOFT_DECISION_FIELDS + SOFT_LEGACY_FIELDS
 
-# Pre-existing mismatches demasked by atomic split tests (test_02 stops at first failure).
-KNOWN_GOLDEN_FIELD_FAILURES: frozenset[tuple[str, str]] = frozenset(
-    {
-        ("option_tape_specialties_n_v_vf2602902.json", "invoice_number"),
-        ("option_tape_specialties_n_v_vf2602902.json", "description"),
-        ("option_tape_specialties_n_v_vf2602902.json", "decision_status"),
-        ("option_tape_specialties_n_v_vf2602902.json", "amount_status"),
-        ("pearlpaint_b_v_2610i000151.json", "invoice_number"),
-        ("pearlpaint_b_v_2610i000151.json", "description"),
-        ("pearlpaint_b_v_2610i000151.json", "decision_status"),
-        ("pearlpaint_b_v_2610i000151.json", "amount_status"),
-        ("polaris_8035714.json", "decision_status"),
-        ("polaris_8035714.json", "amount_status"),
-    }
-)
+# Deprecated aliases (Phase C)
+EXTRACTION_FIELDS: tuple[str, ...] = HARD_EXTRACTION_FIELDS + SOFT_LEGACY_FIELDS
+DECISION_FIELDS: tuple[str, ...] = ("amount",) + SOFT_DECISION_FIELDS
 
-
-def is_known_golden_field_failure(case: GoldenCase, field: str) -> bool:
-    return (case.json_path.name, field) in KNOWN_GOLDEN_FIELD_FAILURES
+_PARSER_FINGERPRINT_ROOT = APP_BASE / "parser"
 
 _RESULT_KEY_BY_FIELD: dict[FieldId, str] = {
     "amount": "amount_result",
@@ -173,6 +164,10 @@ def _matched_cache_fingerprint() -> str:
         for pdf in sorted(GOLDEN_PDFS_DIR.glob("*.pdf")):
             st = pdf.stat()
             parts.append(f"{pdf.name}:{st.st_mtime_ns}:{st.st_size}")
+    if _PARSER_FINGERPRINT_ROOT.is_dir():
+        for py in sorted(_PARSER_FINGERPRINT_ROOT.rglob("*.py")):
+            st = py.stat()
+            parts.append(f"parser/{py.relative_to(_PARSER_FINGERPRINT_ROOT)}:{st.st_mtime_ns}:{st.st_size}")
     suppliers_path = user_data_dir() / "suppliers.json"
     if suppliers_path.is_file():
         st = suppliers_path.stat()
@@ -361,7 +356,7 @@ def golden_expected(case: GoldenCase, field: str) -> object:
         return normalize_text(g.get("supplier_name"))
     if field == "iban":
         return normalize_iban(g.get("iban"))
-    if field == "customer_code":
+    if field == "customer_code" or field == "customer_number":
         return normalize_text(g.get("customer_code"))
     if field == "description":
         return normalize_text(g.get("description"))
@@ -405,7 +400,7 @@ def golden_actual(
         return normalize_text(inv.get("supplier_name") or pay.get("supplier_name"))
     if field == "iban":
         return normalize_iban(pay.get("iban") or inv.get("iban"))
-    if field == "customer_code":
+    if field == "customer_code" or field == "customer_number":
         return normalize_text(inv.get("customer_number"))
     if field == "description":
         return normalize_text(pay.get("description") or inv.get("description"))

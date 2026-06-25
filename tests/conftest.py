@@ -5,8 +5,16 @@ from pathlib import Path
 
 
 def pytest_configure(config) -> None:
-    config.addinivalue_line("markers", "golden: golden dataset concern-split tests (Phase C)")
+    config.addinivalue_line("markers", "golden: golden dataset concern-split tests (Golden Suite v2)")
     config.addinivalue_line("markers", "golden_slow: golden tests that load PDF folder pipeline")
+    config.addinivalue_line(
+        "markers",
+        "soft: golden behavior contract — mismatch is warning, not CI failure",
+    )
+    config.addinivalue_line(
+        "markers",
+        "debug: golden ranking snapshot — log-only, never blocks CI",
+    )
 
     """
     Ensure pytest uses the same vendored dependencies as headless scripts.

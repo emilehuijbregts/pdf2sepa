@@ -28,6 +28,7 @@ from parser.pdf_parser import (
     _VAT_EU_FALLBACK_RE,
     _VAT_LABEL_RE,
     _VAT_RE,
+    _IBAN_ISO_LENGTH_BY_CC,
     _compact_nl_vat_token,
     _is_noise_value,
     _looks_like_date_token,
@@ -409,9 +410,10 @@ def _ensure_candidate_explainability(
             match_type = _infer_match_type(cand.source)
             meta["match_type"] = match_type
         label_source = str(meta.get("label_source") or "").strip()
-        if not label_source:
-            label_source = str(cand.label or "").strip() or str(cand.source or "").strip()
-            meta["label_source"] = label_source
+        if not label_source and match_type == "label":
+            label_source = str(cand.label or "").strip()
+            if label_source:
+                meta["label_source"] = label_source
         cand.meta = meta
     return cands
 
@@ -1204,6 +1206,29 @@ def _line_has_plausible_iban(line: str) -> bool:
     return False
 
 
+_REJECT_PRODUCT_LINE_IBAN_RE = re.compile(
+    r"(?i)(?:"
+    r"\d{3}/\d{2}\s+YR\d{2}\s+TL|"
+    r"\b(?:omschrijving|stuk\s*prijs|aantal)\b.*\b(?:PRIMACY|MO\s*XL)\b|"
+    r"\b(?:PRIMACY|MO\s*XL)\b.*\b(?:omschrijving|stuk\s*prijs|aantal)\b"
+    r")"
+)
+
+
+def _iban_candidate_ok(value: str, *, context: str = "") -> bool:
+    from logic.validation import clean_iban, is_plausible_iban
+
+    iban = clean_iban(value)
+    if not iban or not is_plausible_iban(iban):
+        return False
+    if iban[:2].upper() not in _IBAN_ISO_LENGTH_BY_CC:
+        return False
+    ctx = str(context or "")
+    if _REJECT_PRODUCT_LINE_IBAN_RE.search(ctx):
+        return False
+    return True
+
+
 def _normalize_eu_vat_fallback(country: str, body: str) -> str | None:
     cc = str(country or "").upper()
     if len(cc) != 2:
@@ -1459,6 +1484,7 @@ def _invoice_candidate_ok(
     line: str = "",
     label: str = "",
     context: str = "",
+    source: str = "",
     internal_vat_blacklist: frozenset[str] | None = None,
 ) -> bool:
     raw = str(value or "").strip()
@@ -1487,7 +1513,13 @@ def _invoice_candidate_ok(
         return False
     digits = re.sub(r"\D", "", raw)
     if raw.isdigit() and len(digits) < 5:
-        return False
+        short_digit_ok = (
+            len(digits) == 4
+            and source in ("label", "label_block", "extra")
+            and bool(_EXPLICIT_INVOICE_LABEL_RE.search(label))
+        )
+        if not short_digit_ok:
+            return False
     if not re.search(r"\d", raw):
         return False
     return bool(
@@ -1513,11 +1545,16 @@ def _filter_invoice_number_candidates(
             continue
         pos = text.find(val)
         line = _line_at_pos(text, pos) if pos >= 0 else (cand.context or "")
+        effective_label = str(cand.label or "")
+        if str(cand.source or "").startswith("header_table_"):
+            # Volledige kopregel kan BTW/Klant-kolommen bevatten; geen VAT-context voor waarde.
+            effective_label = ""
         if _invoice_candidate_ok(
             val,
             line=line,
-            label=str(cand.label or ""),
+            label=effective_label,
             context=str(cand.context or ""),
+            source=str(cand.source or ""),
             internal_vat_blacklist=blacklist,
         ):
             out.append(cand)
@@ -1697,10 +1734,53 @@ def _line_looks_like_label_not_value(line: str) -> bool:
         ln,
     ):
         return True
+    if re.search(r"(?i)\baanschrijving\b", ln):
+        return True
     if re.search(r"(?i)\b(?:totaal|te\s+betalen)\b", ln) and re.search(
         r"(?i)\b(?:eur|€)\b", ln
     ):
         return True
+    return False
+
+
+def _line_looks_like_prose_not_table_header(hdr: str) -> bool:
+    """Disclaimer/zin met factuur/klant — geen tabulaire kopregel."""
+    ln = (hdr or "").lower()
+    if any(
+        p in ln
+        for p in (
+            "dubbel uitgereikt",
+            "originele factuur",
+            "aanvraag van de klant",
+            "aanschrijving",
+        )
+    ):
+        return True
+    if len(ln) > 90 and re.search(r"\bfactuur\b", ln):
+        words = re.findall(r"[A-Za-z]+", ln)
+        col_words = sum(
+            1
+            for w in words
+            if w
+            in (
+                "factuurnr",
+                "factuurnummer",
+                "klant",
+                "klantnummer",
+                "klantnr",
+                "debiteur",
+                "datum",
+                "factuurdatum",
+                "betaler",
+                "relatie",
+                "ordernummer",
+                "referentie",
+            )
+            or "factuurnr" in w
+            or w.startswith("klant")
+        )
+        if col_words < 3 and len(words) > 10:
+            return True
     return False
 
 
@@ -1746,9 +1826,59 @@ def _parse_table_row_tokens(val_line: str) -> list[str]:
         digits = re.sub(r"\D", "", clean_tok)
         if len(digits) >= 4:
             vals.append(clean_tok)
-    if vals and re.fullmatch(r"20\d{6}", vals[0]):
-        vals = vals[1:]
     return vals
+
+
+_HEADER_COLUMN_PATTERN_SPECS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (
+        re.compile(
+            r"(?i)factuurdatum|facturatiedatum|verzenddatum|vervaldatum|leverdatum|leverdt"
+        ),
+        "date",
+    ),
+    (
+        re.compile(r"(?i)factuurnummer|factuurnr\.?|faktuurnummer|faktuurnr\.?"),
+        "invoice",
+    ),
+    (
+        re.compile(
+            r"(?i)debiteurennummer|debiteurnr\.?|klantnummer|klantnr\.?|"
+            r"customer(?:\s*number)?|relatienummer|relatie\s*nr\.?"
+        ),
+        "customer",
+    ),
+    (re.compile(r"(?i)\bbetaler\b"), "customer"),
+)
+
+
+def _header_column_spans(hdr: str) -> list[tuple[int, str]]:
+    """Kolomvolgorde uit samengestelde koplabels (Factuurdatum ≠ Factuur + datum)."""
+    spans: list[tuple[int, str]] = []
+    used: list[tuple[int, int]] = []
+    for pattern, field_type in _HEADER_COLUMN_PATTERN_SPECS:
+        for m in pattern.finditer(hdr or ""):
+            start, end = m.start(), m.end()
+            if any(not (end <= s or start >= e) for s, e in used):
+                continue
+            spans.append((start, field_type))
+            used.append((start, end))
+    spans.sort(key=lambda x: x[0])
+    return spans
+
+
+def _span_column_value_index(spans: list[tuple[int, str]], field: str) -> int | None:
+    col_i = next((i for i, (_, ft) in enumerate(spans) if ft == field), None)
+    if col_i is None:
+        return None
+    date_before = sum(1 for i, (_, ft) in enumerate(spans) if i < col_i and ft == "date")
+    return col_i - date_before
+
+
+def _row_looks_like_amount_row(vals: list[str]) -> bool:
+    if not vals:
+        return False
+    amount_like = sum(1 for v in vals if re.fullmatch(r"\d+,\d{2}", v))
+    return amount_like >= 2 or (amount_like == 1 and len(vals) <= 3)
 
 
 def _shift_leading_phone_token(vals: list[str], hdr: str) -> list[str]:
@@ -1759,17 +1889,52 @@ def _shift_leading_phone_token(vals: list[str], hdr: str) -> list[str]:
     return vals
 
 
+def _header_alpha_words(hdr: str) -> list[str]:
+    return [w.lower() for w in re.findall(r"[A-Za-z]+", hdr or "")]
+
+
+def _is_date_header_word(w: str) -> bool:
+    return w in (
+        "datum",
+        "factuurdatum",
+        "facturatiedatum",
+        "verzenddatum",
+        "vervaldatum",
+        "leverdatum",
+        "leverdt",
+    ) or w.startswith("factuurdat")
+
+
+def _date_columns_before(words: list[str], col_i: int) -> int:
+    """Aantal datum-kolommen vóór ``col_i`` (waarderegel stript datums)."""
+    return sum(1 for i, w in enumerate(words) if i < col_i and _is_date_header_word(w))
+
+
+def _map_header_index_to_value_index(hdr: str, header_idx: int | None) -> int | None:
+    """Map kopregel-woordindex naar index in ``_parse_table_row_tokens``-uitvoer."""
+    if header_idx is None:
+        return None
+    words = _header_alpha_words(hdr)
+    if header_idx >= len(words):
+        return None
+    return header_idx - _date_columns_before(words, header_idx)
+
+
 def _header_word_indices(hdr: str) -> tuple[int | None, int | None]:
     """Index van factuur- en klant-kolom in kopregel (op woordvolgorde)."""
     words = [w.lower() for w in re.findall(r"[A-Za-z]+", hdr or "")]
     inv_i: int | None = None
     cust_i: int | None = None
+    bare_factuur_indices: list[int] = []
     for i, w in enumerate(words):
-        if inv_i is None and (
-            "factuurnr" in w
-            or w in ("factuurnummer", "faktuurnr", "faktuurnummer")
-            or (w == "factuur" and any(x in words for x in ("relatie", "datum", "nummer", "nr")))
-            or (w == "nummer" and "datum" not in words)
+        if "factuurnr" in w or w in ("factuurnummer", "faktuurnr", "faktuurnummer"):
+            inv_i = i
+        elif w == "factuur":
+            bare_factuur_indices.append(i)
+            if inv_i is None and any(x in words for x in ("relatie", "datum", "nummer", "nr")):
+                inv_i = i
+        elif inv_i is None and (
+            (w == "nummer" and "datum" not in words)
             or w == "invoice"
         ):
             inv_i = i
@@ -1787,8 +1952,17 @@ def _header_word_indices(hdr: str) -> tuple[int | None, int | None]:
                 "client",
             )
             or w.startswith("klant")
+            or w.startswith("debiteur")
         ):
             cust_i = i
+    if (
+        len(bare_factuur_indices) > 1
+        and cust_i is not None
+        and not re.search(r"(?i)factuurnummer|factuurnr", hdr or "")
+    ):
+        inv_i = bare_factuur_indices[-1]
+    elif inv_i is None and bare_factuur_indices:
+        inv_i = bare_factuur_indices[0]
     return inv_i, cust_i
 
 
@@ -1809,6 +1983,7 @@ def _collect_header_value_table_candidates(
         confidence: int,
         ctx: str,
         label: str,
+        ambiguous: bool = False,
     ) -> None:
         v = str(val or "").strip()
         if field_kind == "invoice_number":
@@ -1818,6 +1993,13 @@ def _collect_header_value_table_candidates(
             v = _normalize_customer_token(v)
             if not _customer_value_ok(v, label_line=label, candidate_line=ctx):
                 return
+        meta = _candidate_explain_meta(
+            extraction_method="proximity",
+            label_reason=f"header table: {label}",
+            score_breakdown={"base": confidence, "table_bonus": 3},
+        )
+        if ambiguous:
+            meta["ambiguous_column_map"] = True
         cands.append(
             IdentFieldCandidate(
                 value=v,
@@ -1825,17 +2007,16 @@ def _collect_header_value_table_candidates(
                 confidence=confidence,
                 context=ctx[:160],
                 label=label,
-                meta=_candidate_explain_meta(
-                    extraction_method="proximity",
-                    label_reason=f"header table: {label}",
-                    score_breakdown={"base": confidence, "table_bonus": 3},
-                ),
+                meta=meta,
             )
         )
 
     for i, hdr in enumerate(lines):
         h_low = (hdr or "").lower()
+        if _line_looks_like_prose_not_table_header(hdr):
+            continue
         inv_i, cust_i = _header_word_indices(hdr)
+        col_spans = _header_column_spans(hdr)
         has_inv_hdr = (
             not re.search(r"(?i)\bdatum\s+nummer\b", hdr)
             and (
@@ -1877,7 +2058,7 @@ def _collect_header_value_table_candidates(
             ):
                 continue
             vals = _shift_leading_phone_token(_parse_table_row_tokens(val_line), hdr)
-            if len(vals) < 1:
+            if len(vals) < 1 or _row_looks_like_amount_row(vals):
                 continue
             ctx = re.sub(r"\s+", " ", val_line).strip()[:160]
             inv_i2, cust_i2 = inv_i, cust_i
@@ -1887,44 +2068,59 @@ def _collect_header_value_table_candidates(
             )
             if inv_i2 is None and has_inv_hdr and not debiteur_factuur_hdr:
                 inv_i2 = 0
+
+            def _mapped_value_index(field: str, word_idx: int | None) -> int | None:
+                if col_spans:
+                    span_idx = _span_column_value_index(col_spans, field)
+                    if span_idx is not None:
+                        return span_idx
+                if word_idx is not None:
+                    return _map_header_index_to_value_index(hdr, word_idx)
+                return None
+
             if field_kind == "invoice_number":
                 inv_pick: str | None = None
-                if inv_i2 is not None and inv_i2 < len(vals):
-                    inv_pick = vals[inv_i2]
+                ambiguous = False
+                mapped_i = _mapped_value_index("invoice", inv_i2)
+                if mapped_i is not None and mapped_i < len(vals):
+                    inv_pick = vals[mapped_i]
+                elif mapped_i is not None:
+                    ambiguous = True
                 elif (
                     re.search(r"(?i)\bfactuurnummer\b", hdr)
                     and re.search(r"(?i)\bfactuurdatum\b", hdr)
                     and vals
-                ):
-                    inv_pick = vals[-1]
-                elif (
-                    re.search(r"(?i)\bfactuur\b", hdr)
-                    and re.search(r"(?i)\b(?:debiteur|klant|customer|betaler)\b", hdr)
-                    and vals
+                    and not col_spans
                 ):
                     inv_pick = vals[-1]
                 if inv_pick:
+                    conf = (55 if ambiguous else 90 - j)
                     _append(
                         inv_pick,
                         source="header_table_invoice",
-                        confidence=90 - j,
+                        confidence=conf,
                         ctx=ctx,
                         label=label,
+                        ambiguous=ambiguous,
                     )
                     break
             if field_kind == "customer_number" and vals:
                 cust_pick: str | None = None
-                if debiteur_factuur_hdr and len(vals) >= 2:
-                    cust_pick = vals[0]
-                elif cust_i2 is not None and cust_i2 < len(vals):
-                    cust_pick = vals[cust_i2]
+                ambiguous = False
+                mapped_i = _mapped_value_index("customer", cust_i2)
+                if mapped_i is not None and mapped_i < len(vals):
+                    cust_pick = vals[mapped_i]
+                elif mapped_i is not None:
+                    ambiguous = True
                 if cust_pick:
+                    conf = (55 if ambiguous else 89 - j)
                     _append(
                         cust_pick,
                         source="header_table_customer",
-                        confidence=89 - j,
+                        confidence=conf,
                         ctx=ctx,
                         label=label,
+                        ambiguous=ambiguous,
                     )
                     break
     return cands
@@ -3115,7 +3311,24 @@ def collect_ident_field_candidates(
                             break
                         nxt = lines[i + j]
                         ctx_n = re.sub(r"\s+", " ", (nxt or "")).strip()[:160]
-                        for val in _tokens_after_label(nxt, 0, join_spaced_digits=join_digits):
+                        table_vals: list[str] | None = None
+                        if _table_header_field_count(line) >= 2:
+                            inv_i, cust_i = _header_word_indices(line)
+                            parsed = _parse_table_row_tokens(nxt)
+                            if field_kind == "invoice_number" and inv_i is not None:
+                                mapped_i = _map_header_index_to_value_index(line, inv_i)
+                                if mapped_i is not None and mapped_i < len(parsed):
+                                    table_vals = [parsed[mapped_i]]
+                            elif field_kind == "customer_number" and cust_i is not None:
+                                mapped_i = _map_header_index_to_value_index(line, cust_i)
+                                if mapped_i is not None and mapped_i < len(parsed):
+                                    table_vals = [parsed[mapped_i]]
+                        next_line_vals = (
+                            table_vals
+                            if table_vals is not None
+                            else _tokens_after_label(nxt, 0, join_spaced_digits=join_digits)
+                        )
+                        for val in next_line_vals:
                             if field_kind == "customer_number":
                                 val = _normalize_customer_token(val)
                                 if not _customer_value_ok(
@@ -3184,6 +3397,7 @@ def collect_ident_field_candidates(
                 line=c.context or "",
                 label=c.label or "",
                 context=c.context or "",
+                source=str(c.source or ""),
             )
         ]
     elif field_kind == "customer_number":
@@ -3209,6 +3423,12 @@ def build_ident_field_result(
     candidates = _merge_resolved_into_candidates(
         candidates, resolved_value, resolved_source, field_id=field_id
     )
+    if field_id == "iban":
+        candidates = [
+            c
+            for c in candidates
+            if _iban_candidate_ok(c.value, context=str(c.context or ""))
+        ]
     candidates = _apply_cross_field_penalties(candidates, field_id=field_id)
     candidates = _ensure_candidate_explainability(candidates)
     if field_id:

@@ -1,4 +1,4 @@
-"""Phase C2 — golden test files use isolated per-file fixtures (no cross-file coupling)."""
+"""Phase C2 / Golden Suite v2 — golden test files use isolated per-file fixtures."""
 
 from __future__ import annotations
 
@@ -8,9 +8,9 @@ from pathlib import Path
 _REPO = Path(__file__).resolve().parents[1]
 
 _FILES = {
-    "extraction": _REPO / "tests" / "test_golden_extraction.py",
-    "ranking": _REPO / "tests" / "test_golden_ranking.py",
-    "decision": _REPO / "tests" / "test_golden_decision.py",
+    "extraction": _REPO / "tests" / "golden" / "extraction" / "test_golden_extraction_hard.py",
+    "ranking": _REPO / "tests" / "golden" / "ranking" / "test_golden_ranking_debug.py",
+    "decision": _REPO / "tests" / "golden" / "decision" / "test_golden_decision_soft.py",
     "regression_lock": _REPO / "tests" / "test_golden_dataset.py",
 }
 
@@ -46,5 +46,5 @@ def test_phase_c2_no_cross_file_fixture_imports() -> None:
         for other in _FILES:
             if other == label:
                 continue
-            needle = f"from tests.test_golden_{other}"
+            needle = f"from tests.golden.{other}"
             assert needle not in text, f"{path.name} imports fixture from {other}"

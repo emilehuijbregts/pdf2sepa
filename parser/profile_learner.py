@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+import re
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -34,7 +36,15 @@ from parser.pdf_parser import (
     normalize_amount,
     normalize_amount_decimal,
 )
-import re
+from parser.profile_extractor import (
+    STRATEGIES,
+    FIELD_KEYS,
+    _EXCL_BTW_LINE_RE,
+    _VAT_PERCENT_LINE_RE,
+    _extract_derived_excl_plus_vat,
+)
+
+logger = logging.getLogger(__name__)
 
 _AMOUNT_TOLERANCE = Decimal("0.01")
 
@@ -52,6 +62,10 @@ _FIELD_LABEL_RES: dict[str, re.Pattern[str]] = {
 _DIALOG_OVERLAY_FIELD_IDS: frozenset[FieldId] = frozenset(
     {"amount", "invoice_number", "customer_number"}
 )
+
+# Domain split for profile learning (independent save/reporting per domain).
+IDENTIFICATION_LEARN_FIELDS: tuple[FieldId, ...] = ("invoice_number", "customer_number")
+AMOUNT_LEARN_FIELDS: tuple[FieldId, ...] = ("amount",)
 
 
 def _line_eligible_for_amount_profile_learning(
@@ -82,7 +96,17 @@ def _amount_label_text_from_line(line: str) -> str | None:
     m = _AMOUNT_PROFILE_LABEL_RE.search(line or "")
     if not m:
         return None
-    return _extend_label_span(line, m.start(), m.end())
+    return _extend_payable_amount_label_span(line, m.start(), m.end())
+
+
+def _verified_amount_spec(
+    lines: list[str],
+    spec: dict[str, str],
+    target: Decimal,
+) -> bool:
+    from parser.profile_extractor import amount_field_spec_matches
+
+    return amount_field_spec_matches(lines, spec, target)
 
 
 def _split_lines(raw_text: str) -> list[str]:
@@ -214,11 +238,17 @@ def _field_spec(profile: dict[str, Any], field: str) -> dict[str, Any] | None:
     spec = profile.get(field)
     if not isinstance(spec, dict):
         return None
-    label = spec.get("label")
     strategy = spec.get("strategy")
-    if not label or not strategy:
+    if not strategy or strategy not in STRATEGIES:
         return None
-    if strategy not in STRATEGIES:
+    if strategy == "derived_excl_plus_vat":
+        if field != "amount":
+            return None
+        if not spec.get("label_excl") or not spec.get("label_btw"):
+            return None
+        return spec
+    label = spec.get("label")
+    if not label:
         return None
     return spec
 
@@ -259,13 +289,27 @@ def _extend_label_span(line: str, start: int, end: int) -> str:
     return line[start:end]
 
 
+def _extend_payable_amount_label_span(line: str, start: int, end: int) -> str:
+    tail = line[end:]
+    m = re.match(r"\s*:\s*", tail)
+    if m:
+        end = end + m.end()
+    m2 = re.match(r"\s*\(\s*(?:incl|excl)\b[^)]*\)", line[end:], re.IGNORECASE)
+    if m2:
+        end = end + m2.end()
+    return line[start:end].strip()
+
+
 def _label_candidates_on_line(line: str, field: str) -> list[tuple[str, int, int]]:
     rx = _FIELD_LABEL_RES.get(field)
     if rx is None:
         return []
     out: list[tuple[str, int, int]] = []
     for m in rx.finditer(line or ""):
-        label = _extend_label_span(line, m.start(), m.end())
+        if field == "amount":
+            label = _extend_payable_amount_label_span(line, m.start(), m.end())
+        else:
+            label = _extend_label_span(line, m.start(), m.end())
         out.append((label, m.start(), m.end()))
     return out
 
@@ -338,6 +382,8 @@ def _infer_strategy(
     value_line_idx: int,
     value_pos_in_line: int,
     confirmed_amount: Decimal | None,
+    *,
+    label_text: str = "",
 ) -> str | None:
     if value_line_idx == label_line_idx + 1:
         return "next_line_first_token"
@@ -348,7 +394,25 @@ def _infer_strategy(
     line = lines[label_line_idx] or ""
     colon_idx = line.find(":")
     if colon_idx >= 0 and value_pos_in_line > colon_idx:
-        return "same_line_after_colon"
+        label_start = line.lower().find((label_text or "").lower())
+        if label_start >= 0 and value_pos_in_line >= label_start + len(label_text):
+            decs = _positive_amounts_on_line(line)
+            if decs:
+                if confirmed_amount is not None:
+                    for pick, strategy in (
+                        (decs[-1], "same_line_last_amount"),
+                        (decs[0], "same_line_first_amount"),
+                    ):
+                        if abs(pick - confirmed_amount) <= _AMOUNT_TOLERANCE:
+                            return strategy
+                return "same_line_last_amount"
+        after = _extract_after_colon(line, label_text)
+        if after is not None and confirmed_amount is not None:
+            got = normalize_amount_decimal(after)
+            if got is not None and abs(got - confirmed_amount) <= _AMOUNT_TOLERANCE:
+                return "same_line_after_colon"
+        if after is not None and confirmed_amount is None:
+            return "same_line_after_colon"
 
     decs = _positive_amounts_on_line(line)
     if len(decs) >= 2:
@@ -367,10 +431,17 @@ def _infer_strategy_for_field(
     value_pos_in_line: int,
     field: str,
     confirmed_amount: Decimal | None,
+    *,
+    label_text: str = "",
 ) -> str | None:
     if field == "amount":
         return _infer_strategy(
-            lines, label_line_idx, value_line_idx, value_pos_in_line, confirmed_amount
+            lines,
+            label_line_idx,
+            value_line_idx,
+            value_pos_in_line,
+            confirmed_amount,
+            label_text=label_text,
         )
     if field == "iban":
         if value_line_idx == label_line_idx + 1:
@@ -476,27 +547,35 @@ def _learn_field_amount_on_line(
     found = _find_best_label(lines, line_idx, pos_in_line, "amount")
     if found is None:
         for label_text, _s, label_end in _label_candidates_on_line(line, "amount"):
-            strategy = _infer_strategy(lines, line_idx, line_idx, label_end, target)
-            if strategy:
-                return {
-                    "label": label_text,
-                    "strategy": strategy,
-                    "confirmed_value": _format_confirmed_amount(amount),
-                }
+            strategy = _infer_strategy(
+                lines, line_idx, line_idx, label_end, target, label_text=label_text
+            )
+            if not strategy:
+                continue
+            spec = {
+                "label": label_text,
+                "strategy": strategy,
+                "confirmed_value": _format_confirmed_amount(amount),
+            }
+            if _verified_amount_spec(lines, spec, target):
+                return spec
         return _learn_field_amount_unlabeled_same_line(
             line, line_idx, amount, pos_in_line, target
         )
     label_text, label_line_idx = found
     strategy = _infer_strategy(
-        lines, label_line_idx, line_idx, pos_in_line, target
+        lines, label_line_idx, line_idx, pos_in_line, target, label_text=label_text
     )
     if strategy is None:
         return None
-    return {
+    spec = {
         "label": label_text,
         "strategy": strategy,
         "confirmed_value": _format_confirmed_amount(amount),
     }
+    if not _verified_amount_spec(lines, spec, target):
+        return None
+    return spec
 
 
 def _learn_field_amount_fallback(
@@ -572,6 +651,58 @@ def _learn_field_amount_from_context(
     return None
 
 
+def _learn_field_amount_derived_excl_vat(
+    lines: list[str],
+    amount: float | Decimal,
+) -> dict[str, str] | None:
+    """
+    Leer bedrag-profiel wanneer totaal afgeleid is uit excl. BTW + BTW%-regel.
+
+    Zelfde scan als ``pdf_parser`` ``derived_excl_plus_vat``; opgeslagen labels
+    moeten herleidbaar zijn via ``extract_with_profile``.
+    """
+    target = _confirmed_amount_decimal(amount)
+    if target is None:
+        return None
+    excl_label: str | None = None
+    excl_val: Decimal | None = None
+    vat_label: str | None = None
+    vat_val: Decimal | None = None
+    for ln in lines:
+        m_excl = _EXCL_BTW_LINE_RE.search(ln or "")
+        if m_excl:
+            toks = _positive_amounts_on_line(ln)
+            if toks:
+                excl_val = toks[-1]
+                excl_label = _extend_label_span(ln, m_excl.start(), m_excl.end()).strip()
+        if excl_val is not None:
+            m_vat = _VAT_PERCENT_LINE_RE.search(ln or "")
+            if m_vat:
+                toks = _positive_amounts_on_line(ln)
+                if toks:
+                    vat_val = toks[-1]
+                    vat_label = _extend_label_span(ln, m_vat.start(), m_vat.end()).strip()
+    if (
+        excl_val is None
+        or vat_val is None
+        or not excl_label
+        or not vat_label
+    ):
+        return None
+    derived = (excl_val + vat_val).quantize(Decimal("0.01"))
+    if abs(derived - target) > _AMOUNT_TOLERANCE:
+        return None
+    check = _extract_derived_excl_plus_vat(lines, excl_label, vat_label)
+    if check is None or abs(check - target) > _AMOUNT_TOLERANCE:
+        return None
+    return {
+        "strategy": "derived_excl_plus_vat",
+        "label_excl": excl_label,
+        "label_btw": vat_label,
+        "confirmed_value": _format_confirmed_amount(amount),
+    }
+
+
 def _learn_field_amount(
     raw_text: str,
     lines: list[str],
@@ -591,24 +722,40 @@ def _learn_field_amount(
             continue
         label_text, label_line_idx = found
         strategy = _infer_strategy(
-            lines, label_line_idx, line_idx, pos_in_line, target
+            lines,
+            label_line_idx,
+            line_idx,
+            pos_in_line,
+            target,
+            label_text=label_text,
         )
         if strategy is None:
             continue
+        spec = {
+            "label": label_text,
+            "strategy": strategy,
+            "confirmed_value": _format_confirmed_amount(amount),
+        }
+        if not _verified_amount_spec(lines, spec, target):
+            alt = _learn_field_amount_on_line(lines, line_idx, amount)
+            if alt is not None and _verified_amount_spec(lines, alt, target):
+                return alt
+            continue
         priority = 0 if label_line_idx == line_idx else 1
-        dist = pos_in_line - (lines[label_line_idx].lower().find(label_text.lower()) + len(label_text))
+        dist = pos_in_line - (
+            lines[label_line_idx].lower().find(label_text.lower()) + len(label_text)
+        )
         key = (priority, max(0, dist))
         if best is None or key < best[0]:
-            best = (key, label_text, label_line_idx, strategy)
+            best = (key, spec)
 
     if best is None:
+        for _pos, line_idx, _pos_in_line in positions:
+            alt = _learn_field_amount_on_line(lines, line_idx, amount)
+            if alt is not None and _verified_amount_spec(lines, alt, target):
+                return alt
         return None
-    _key, label_text, _label_idx, strategy = best
-    return {
-        "label": label_text,
-        "strategy": strategy,
-        "confirmed_value": _format_confirmed_amount(amount),
-    }
+    return best[1]
 
 
 def _learn_field_string(
@@ -761,6 +908,18 @@ def prepare_learnable_field_results(
         fr = field_result_from_result_dict(data, field_id=field_id)
         if field_id in _DIALOG_OVERLAY_FIELD_IDS and dialog:
             fr = _overlay_dialog_confirmed(fr, field_id, dialog)
+        if field_id == "customer_number":
+            from parser.supplier_db import CUSTOMER_NUMBER_MODE_NONE, infer_customer_number_mode_from_result
+
+            cr_src = data if isinstance(data, dict) else None
+            if cr_src is None:
+                key = _RESULT_KEY_BY_FIELD.get("customer_number")
+                if key:
+                    raw_cr = snap.get(key)
+                    if isinstance(raw_cr, dict):
+                        cr_src = raw_cr
+            if infer_customer_number_mode_from_result(cr_src) == CUSTOMER_NUMBER_MODE_NONE:
+                continue
         if not is_resolver_final_field_result(fr):
             continue
         if normalize_field_value(field_id, fr.selected_value) is None:
@@ -794,13 +953,38 @@ def _learn_field_spec(
     if field_id == "amount":
         if not context:
             context = fr.resolved_context(target_value=confirmed)
+        target_dec = _confirmed_amount_decimal(confirmed)
+        reject_reason = "unknown"
+        if target_dec is not None and not _locate_amount_positions(raw_text, target_dec):
+            reject_reason = "amount_not_in_text"
         spec = _learn_field_amount(raw_text, lines, confirmed)
         if spec is None and context:
             spec = _learn_field_amount_from_context(lines, confirmed, context)
+            if spec is None:
+                reject_reason = "context_no_match"
         if spec is None:
             spec = _learn_field_amount_fallback(lines, confirmed)
+            if spec is None:
+                reject_reason = "no_eligible_line"
         if spec is None:
             spec = _learn_field_amount_label_next_line(lines, confirmed)
+            if spec is None and reject_reason == "unknown":
+                reject_reason = "no_label_next_line"
+        if spec is None:
+            spec = _learn_field_amount_derived_excl_vat(lines, confirmed)
+            if spec is None:
+                fr_source = str(fr.source or "").strip().lower()
+                if "derived_excl" in fr_source or reject_reason == "amount_not_in_text":
+                    reject_reason = "derived_components_missing"
+                elif reject_reason in ("unknown", "no_eligible_line"):
+                    reject_reason = "no_label_or_strategy"
+        if spec is None:
+            logger.debug(
+                "amount_profile_learn_rejected reason=%s source=%s context=%r",
+                reject_reason,
+                fr.source,
+                context,
+            )
     elif field_id == "invoice_date":
         spec = _learn_field_invoice_date(raw_text, lines, str(confirmed), context or "")
     elif field_id == "vat_number":

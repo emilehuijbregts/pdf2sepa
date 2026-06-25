@@ -34,7 +34,13 @@ STRATEGIES = (
     "same_line_first_amount",
     "same_line_first_iban",
     "next_line_first_iban",
+    "derived_excl_plus_vat",
 )
+
+_EXCL_BTW_LINE_RE = re.compile(
+    r"(?i)\b(?:excl\.?\s*btw|netto\s+goederenbedrag)\b"
+)
+_VAT_PERCENT_LINE_RE = re.compile(r"(?i)\bbtw\s*(?:\d{1,2}\s*%|:)")
 
 _AMOUNT_TOLERANCE = Decimal("0.01")
 
@@ -52,6 +58,68 @@ _FIELD_LABEL_RES: dict[str, re.Pattern[str]] = {
 
 def _split_lines(raw_text: str) -> list[str]:
     return (raw_text or "").split("\n")
+
+
+def _extend_payable_amount_label_span(line: str, start: int, end: int) -> str:
+    """Include ``(incl.BTW)`` / ``(excl.BTW)`` suffix so labels disambiguate totaal-regels."""
+    tail = line[end:]
+    m = re.match(r"\s*:\s*", tail)
+    if m:
+        end = end + m.end()
+    m2 = re.match(r"\s*\(\s*(?:incl|excl)\b[^)]*\)", line[end:], re.IGNORECASE)
+    if m2:
+        end = end + m2.end()
+    return line[start:end].strip()
+
+
+def _amount_decimal_matches(a: Decimal | None, b: Decimal | None) -> bool:
+    if a is None or b is None:
+        return False
+    return abs(a - b) <= _AMOUNT_TOLERANCE
+
+
+def extract_amount_with_field_spec(
+    lines: list[str],
+    field_spec: dict[str, Any],
+) -> Decimal | None:
+    """Extract one amount field spec from pre-split lines (profile execution)."""
+    spec = _field_spec({"amount": field_spec}, "amount")
+    if spec is None:
+        return None
+    strategy_s = str(spec["strategy"])
+    if strategy_s == "derived_excl_plus_vat":
+        derived = _extract_derived_excl_plus_vat(
+            lines,
+            str(spec["label_excl"]),
+            str(spec["label_btw"]),
+        )
+        return derived
+    cv = field_spec.get("confirmed_value")
+    target = _confirmed_amount_decimal(cv) if cv is not None else None
+    idx = _find_label_line(
+        lines,
+        str(spec["label"]),
+        strategy=strategy_s,
+        amount_target=target,
+    )
+    if idx is None:
+        return None
+    val = _apply_strategy(lines, idx, str(spec["label"]), strategy_s)
+    if val is None:
+        return None
+    return _confirmed_amount_decimal(val)
+
+
+def amount_field_spec_matches(
+    lines: list[str],
+    field_spec: dict[str, Any],
+    expected: Decimal | float | str,
+) -> bool:
+    target = _confirmed_amount_decimal(expected)
+    if target is None:
+        return False
+    ext = extract_amount_with_field_spec(lines, field_spec)
+    return _amount_decimal_matches(ext, target)
 
 
 def _iter_label_line_indices(lines: list[str], label: str) -> list[int]:
@@ -98,20 +166,28 @@ def _find_label_line(
     label: str,
     *,
     strategy: str | None = None,
+    amount_target: Decimal | None = None,
 ) -> int | None:
     """
     Regelindex voor ``label``.
 
     Met ``strategy``: eerste regel waar extractie een waarde oplevert (niet alleen
   eerste substring-match — voorkomt bv. «Prijs totaal» i.p.v. «Totaal 305,36 EUR»).
+    Met ``amount_target``: kies de regel waar de strategy het bevestigde bedrag oplevert.
     """
     indices = _iter_label_line_indices(lines, label)
     if not indices:
         return None
     if strategy:
         for idx in indices:
-            if _apply_strategy(lines, idx, label, strategy) is not None:
-                return idx
+            val = _apply_strategy(lines, idx, label, strategy)
+            if val is None:
+                continue
+            if amount_target is not None:
+                ext = _confirmed_amount_decimal(val)
+                if not _amount_decimal_matches(ext, amount_target):
+                    continue
+            return idx
         return None
     return indices[0]
 
@@ -214,13 +290,45 @@ def _field_spec(profile: dict[str, Any], field: str) -> dict[str, Any] | None:
     spec = profile.get(field)
     if not isinstance(spec, dict):
         return None
-    label = spec.get("label")
     strategy = spec.get("strategy")
-    if not label or not strategy:
+    if not strategy or strategy not in STRATEGIES:
         return None
-    if strategy not in STRATEGIES:
+    if strategy == "derived_excl_plus_vat":
+        if field != "amount":
+            return None
+        if not spec.get("label_excl") or not spec.get("label_btw"):
+            return None
+        return spec
+    label = spec.get("label")
+    if not label:
         return None
     return spec
+
+
+def _extract_derived_excl_plus_vat(
+    lines: list[str],
+    label_excl: str,
+    label_btw: str,
+) -> Decimal | None:
+    """Som excl.-regel + BTW%-regel (zelfde contract als pdf_parser derived_excl_plus_vat)."""
+    excl_val: Decimal | None = None
+    vat_val: Decimal | None = None
+    for ln in lines:
+        if _EXCL_BTW_LINE_RE.search(ln or "") and label_excl.lower() in (ln or "").lower():
+            toks = _positive_amounts_on_line(ln)
+            if toks:
+                excl_val = toks[-1]
+        if (
+            excl_val is not None
+            and _VAT_PERCENT_LINE_RE.search(ln or "")
+            and label_btw.lower() in (ln or "").lower()
+        ):
+            toks = _positive_amounts_on_line(ln)
+            if toks:
+                vat_val = toks[-1]
+    if excl_val is None or vat_val is None:
+        return None
+    return (excl_val + vat_val).quantize(Decimal("0.01"))
 
 
 def extract_with_profile(raw_text: str, profile: dict[str, Any]) -> dict[str, float | str | None]:
@@ -241,7 +349,26 @@ def extract_with_profile(raw_text: str, profile: dict[str, Any]) -> dict[str, fl
         if spec is None:
             continue
         strategy_s = str(spec["strategy"])
-        idx = _find_label_line(lines, str(spec["label"]), strategy=strategy_s)
+        if field == "amount" and strategy_s == "derived_excl_plus_vat":
+            derived = _extract_derived_excl_plus_vat(
+                lines,
+                str(spec["label_excl"]),
+                str(spec["label_btw"]),
+            )
+            if derived is not None:
+                out["amount"] = float(derived)
+            continue
+        amount_target = None
+        if field == "amount":
+            cv = spec.get("confirmed_value")
+            if cv is not None:
+                amount_target = _confirmed_amount_decimal(cv)
+        idx = _find_label_line(
+            lines,
+            str(spec["label"]),
+            strategy=strategy_s,
+            amount_target=amount_target,
+        )
         if idx is None:
             continue
         val = _apply_strategy(lines, idx, str(spec["label"]), strategy_s)

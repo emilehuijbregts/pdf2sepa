@@ -601,6 +601,129 @@ def _parse_term_days_from_text(raw: str) -> int | None:
     except Exception:
         return None
 
+
+def build_supplier_sync_payload_from_parts(
+    *,
+    name: str,
+    iban_cell: str,
+    customer_code_cell: str,
+    discount_raw: str,
+    term_raw: str,
+    iban_result: dict[str, Any] | None,
+    customer_result: dict[str, Any] | None,
+    row_snap: dict[str, Any] | None,
+    email_dom: str = "",
+    kvk_no: str = "",
+    vat_no: str = "",
+    original_name: str = "",
+    supplier_exists: bool = False,
+) -> dict[str, Any]:
+    """Authoritative supplier write payload from row field state (not OCR fallbacks)."""
+    name_s = str(name or "").strip()
+    none_mode = _customer_number_none_mode_from_parts(
+        snap=row_snap if isinstance(row_snap, dict) else None,
+        customer_result=customer_result if isinstance(customer_result, dict) else None,
+    )
+    iban_user_overridden = bool(
+        isinstance(iban_result, dict) and iban_result.get("user_overridden")
+    )
+    iban = clean_iban(str(iban_cell or ""))
+    iban_user_cleared = iban_user_overridden and not iban
+
+    customer_code: str | None = None
+    if not none_mode:
+        code = str(customer_code_cell or "").strip()
+        if code and code != "?":
+            customer_code = code
+
+    term_days = _parse_term_days_from_text(term_raw)
+    try:
+        discount = float(str(discount_raw or "").replace(",", ".")) if str(discount_raw or "").strip() else 0.0
+    except ValueError:
+        discount = 0.0
+
+    return {
+        "name": name_s,
+        "original_name": str(original_name or "").strip(),
+        "iban": iban,
+        "iban_user_cleared": iban_user_cleared,
+        "iban_user_overridden": iban_user_overridden,
+        "customer_code": customer_code,
+        "customer_number_mode": CUSTOMER_NUMBER_MODE_NONE if none_mode else None,
+        "none_mode": none_mode,
+        "existing_supplier": bool(supplier_exists),
+        "discount": discount,
+        "term_days": term_days,
+        "email_domain": str(email_dom or "").strip() or None,
+        "kvk_number": str(kvk_no or "").strip() or None,
+        "vat_number": str(vat_no or "").strip() or None,
+    }
+
+
+def patch_authoritative_row_fields_into_invoice(
+    inv: dict[str, Any],
+    *,
+    name: str,
+    payload: dict[str, Any],
+    iban_result: dict[str, Any] | None,
+    customer_result: dict[str, Any] | None,
+    field_results: dict[str, dict[str, Any] | None],
+    user_overridden_fields: frozenset[str],
+) -> None:
+    """Inject user-locked field snapshots into parse-cache invoice before rematch.
+
+    Invariant: ``parser.field_authority`` — user_overridden fields are not re-resolved.
+    """
+    from parser.pdf_parser import build_absent_customer_number_snapshot
+
+    name_s = str(name or "").strip()
+    if name_s:
+        inv["supplier_hint"] = name_s
+        inv["supplier_name"] = name_s
+
+    iban = str(payload.get("iban") or "").strip()
+    none_mode = bool(payload.get("none_mode"))
+    customer_code = payload.get("customer_code")
+
+    if "iban" in user_overridden_fields and isinstance(iban_result, dict):
+        apply_resolved_field_result(inv, "iban", iban_result)
+    elif iban:
+        inv["iban"] = clean_iban(iban)
+    elif payload.get("iban_user_cleared"):
+        cleared = dict(iban_result) if isinstance(iban_result, dict) else {}
+        cleared.setdefault("value", "")
+        cleared.setdefault("selected_value", "")
+        cleared["user_overridden"] = True
+        cleared["user_selected"] = True
+        cleared["status"] = "confirmed"
+        cleared["confidence"] = 100
+        apply_resolved_field_result(inv, "iban", cleared)
+
+    if none_mode:
+        if isinstance(customer_result, dict) and customer_result.get("user_overridden"):
+            apply_resolved_field_result(inv, "customer_number", customer_result)
+        else:
+            absent = build_absent_customer_number_snapshot()
+            if isinstance(customer_result, dict):
+                for key in ("user_selected", "user_overridden", "source", "override_reason"):
+                    if key in customer_result:
+                        absent[key] = customer_result[key]
+            apply_resolved_field_result(inv, "customer_number", absent)
+    elif customer_code:
+        inv["customer_number"] = str(customer_code)
+        if "customer_number" in user_overridden_fields and isinstance(customer_result, dict):
+            apply_resolved_field_result(inv, "customer_number", customer_result)
+
+    for field_id in REVIEW_FIELD_IDS:
+        if field_id in ("customer_number", "iban"):
+            continue
+        if field_id not in user_overridden_fields:
+            continue
+        snap_fr = field_results.get(field_id)
+        if isinstance(snap_fr, dict):
+            apply_resolved_field_result(inv, field_id, snap_fr)
+
+
 class PaymentColumn(IntEnum):
     """Kolomindices voor de betalingstabel."""
 
@@ -1895,7 +2018,40 @@ class MainWindow(QMainWindow):
     ) -> None:
         """Werk leverancier-/match-velden bij zonder bedrag/IBAN te overschrijven bij user override."""
         sup_it = self._table.item(row, PaymentColumn.SUPPLIER)
-        diag = _diagnostics_snapshot_from_invoice(inv)
+        fresh_diag = _diagnostics_snapshot_from_invoice(inv)
+        user_overridden = self._row_user_overridden_fields(row)
+        if user_overridden and sup_it:
+            existing = self._get_row_invoice_diagnostics_snapshot(row)
+            if isinstance(existing, dict):
+                diag = deepcopy(existing)
+                for key in (
+                    "supplier_name",
+                    "supplier_match_source",
+                    "match_info",
+                    "db_core_matches",
+                    "supplier_db_traits_not_on_invoice",
+                    "match_signals",
+                    "match_status",
+                    "extraction_source",
+                    "profile_fields",
+                    "supplier_term_trusted",
+                    "supplier_payment_term_days_raw",
+                ):
+                    if key in fresh_diag:
+                        diag[key] = fresh_diag[key]
+                for field_id in REVIEW_FIELD_IDS:
+                    if field_id not in user_overridden:
+                        continue
+                    if field_id in ("invoice_number", "customer_number"):
+                        live = self._ident_field_result_snapshot_for_row(row, field_id)
+                    else:
+                        live = self._field_result_snapshot_for_row(row, field_id)
+                    if isinstance(live, dict):
+                        diag = overlay_field_result(diag, field_id, live)
+            else:
+                diag = fresh_diag
+        else:
+            diag = fresh_diag
         if sup_it:
             sup_it.setData(_ROW_INVOICE_DIAGNOSTICS_ROLE, diag)
             core_info = _core_matches_text(inv)
@@ -1958,7 +2114,7 @@ class MainWindow(QMainWindow):
                 err_it.setData(_ROW_DECISION_TRACE_ROLE, deepcopy(trace))
 
         iban_disp, iban_res = _iban_field_from_inv(inv)
-        if iban_disp and not self._field_user_overridden(row, "iban"):
+        if not self._field_user_overridden(row, "iban"):
             iban_it = self._table.item(row, PaymentColumn.IBAN)
             if iban_it:
                 iban_it.setText(iban_disp)
@@ -1987,20 +2143,64 @@ class MainWindow(QMainWindow):
         }
     )
 
+    def _row_user_overridden_fields(self, row: int) -> frozenset[str]:
+        return frozenset(
+            field_id
+            for field_id in REVIEW_FIELD_IDS
+            if self._field_user_overridden(row, field_id)
+        )
+
+    def _supplier_exists_in_db(self, db: SupplierDB, name: str, *, original_name: str = "") -> bool:
+        for lookup in (original_name, name):
+            lookup_s = str(lookup or "").strip()
+            if lookup_s and db.supplier_exists_by_name(lookup_s):
+                return True
+        return False
+
+    def _row_field_results_for_patch(self, row: int) -> dict[str, dict[str, Any] | None]:
+        out: dict[str, dict[str, Any] | None] = {}
+        for field_id in REVIEW_FIELD_IDS:
+            if field_id in ("invoice_number", "customer_number"):
+                out[field_id] = self._ident_field_result_snapshot_for_row(row, field_id)
+            else:
+                out[field_id] = self._field_result_snapshot_for_row(row, field_id)
+        return out
+
+    def _row_supplier_sync_payload(self, row: int, db: SupplierDB | None = None) -> dict[str, Any]:
+        """Authoritative supplier write state from diagnostics/profile row data."""
+        sup_it = self._table.item(row, PaymentColumn.SUPPLIER)
+        return build_supplier_sync_payload_from_parts(
+            name=self._cell_text(row, PaymentColumn.SUPPLIER),
+            iban_cell=self._cell_text(row, PaymentColumn.IBAN),
+            customer_code_cell=self._cell_text(row, PaymentColumn.CUSTOMER_CODE),
+            discount_raw=self._cell_text(row, PaymentColumn.DISCOUNT),
+            term_raw=self._cell_text(row, PaymentColumn.TERM_HINT),
+            iban_result=self._field_result_snapshot_for_row(row, "iban"),
+            customer_result=self._ident_field_result_snapshot_for_row(row, "customer_number"),
+            row_snap=self._get_row_invoice_diagnostics_snapshot(row),
+            email_dom=str(sup_it.data(_ROW_EMAIL_DOMAIN_ROLE) or "").strip() if sup_it else "",
+            kvk_no=str(sup_it.data(_ROW_KVK_NUMBER_ROLE) or "").strip() if sup_it else "",
+            vat_no=str(sup_it.data(_ROW_VAT_NUMBER_ROLE) or "").strip() if sup_it else "",
+            original_name=str(sup_it.data(_ROW_SUPPLIER_ORIGINAL_ROLE) or "").strip() if sup_it else "",
+            supplier_exists=self._supplier_exists_in_db(
+                db,
+                self._cell_text(row, PaymentColumn.SUPPLIER).strip(),
+                original_name=str(sup_it.data(_ROW_SUPPLIER_ORIGINAL_ROLE) or "").strip() if sup_it else "",
+            )
+            if db is not None
+            else False,
+        )
+
     def _patch_table_row_into_invoices(self, row: int, invoices: list[dict]) -> bool:
-        """Zet tabel-leverancier/IBAN op de geparste factuur (vóór rematch), zodat DB-match klopt."""
+        """Zet tabel-leverancier/veldstate op de geparste factuur (vóór rematch)."""
         sf = self._resolve_row_source_file(row)
         if not sf:
             return False
-        name = self._cell_text(row, PaymentColumn.SUPPLIER).strip()
-        iban = clean_iban(self._cell_text(row, PaymentColumn.IBAN))
-        code = self._cell_text(row, PaymentColumn.CUSTOMER_CODE).strip() or None
-        row_snap = self._get_row_invoice_diagnostics_snapshot(row)
-        cust_res = self._ident_field_result_snapshot_for_row(row, "customer_number")
-        none_mode = _customer_number_none_mode_from_parts(
-            snap=row_snap if isinstance(row_snap, dict) else None,
-            customer_result=cust_res if isinstance(cust_res, dict) else None,
-        )
+        payload = self._row_supplier_sync_payload(row)
+        name = str(payload.get("name") or "").strip()
+        iban_result = self._field_result_snapshot_for_row(row, "iban")
+        customer_result = self._ident_field_result_snapshot_for_row(row, "customer_number")
+        user_overridden = self._row_user_overridden_fields(row)
         sf_key = str(Path(sf).resolve())
         for inv in invoices:
             inv_sf = str(inv.get("source_file") or "").strip()
@@ -2008,15 +2208,15 @@ class MainWindow(QMainWindow):
                 continue
             if inv_sf != sf and str(Path(inv_sf).resolve()) != sf_key:
                 continue
-            if name:
-                inv["supplier_hint"] = name
-                inv["supplier_name"] = name
-            if iban:
-                inv["iban"] = iban
-            if none_mode:
-                inv.pop("customer_number", None)
-            elif code and code != "?":
-                inv["customer_number"] = code
+            patch_authoritative_row_fields_into_invoice(
+                inv,
+                name=name,
+                payload=payload,
+                iban_result=iban_result if isinstance(iban_result, dict) else None,
+                customer_result=customer_result if isinstance(customer_result, dict) else None,
+                field_results=self._row_field_results_for_patch(row),
+                user_overridden_fields=user_overridden,
+            )
             return True
         return False
 
@@ -2903,6 +3103,8 @@ class MainWindow(QMainWindow):
             changed = not self._field_values_equal(field_id, generic.selected_value, target)
             generic.selected_value = target
             generic.user_selected = True
+            generic.user_overridden = True
+            generic.override_reason = "diagnostics_confirm_selection"
 
             if changed:
                 user_pick = self._user_pick_for_selected_value(field_id, generic, target)
@@ -2912,6 +3114,8 @@ class MainWindow(QMainWindow):
             else:
                 resolved_dict = field_result_to_legacy_dict(generic)
                 resolved_dict["user_selected"] = True
+                resolved_dict["user_overridden"] = True
+                resolved_dict["override_reason"] = "diagnostics_confirm_selection"
                 resolved_dict["resolver_finalized"] = True
                 resolved_dict = canonicalize_legacy_result_dict(
                     resolved_dict,
@@ -3133,8 +3337,7 @@ class MainWindow(QMainWindow):
                 iban_it = self._table.item(row, PaymentColumn.IBAN)
                 if iban_it:
                     iban_val = str(patched.get("iban") or "").strip()
-                    if iban_val:
-                        iban_it.setText(iban_val)
+                    iban_it.setText(iban_val)
                     iban_it.setData(_ROW_IBAN_RESULT_ROLE, deepcopy(field_snap))
             elif field_id == "customer_number":
                 cust_it = self._table.item(row, PaymentColumn.CUSTOMER_CODE)
@@ -4807,55 +5010,64 @@ class MainWindow(QMainWindow):
         ok = 0
         failed = 0
         changed = False
+        synced_rows: list[int] = []
         for r in rows:
-            name = self._cell_text(r, PaymentColumn.SUPPLIER)
-            iban = self._cell_text(r, PaymentColumn.IBAN)
-            code = self._cell_text(r, PaymentColumn.CUSTOMER_CODE)
-            disc_raw = self._cell_text(r, PaymentColumn.DISCOUNT)
-            term_raw = self._cell_text(r, PaymentColumn.TERM_HINT)
-            sup_it = self._table.item(r, PaymentColumn.SUPPLIER)
-            original_name = (
-                str(sup_it.data(_ROW_SUPPLIER_ORIGINAL_ROLE) or "").strip() if sup_it else ""
-            )
-            email_dom = str(sup_it.data(_ROW_EMAIL_DOMAIN_ROLE) or "").strip() if sup_it else ""
-            kvk_no = str(sup_it.data(_ROW_KVK_NUMBER_ROLE) or "").strip() if sup_it else ""
-            vat_no = str(sup_it.data(_ROW_VAT_NUMBER_ROLE) or "").strip() if sup_it else ""
-            if not name or not iban:
+            payload = self._row_supplier_sync_payload(r, db)
+            name = str(payload.get("name") or "").strip()
+            iban = str(payload.get("iban") or "").strip()
+            existing_supplier = bool(payload.get("existing_supplier"))
+            iban_user_cleared = bool(payload.get("iban_user_cleared"))
+            if not name:
+                failed += 1
+                continue
+            if not iban and not existing_supplier and not iban_user_cleared:
                 failed += 1
                 continue
 
-            if original_name and original_name.strip() != name.strip():
+            sup_it = self._table.item(r, PaymentColumn.SUPPLIER)
+            original_name = str(payload.get("original_name") or "").strip()
+
+            if original_name and original_name != name:
                 renamed = db.rename_supplier(original_name, name, keep_old_as_alias=True)
                 if renamed and sup_it:
-                    sup_it.setData(_ROW_SUPPLIER_ORIGINAL_ROLE, name.strip())
+                    sup_it.setData(_ROW_SUPPLIER_ORIGINAL_ROLE, name)
 
-            term_days = _parse_term_days_from_text(term_raw)
-            try:
-                d = float(disc_raw.replace(",", ".")) if disc_raw.strip() else 0.0
-            except ValueError:
-                d = 0.0
-            merged = db.merge_or_add_supplier(
-                name,
-                iban,
-                code or None,
-                d,
-                default_payment_term_days=term_days,
-                vat_number=vat_no or None,
-                kvk_number=kvk_no or None,
-                email_domain=email_dom or None,
-            )
+            merged = False
+            if iban:
+                merged = db.merge_or_add_supplier(
+                    name,
+                    iban,
+                    payload.get("customer_code"),
+                    float(payload.get("discount") or 0.0),
+                    default_payment_term_days=payload.get("term_days"),
+                    vat_number=payload.get("vat_number"),
+                    kvk_number=payload.get("kvk_number"),
+                    email_domain=payload.get("email_domain"),
+                )
+            elif existing_supplier:
+                merged = True
+
             update_kwargs: dict[str, Any] = {
                 "iban": iban,
-                "discount": d,
-                "vat_numbers": [vat_no] if vat_no else [],
-                "kvk_numbers": [kvk_no] if kvk_no else [],
-                "email_domains": [email_dom] if email_dom else [],
+                "discount": float(payload.get("discount") or 0.0),
+                "vat_numbers": [payload["vat_number"]] if payload.get("vat_number") else [],
+                "kvk_numbers": [payload["kvk_number"]] if payload.get("kvk_number") else [],
+                "email_domains": [payload["email_domain"]] if payload.get("email_domain") else [],
             }
+            term_days = payload.get("term_days")
             if term_days is not None:
                 update_kwargs["default_payment_term_days"] = term_days
+            if payload.get("none_mode"):
+                update_kwargs["customer_codes"] = []
+                update_kwargs["overwrite_customer_codes"] = True
+
             updated = db.update_supplier(name, **update_kwargs)
+            if payload.get("customer_number_mode") == CUSTOMER_NUMBER_MODE_NONE:
+                db.set_customer_number_mode(name, CUSTOMER_NUMBER_MODE_NONE)
+
             if merged or updated:
                 ok += 1
+                synced_rows.append(r)
                 self._strip_iban_mismatch_warning_row(r)
                 changed = True
             else:
@@ -4872,7 +5084,7 @@ class MainWindow(QMainWindow):
                 try:
                     self._refresh_filter_and_sort_after_row_change()
                     if self._load_parsed_invoices_warm() is not None:
-                        self._load_payments_from_sources(parse_pdfs=False)
+                        self._rematch_rows_after_supplier_sync(synced_rows)
                     else:
                         self._load_payments_from_sources(parse_pdfs=True)
                 except Exception as exc:
@@ -5784,8 +5996,11 @@ class MainWindow(QMainWindow):
                 )
                 resolved = resolve_field("iban", generic, [], user_pick=None)
                 resolved.selected_value = None
-                resolved.status = "failed"
-                resolved.confidence = 0
+                resolved.status = "confirmed"
+                resolved.confidence = 100
+                resolved.user_overridden = True
+                resolved.user_selected = True
+                resolved.override_reason = "manual_clear"
                 resolved.resolver_finalized = True
                 self._apply_resolved_field_result_to_row(
                     row,

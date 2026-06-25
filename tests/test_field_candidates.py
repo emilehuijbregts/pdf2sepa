@@ -252,6 +252,37 @@ class TestBatch6LayoutSnippets:
         assert "113023143" in {c.value for c in inv.candidates}
         assert "52111087" in {c.value for c in cust.candidates}
 
+    def test_rensa_header_table_invoice_not_debiteur(self):
+        text = "Datum Factuurnr. Debiteurnr.\n14-01-26 26033768 017650\n"
+        inv = extract_invoice_number_result(text)
+        cust = extract_customer_number_result(text)
+        assert inv.value == "26033768"
+        assert "017650" not in {
+            c.value for c in inv.candidates if c.source == "header_table_invoice"
+        }
+        assert cust.value == "017650"
+
+    def test_prima_arbo_header_table_columns(self):
+        text = (
+            "Factuurdatum Factuurnummer Debiteurennummer\n"
+            "09-01-2026 20260075 20180168\n"
+        )
+        inv = extract_invoice_number_result(text)
+        cust = extract_customer_number_result(text)
+        assert inv.value == "20260075"
+        assert cust.value == "20180168"
+
+    def test_prima_arbo_split_header_amount_row_not_customer(self):
+        text = (
+            "Factuur datum Factuur nummer Debiteur nummer\n"
+            "09-01-2026 20260075 20180168\n"
+            "118,84 24,96 143,80\n"
+        )
+        cust = extract_customer_number_result(text)
+        assert "118,84" not in {
+            c.value for c in cust.candidates if c.source == "header_table_customer"
+        }
+
     def test_roba_nummer_and_pipe_customer(self):
         text = "HANDELSONDERNEMING DUISTER | C05630\nNummer INV-0396393 NL007469184B01\n"
         inv = extract_invoice_number_result(text)
@@ -345,6 +376,35 @@ class TestBatch6LayoutSnippets:
         )
         inv = extract_invoice_number_result(text)
         assert "93557" in {c.value for c in inv.candidates}
+
+    def test_de_waal_short_invoice_number_same_line_label(self):
+        text = (
+            "Tesselschadestraat 28 Factuurnummer: 2861\n"
+            "5216 JW 'S-HERTOGENBOSCH Klantnummer: 218\n"
+        )
+        inv = extract_invoice_number_result(text)
+        assert inv.value == "2861"
+
+    def test_korver_table_factuurnr_column(self):
+        text = (
+            "klantnummer Factuurdatum Factuurnr Betalingstermijn\n"
+            "D3269 10-02-2026 VF-1094659 30 dgn. netto na factuurdatum\n"
+        )
+        inv = extract_invoice_number_result(text)
+        assert inv.value == "VF-1094659"
+
+    def test_louwman_disclaimer_not_header_table(self):
+        text = (
+            "Dubbel uitgereikt op aanvraag van de klant aan wie deze factuur is "
+            "uitgereikt en de originele factuur:\n"
+            "aanschrijving 10/1974.\n"
+            "Bij betaling gaarne vermelden: Klantnr. 2060342 Factnr. PVF74-1308422\n"
+        )
+        inv = extract_invoice_number_result(text)
+        assert inv.value == "PVF74-1308422"
+        assert "10/1974" not in {
+            c.value for c in inv.candidates if c.source == "header_table_invoice"
+        }
 
 
 class TestPolisInvoiceCandidates:

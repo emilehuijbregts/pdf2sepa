@@ -103,6 +103,7 @@ class TestDeterministicResolverParity:
             "cross_field_penalty",
             "user_pick_override",
             "pdf_labeled_priority_over_db",
+            "db_master_priority_over_pdf",
         }
         entries = [e for e in out.decision_trace if isinstance(e, dict) and e.get("kind") != "final"]
         assert entries
@@ -112,7 +113,7 @@ class TestDeterministicResolverParity:
             if reason:
                 assert reason in allowed
 
-    def test_labeled_pdf_iban_beats_conflicting_db_master(self):
+    def test_db_master_iban_beats_conflicting_labeled_pdf(self):
         pdf_iban = "NL20INGB0001234567"
         db_iban = "NL91ABNA0417164300"
         generic = _generic_iban(
@@ -136,12 +137,13 @@ class TestDeterministicResolverParity:
             )
         ]
         out = resolve_field("iban", generic, overrides)
-        assert out.selected_value == pdf_iban
+        assert out.selected_value == db_iban
+        assert out.source == "db_master"
         assert any(
             isinstance(e, dict)
             and (
-                e.get("winner_reason") == "pdf_labeled_priority_over_db"
-                or e.get("excluded_reason") == "pdf_labeled_priority_over_db"
+                e.get("winner_reason") == "db_master_priority_over_pdf"
+                or e.get("excluded_reason") == "db_master_priority_over_pdf"
             )
             for e in out.decision_trace
         )

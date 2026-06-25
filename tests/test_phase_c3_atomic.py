@@ -1,4 +1,4 @@
-"""Phase C3 — verify golden concern tests use a single assert per test function."""
+"""Phase C3 / Golden Suite v2 — verify golden concern tests use a single assert per test function."""
 
 from __future__ import annotations
 
@@ -8,12 +8,10 @@ from pathlib import Path
 _REPO = Path(__file__).resolve().parents[1]
 
 _GOLDEN_TEST_FILES = (
-    _REPO / "tests" / "test_golden_extraction.py",
-    _REPO / "tests" / "test_golden_ranking.py",
-    _REPO / "tests" / "test_golden_decision.py",
+    _REPO / "tests" / "golden" / "extraction" / "test_golden_extraction_hard.py",
+    _REPO / "tests" / "golden" / "ranking" / "test_golden_ranking_debug.py",
+    _REPO / "tests" / "golden" / "decision" / "test_golden_decision_soft.py",
 )
-
-_EXEMPT = frozenset({"test_02_golden_dataset_business_output"})
 
 
 def _assert_count_in_function(node: ast.FunctionDef) -> int:
@@ -32,8 +30,6 @@ def test_phase_c3_golden_tests_are_atomic() -> None:
             if not isinstance(node, ast.FunctionDef):
                 continue
             if not node.name.startswith("test_"):
-                continue
-            if node.name in _EXEMPT:
                 continue
             n = _assert_count_in_function(node)
             if n != 1:

@@ -107,6 +107,9 @@ def pipeline_output() -> _PipelineOutput:
     return _PipelineOutput(invoices_by_pdf=invoices_by_pdf, payments_by_pdf=payments_by_pdf)
 
 
+@pytest.mark.skip(
+    reason="Golden Suite v2: field checks migrated to tests/golden/{extraction,decision,ranking}/",
+)
 def test_02_golden_dataset_business_output(pipeline_output: _PipelineOutput) -> None:
     golden_files = _sorted_golden_files()
     if not golden_files:

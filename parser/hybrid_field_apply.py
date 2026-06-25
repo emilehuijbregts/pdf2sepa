@@ -14,7 +14,7 @@ from parser.field_resolver import (
     profile_confidence_for_field,
     resolve_field,
 )
-from parser.profile_extractor import extract_with_profile, validate_profile
+from parser.profile_extractor import extract_with_profile, validate_profile, amount_field_spec_matches
 from parser.supplier_db import SupplierDB, customer_number_mode_from_profile, CUSTOMER_NUMBER_MODE_NONE
 
 _HYBRID_FIELD_IDS: tuple[FieldId, ...] = (
@@ -47,12 +47,37 @@ def _profile_candidate(
     validated: bool,
     context: str = "",
 ) -> FieldCandidate:
+    meta: dict[str, Any] = {"profile_validated": bool(validated)}
+    if field_id == "amount" and validated:
+        # Resolver amount ranking is payable_score-first; validated profiles must beat generic incl.
+        meta["payable_score"] = 100
+        meta["type"] = "incl"
     return FieldCandidate(
         value=value,
         source="profile",
         confidence=profile_confidence_for_field(field_id, validated=validated),
         context=context,
+        meta=meta,
     )
+
+
+def _profile_raw_text(invoice: dict, invoice_copy: dict) -> str | None:
+    """Profile specs are learned from strict PDF text; parsed ``raw_text`` may be shorter."""
+    source_file = str(invoice.get("source_file") or invoice_copy.get("source_file") or "").strip()
+    if source_file:
+        try:
+            from parser.pdf_parser import extract_text_strict
+
+            strict = extract_text_strict(source_file)
+            if strict:
+                return strict
+        except Exception:
+            pass
+    raw = invoice.get("raw_text") or invoice_copy.get("raw_text")
+    if raw is None:
+        return None
+    text = str(raw)
+    return text or None
 
 
 def _amount_decimal(val: Any) -> Decimal | None:
@@ -138,7 +163,9 @@ def apply_hybrid_field_extraction(
 ) -> None:
     """Pas hybride resolver toe op alle extractievelden."""
     profile = db.get_extraction_profile(supplier["name"]) if use_profile else None
-    raw = invoice.get("raw_text") or invoice_copy.get("raw_text")
+    raw = _profile_raw_text(invoice, invoice_copy) if use_profile else (
+        invoice.get("raw_text") or invoice_copy.get("raw_text")
+    )
     extracted: dict[str, float | str | None] = {
         "amount": None,
         "invoice_number": None,
@@ -199,11 +226,23 @@ def apply_hybrid_field_extraction(
                 cand_val = str(prof_val).strip()
             if cand_val is not None:
                 field_spec = {field_id: profile[field_id]}
+                field_spec_dict = profile[field_id]
                 field_valid = profile_validated or validate_profile(
                     raw,
                     field_spec,
                     {field_id: prof_val},
                 )
+                if (
+                    not field_valid
+                    and field_id == "amount"
+                    and raw
+                    and isinstance(field_spec_dict, dict)
+                ):
+                    field_valid = amount_field_spec_matches(
+                        (raw or "").split("\n"),
+                        field_spec_dict,
+                        prof_val,
+                    )
                 overrides.append(
                     _profile_candidate(
                         field_id,

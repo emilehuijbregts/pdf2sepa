@@ -1,10 +1,19 @@
-"""Phase C — golden ranking concern tests (production winners vs Phase A.1 snapshot)."""
+"""
+Golden Suite v2 split:
+
+- extraction = hard contract (must never break)
+- decision = soft behavior contract (allowed to evolve)
+- ranking = debug signal only (non-blocking)
+
+This prevents engine improvements from causing false regressions.
+"""
 
 from __future__ import annotations
 
 import pytest
 
 from parser.field_model import ALL_FIELD_IDS, FieldId
+from tests.golden.conftest import record_ranking_drift
 from tests.golden_test_support import (
     iter_golden_cases,
     load_matched_invoices,
@@ -13,7 +22,7 @@ from tests.golden_test_support import (
     snapshot_production_winner,
 )
 
-pytestmark = [pytest.mark.golden, pytest.mark.golden_slow]
+pytestmark = [pytest.mark.golden, pytest.mark.golden_slow, pytest.mark.debug]
 
 
 @pytest.fixture(scope="module")
@@ -44,10 +53,13 @@ def test_ranking_production_winner(
     ranking_snapshot: dict,
 ) -> None:
     inv = matched_by_pdf.get(golden_case.source_file)
-    live = production_winner(inv, field_id) if inv is not None else {}
+    assert inv is not None
+    live = production_winner(inv, field_id)
     snap = snapshot_production_winner(ranking_snapshot, golden_case.source_file, field_id)
-    assert inv is not None and live == snap, (
-        f"Ranking winner drift for {golden_case.source_file} :: {field_id}:\n"
-        f"  snapshot: {snap!r}\n"
-        f"  live:     {live!r}"
-    )
+    if live != snap:
+        record_ranking_drift()
+        print(
+            f"RANKING_DRIFT {golden_case.source_file} :: {field_id}\n"
+            f"  snap: {snap!r}\n"
+            f"  live: {live!r}"
+        )

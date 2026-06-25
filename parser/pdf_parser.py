@@ -396,6 +396,8 @@ _IBAN_ISO_LENGTH_BY_CC: dict[str, int] = {
 
 
 def _finalize_iban_from_scan_parts(cc: str, check: str, body_merged_upper: str) -> str | None:
+    if cc.upper() not in _IBAN_ISO_LENGTH_BY_CC:
+        return None
     tgt = _IBAN_ISO_LENGTH_BY_CC.get(cc.upper())
     need_body = tgt - 4 if tgt else None
     if need_body is not None:
@@ -403,16 +405,6 @@ def _finalize_iban_from_scan_parts(cc: str, check: str, body_merged_upper: str) 
             return None
         cand = f"{cc}{check}{body_merged_upper[:need_body]}"
         return cand if _iban_mod97_valid(cand) else None
-    full = (f"{cc}{check}" + body_merged_upper).upper()
-    full = full[:34]
-    while len(full) >= 15:
-        if (
-            full.isalnum()
-            and re.fullmatch(r"[A-Z]{2}[0-9]{2}[A-Z0-9]{11,}", full)
-            and _iban_mod97_valid(full)
-        ):
-            return full
-        full = full[:-1]
     return None
 
 
@@ -2108,6 +2100,12 @@ def _extract_amount_candidates(text: str) -> list[AmountCandidate]:
             # Header-like VAT tables (e.g. "Bedrag BTW % Basis Bedrag Te betalen") are not payable values.
             continue
 
+        if matched_source == "total_label_payable" and re.search(
+            r"(?i)\b(?:iban|rekening(?:nummer)?|bankrekening)\b", ln
+        ):
+            # Payment boilerplate (e.g. "te voldoen op IBAN …") — never treat IBAN digits as amount.
+            continue
+
         # Upgrade weak single-line ``Totaal``/``Total`` hit when ``bedrag`` continues on the next line.
         if (
             matched_source == "total_label_generic"
@@ -2478,14 +2476,25 @@ def _amount_payable_score_fields(
         return 5
     if amount_type == "excl" or src == "total_label_excl":
         score = 10
+    elif src == "total_label_invoice":
+        score = 92
+    elif src in ("vat_summary_last_amount", "table_total_column"):
+        score = 88
     elif src == "total_label_payable":
-        score = 100
+        score = 70
     elif amount_type == "incl":
         score = 78
     else:
         score = 35
     if _PAYABLE_AMOUNT_CTX_RE.search(low):
-        score = max(score, 100)
+        if src == "total_label_payable":
+            score = max(score, 70)
+        else:
+            score = max(score, 100)
+    if src == "total_label_payable" and re.search(
+        r"(?i)\b(?:iban|rekening(?:nummer)?|bankrekening)\b", low
+    ):
+        score = min(score, 12)
     if _NON_PAYABLE_AMOUNT_CTX_RE.search(low):
         score = min(score, 22)
     if re.search(

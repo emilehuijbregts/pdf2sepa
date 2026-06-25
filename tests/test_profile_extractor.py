@@ -302,6 +302,50 @@ class TestLearnAndRoundtrip:
         out = extract_with_profile(text, profile)
         assert out["amount"] == pytest.approx(1234.56, abs=0.01)
 
+    def test_learn_amount_derived_excl_plus_vat(self):
+        """Bedrag alleen als som excl. BTW + BTW%-regel (Qblades-layout)."""
+        text = (
+            "Factuurnummer: INV-001\n"
+            "Klantnummer: 740777\n"
+            "Excl. btw € 328,30\n"
+            "BTW 21% € 68,94\n"
+        )
+        confirmed = {
+            "amount": Decimal("397.24"),
+            "invoice_number": "INV-001",
+            "customer_number": "740777",
+        }
+        profile = learn_profile_from_confirmation(text, confirmed, "qblades.pdf")
+        assert profile is not None
+        assert profile["amount"]["strategy"] == "derived_excl_plus_vat"
+        assert profile["amount"]["label_excl"] == "Excl. btw"
+        assert "BTW" in profile["amount"]["label_btw"]
+        out = extract_with_profile(text, profile)
+        assert out["amount"] == pytest.approx(397.24, abs=0.01)
+        assert validate_profile(text, profile, confirmed)
+        assert "derived_excl_plus_vat" in STRATEGIES
+
+
+@pytest.mark.skipif(
+    not (Path(__file__).resolve().parent / "Batch 6" / "Qblades INV_2026_00364.pdf").is_file(),
+    reason="Qblades golden PDF missing",
+)
+class TestQbladesGoldenPdf:
+    def test_learn_derived_amount_from_real_pdf(self):
+        pdf = Path(__file__).resolve().parent / "Batch 6" / "Qblades INV_2026_00364.pdf"
+        raw = extract_text_strict(str(pdf))
+        confirmed = {
+            "amount": Decimal("397.24"),
+            "invoice_number": "INV/2026/00364",
+            "customer_number": "740777",
+        }
+        profile = learn_profile_from_confirmation(raw, confirmed, pdf.name)
+        assert profile is not None
+        assert profile.get("amount", {}).get("strategy") == "derived_excl_plus_vat"
+        out = extract_with_profile(raw, profile)
+        assert out["amount"] == pytest.approx(397.24, abs=0.01)
+        assert validate_profile(raw, profile, confirmed)
+
 
 @pytest.mark.skipif(not GOLDEN_2BA_PDF.is_file(), reason="golden PDF missing")
 class TestGolden2baPdf:
@@ -324,7 +368,7 @@ class TestGolden2baPdf:
 
 
 class TestStrategiesConstant:
-    def test_six_strategies(self):
-        assert len(STRATEGIES) == 6
+    def test_strategies_include_derived_excl_plus_vat(self):
+        assert "derived_excl_plus_vat" in STRATEGIES
         assert "same_line_first_iban" in STRATEGIES
         assert "next_line_first_iban" in STRATEGIES

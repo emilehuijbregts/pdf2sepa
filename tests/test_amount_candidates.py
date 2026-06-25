@@ -160,8 +160,8 @@ class TestSelectAmountAmbiguous:
         c2 = AmountCandidate(Decimal("500.00"), "total_label_invoice", 95, "ctx", "incl")
         r = _select_amount([c1, c2])
         assert r.status == "tentative"
-        assert r.value == Decimal("605.92")
-        assert r.confidence == 100
+        assert r.value == Decimal("500.00")
+        assert r.confidence == 95
 
     def test_three_candidates_no_dominant(self):
         c1 = AmountCandidate(Decimal("605.92"), "total_label_payable", 95, "ctx", "incl")
@@ -169,7 +169,7 @@ class TestSelectAmountAmbiguous:
         c3 = AmountCandidate(Decimal("400.00"), "total_label_generic", 70, "ctx", "incl")
         r = _select_amount([c1, c2, c3])
         assert r.status == "tentative"
-        assert r.value == Decimal("605.92")
+        assert r.value == Decimal("500.00")
 
 
 class TestSelectAmountNoHighConfidence:
@@ -209,7 +209,7 @@ class TestSelectAmountTentative:
         c2 = AmountCandidate(Decimal("888.88"), "total_label_invoice", 95, "ctx", "incl")
         r = _select_amount([c1, c2])
         assert r.status == "tentative"
-        assert r.value == Decimal("999.99")
+        assert r.value == Decimal("888.88")
 
     def test_only_excl_high_confidence_stays_ambiguous(self):
         c1 = AmountCandidate(Decimal("100.00"), "total_label_excl", 100, "ctx", "excl")

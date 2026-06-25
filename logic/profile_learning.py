@@ -5,15 +5,37 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from logic.payment_amounts import amount_to_decimal, format_eur_xml
 from parser.field_model import ALL_FIELD_IDS, CORE_PROFILE_FIELD_KEYS, FieldId
 from parser.profile_learner import (
+    AMOUNT_LEARN_FIELDS,
+    IDENTIFICATION_LEARN_FIELDS,
     learn_profile_from_resolved_fields,
     prepare_learnable_field_results,
 )
-from parser.supplier_db import SupplierDB
+from parser.supplier_db import SupplierDB, customer_number_profile_locked
+
+ProfileFieldStatus = Literal["learned", "failed", "skipped"]
+
+_PROFILE_LEARN_FIELD_KEYS: tuple[str, ...] = (
+    *IDENTIFICATION_LEARN_FIELDS,
+    *AMOUNT_LEARN_FIELDS,
+)
+
+_FIELD_LABELS_NL: dict[str, str] = {
+    "invoice_number": "Factuurnummer",
+    "customer_number": "Klantnummer",
+    "amount": "Bedrag",
+}
+
+
+@dataclass(frozen=True)
+class ProfileFieldOutcome:
+    field_id: str
+    status: ProfileFieldStatus
+    detail: str = ""
 
 
 @dataclass(frozen=True)
@@ -22,6 +44,7 @@ class ProfileLearnResult:
     profile: dict[str, Any] | None
     message: str
     confirmed: dict[str, Any]
+    field_outcomes: tuple[ProfileFieldOutcome, ...] = ()
 
 
 def profile_field_keys_missing(stored_profile: dict[str, Any] | None) -> list[str]:
@@ -135,13 +158,85 @@ def _legacy_result_dicts(
     }
 
 
+def _compute_profile_field_outcomes(
+    norm: dict[str, Any],
+    profile: dict[str, Any] | None,
+) -> tuple[ProfileFieldOutcome, ...]:
+    """Per-field learn status (identification and amount domains are independent)."""
+    prof = profile if isinstance(profile, dict) else {}
+    outcomes: list[ProfileFieldOutcome] = []
+    for field_id in _PROFILE_LEARN_FIELD_KEYS:
+        if field_id not in norm:
+            outcomes.append(ProfileFieldOutcome(field_id=field_id, status="skipped"))
+            continue
+        spec = prof.get(field_id)
+        if isinstance(spec, dict) and (spec.get("label") or spec.get("strategy") == "derived_excl_plus_vat"):
+            outcomes.append(
+                ProfileFieldOutcome(
+                    field_id=field_id,
+                    status="learned",
+                    detail="geleerd en opgeslagen",
+                )
+            )
+        else:
+            if field_id == "amount":
+                detail = (
+                    "kon niet aan een vast label in de PDF worden gekoppeld. "
+                    "Controleer het totaal op de factuur en probeer opnieuw, "
+                    "of kies het bedrag via Diagnostics vóór «Profiel aanmaken»."
+                )
+            else:
+                detail = "kon niet automatisch worden afgeleid uit de bevestigde waarde."
+            outcomes.append(ProfileFieldOutcome(field_id=field_id, status="failed", detail=detail))
+    return tuple(outcomes)
+
+
+def _format_profile_learn_messages(
+    outcomes: tuple[ProfileFieldOutcome, ...],
+    supplier_name: str,
+    *,
+    saved: bool,
+) -> str:
+    """Per-field NL lines; no combined ident+amount failure sentence."""
+    lines: list[str] = []
+    learned = [o for o in outcomes if o.status == "learned"]
+    failed = [o for o in outcomes if o.status == "failed"]
+
+    if saved:
+        if learned and failed:
+            header = f"Profiel (deels) opgeslagen voor {supplier_name}."
+        elif learned:
+            header = f"Profiel opgeslagen voor {supplier_name}."
+        else:
+            header = f"Profiel opgeslagen voor {supplier_name}."
+        lines.append(header)
+    elif failed and not learned:
+        lines.append("Profiel kon niet worden opgeslagen.")
+    else:
+        lines.append(f"Profiel kon niet volledig worden opgeslagen voor {supplier_name}.")
+
+    for outcome in outcomes:
+        if outcome.status == "skipped":
+            continue
+        label = _FIELD_LABELS_NL.get(outcome.field_id, outcome.field_id)
+        if outcome.status == "learned":
+            lines.append(f"{label}: geleerd en opgeslagen.")
+        else:
+            lines.append(f"{label}: {outcome.detail}")
+
+    return "\n".join(lines)
+
+
 def merge_extraction_profiles(existing: dict[str, Any] | None, learned: dict[str, Any]) -> dict[str, Any]:
     """Behoud bestaande velden; overschrijf met nieuw geleerde velden."""
     out: dict[str, Any] = dict(existing) if isinstance(existing, dict) else {}
     lf = learned.get("learned_from")
     if lf:
         out["learned_from"] = lf
+    cust_locked = customer_number_profile_locked(existing)
     for key in ALL_FIELD_IDS:
+        if key == "customer_number" and cust_locked:
+            continue
         if key in learned and isinstance(learned.get(key), dict):
             out[key] = learned[key]
     return out
@@ -166,15 +261,19 @@ def confirm_invoice_fields(
     Bevestig velden; leer en sla optioneel extractieprofiel op.
 
     Orchestrator: prepare learnable FieldResults → learn → save.
+    Identification and amount domains learn and save independently.
     """
     norm = _normalize_confirmed(confirmed)
     name = str(supplier_name or "").strip()
+    empty_outcomes: tuple[ProfileFieldOutcome, ...] = ()
+
     if not name:
         return ProfileLearnResult(
             saved=False,
             profile=None,
             message="Leveranciersnaam ontbreekt.",
             confirmed=norm,
+            field_outcomes=empty_outcomes,
         )
 
     if not save_profile:
@@ -183,6 +282,7 @@ def confirm_invoice_fields(
             profile=None,
             message="Velden bevestigd (profiel niet opgeslagen).",
             confirmed=norm,
+            field_outcomes=empty_outcomes,
         )
 
     snap = post_resolve_snapshot if isinstance(post_resolve_snapshot, dict) else {}
@@ -221,24 +321,31 @@ def confirm_invoice_fields(
                     else "Kon leveranciersprofiel niet opslaan."
                 ),
                 confirmed=norm,
+                field_outcomes=empty_outcomes,
             )
+        outcomes = _compute_profile_field_outcomes(norm, None)
+        if not norm:
+            msg = "Profiel kon niet automatisch worden afgeleid uit de bevestigde waarden."
+        else:
+            msg = _format_profile_learn_messages(outcomes, name, saved=False)
         return ProfileLearnResult(
             saved=False,
             profile=None,
-            message="Profiel kon niet automatisch worden afgeleid uit de bevestigde waarden.",
+            message=msg,
             confirmed=norm,
+            field_outcomes=outcomes,
         )
 
-    if norm.get("amount") is not None and "amount" not in profile:
+    outcomes = _compute_profile_field_outcomes(norm, profile)
+    has_learned = any(o.status == "learned" for o in outcomes)
+
+    if not has_learned:
         return ProfileLearnResult(
             saved=False,
             profile=profile,
-            message=(
-                "Factuurnummer/klantnummer zijn geleerd, maar het bedrag kon niet aan een "
-                "vast label in de PDF worden gekoppeld. Controleer het totaal op de factuur "
-                "en probeer opnieuw, of kies het bedrag via Diagnostics vóór «Profiel aanmaken»."
-            ),
+            message=_format_profile_learn_messages(outcomes, name, saved=False),
             confirmed=norm,
+            field_outcomes=outcomes,
         )
 
     existing = db.get_extraction_profile(name)
@@ -256,6 +363,7 @@ def confirm_invoice_fields(
             profile=profile,
             message="Profiel kon niet worden opgeslagen (validatie mislukt).",
             confirmed=norm,
+            field_outcomes=outcomes,
         )
 
     from parser.supplier_db import (
@@ -286,8 +394,9 @@ def confirm_invoice_fields(
     return ProfileLearnResult(
         saved=True,
         profile=profile,
-        message=f"Profiel opgeslagen voor {name}.",
+        message=_format_profile_learn_messages(outcomes, name, saved=True),
         confirmed=norm,
+        field_outcomes=outcomes,
     )
 
 

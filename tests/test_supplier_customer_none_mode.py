@@ -196,6 +196,80 @@ class TestHybridFieldApplyNoneMode:
         assert "3503" not in str(cr.get("value") or "")
         assert "30146" not in str(invoice_copy.get("customer_number") or "")
 
+    def test_hybrid_none_mode_respects_user_locked_customer_pick(self, db_none_mode: SupplierDB):
+        """User override on NONE supplier keeps per-document customer number."""
+        supplier = db_none_mode.suppliers[0]
+        invoice = {
+            "raw_text": INVOICE_TEXT,
+            "customer_number": "30146",
+            "customer_number_result": {
+                "value": "30146",
+                "selected_value": "30146",
+                "status": "confirmed",
+                "source": "USER_PICKED",
+                "user_overridden": True,
+                "candidates": [{"value": "30146", "source": "label", "confidence": 90}],
+            },
+            "iban": SUPPLIER_IBAN,
+            "amount": 100.0,
+            "amount_result": {
+                "status": "confirmed",
+                "source": "TEST",
+                "value": "100.00",
+                "candidates": [{"value": "100.00"}],
+            },
+        }
+        invoice_copy: dict = {}
+
+        apply_hybrid_field_extraction(
+            invoice,
+            invoice_copy,
+            supplier,
+            db_none_mode,
+            amount_status="confirmed",
+            use_profile=True,
+        )
+
+        assert invoice_copy.get("customer_number") == "30146"
+        cr = invoice_copy.get("customer_number_result") or {}
+        assert cr.get("selected_value") == "30146"
+        assert cr.get("user_overridden") is True
+
+    def test_hybrid_apply_none_mode_with_use_profile_false(self, db_none_mode: SupplierDB):
+        """NONE write-lock must apply even when use_profile=False (weak match path)."""
+        supplier = db_none_mode.suppliers[0]
+        invoice = {
+            "raw_text": INVOICE_TEXT,
+            "customer_number": "30146",
+            "customer_number_result": {
+                "value": "30146",
+                "selected_value": "30146",
+                "status": "confirmed",
+                "source": "label",
+                "candidates": [{"value": "30146", "source": "label", "confidence": 90}],
+            },
+            "iban": SUPPLIER_IBAN,
+            "amount": 100.0,
+            "amount_result": {
+                "status": "confirmed",
+                "source": "TEST",
+                "value": "100.00",
+                "candidates": [{"value": "100.00"}],
+            },
+        }
+        invoice_copy = dict(invoice)
+
+        apply_hybrid_field_extraction(
+            invoice,
+            invoice_copy,
+            supplier,
+            db_none_mode,
+            amount_status="confirmed",
+            use_profile=False,
+        )
+
+        _assert_absent_customer_number(invoice_copy, expect_profile_override=True)
+
 
 class TestPipelineNoneMode:
     def test_parse_stage_respects_none_mode(self):
@@ -229,6 +303,39 @@ class TestPipelineNoneMode:
         # PDF value may be preserved for audit, but must not become the active field.
         assert result.get("pdf_customer_number") == "30146"
         assert result.get("customer_number") is None
+
+    def test_match_attaches_extraction_profile_none(self, db_none_mode: SupplierDB):
+        inv = _baseline_invoice_dict()
+        inv["customer_number"] = "30146"
+        result = match_suppliers([inv], db_none_mode)[0]
+        ep = result.get("extraction_profile")
+        assert isinstance(ep, dict)
+        assert ep.get("customer_number_mode") == CUSTOMER_NUMBER_MODE_NONE
+
+    def test_reparse_after_none_commit_keeps_absent(self, db_none_mode: SupplierDB):
+        """Cold reparse + rematch must not resurrect OCR customer_number when profile NONE."""
+        db_none_mode.set_customer_number_mode(SUPPLIER_NAME, CUSTOMER_NUMBER_MODE_NONE)
+        db_none_mode.update_supplier(
+            SUPPLIER_NAME,
+            customer_codes=[],
+            overwrite_customer_codes=True,
+        )
+
+        parsed = extract_invoice_data(INVOICE_TEXT)
+        assert str(parsed.get("customer_number") or "").strip() == "30146"
+
+        inv = _baseline_invoice_dict(parsed=parsed)
+        first = match_suppliers([inv], db_none_mode)[0]
+        _assert_absent_customer_number(first, expect_profile_override=True)
+
+        parsed2 = extract_invoice_data(INVOICE_TEXT)
+        inv2 = _baseline_invoice_dict(parsed=parsed2)
+        second = match_suppliers([inv2], db_none_mode)[0]
+        _assert_absent_customer_number(second, expect_profile_override=True)
+
+        sup = db_none_mode.find_supplier(SUPPLIER_NAME, SUPPLIER_IBAN)
+        assert sup is not None
+        assert sup.get("customer_codes") == []
 
 
 class TestPipelineWithoutNoneMode:

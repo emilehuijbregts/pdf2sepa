@@ -157,3 +157,44 @@ class TestLearnProfileFromResolvedFields:
         )
         assert profile is not None
         assert profile["amount"].get("confidence") == 88
+
+    def test_learns_derived_excl_plus_vat_from_snapshot(self):
+        text = (
+            "Factuurnummer: INV-001\n"
+            "Klantnummer: 740777\n"
+            "Excl. btw € 328,30\n"
+            "BTW 21% € 68,94\n"
+        )
+        snap = {
+            "amount_result": {
+                "status": "confirmed",
+                "value": "397.24",
+                "confidence": 82,
+                "source": "derived_excl_plus_vat",
+                "candidates": [
+                    {
+                        "value": "397.24",
+                        "context": "excl. btw + BTW % line sum",
+                        "confidence": 82,
+                        "source": "derived_excl_plus_vat",
+                    }
+                ],
+                "decision_trace": [{"source": "derived_excl_plus_vat", "win": True}],
+            },
+        }
+        learnable = prepare_learnable_field_results(
+            snap,
+            dialog_confirmed={
+                "amount": Decimal("397.24"),
+                "invoice_number": "INV-001",
+                "customer_number": "740777",
+            },
+        )
+        profile = learn_profile_from_resolved_fields(
+            raw_text=text,
+            source_file="qblades.pdf",
+            field_results=learnable,
+        )
+        assert profile is not None
+        assert profile["amount"]["strategy"] == "derived_excl_plus_vat"
+        assert profile["amount"]["confirmed_value"] == "397.24"

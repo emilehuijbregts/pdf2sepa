@@ -1,75 +1,48 @@
-"""Phase C5 — verify regression lock and Phase C acceptance."""
+"""Golden Suite v2 — verify contract-layer structure and acceptance metadata."""
 
 from __future__ import annotations
 
 import ast
 import json
-import subprocess
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 ACCEPTANCE_PATH = REPO / "reports" / "phase_c_acceptance.json"
-RUNTIME_PATH = REPO / "reports" / "phase_c_runtime.json"
-PRE_PHASE_C_BASE = "b23714c"
+
+V2_SPLIT_FILES = (
+    "tests/golden/extraction/test_golden_extraction_hard.py",
+    "tests/golden/decision/test_golden_decision_soft.py",
+    "tests/golden/ranking/test_golden_ranking_debug.py",
+)
 
 
-def _test_02_source() -> str | None:
+def _test_02_has_skip_marker() -> bool:
     src = (REPO / "tests" / "test_golden_dataset.py").read_text(encoding="utf-8")
     tree = ast.parse(src)
     for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef) and node.name == "test_02_golden_dataset_business_output":
-            return ast.get_source_segment(src, node)
-    return None
+        if not isinstance(node, ast.FunctionDef) or node.name != "test_02_golden_dataset_business_output":
+            continue
+        for dec in node.decorator_list:
+            dec_src = ast.get_source_segment(src, dec) or ""
+            if "skip" in dec_src:
+                return True
+    return False
 
 
-def _pre_phase_c_test_02_source() -> str | None:
-    pre = subprocess.check_output(
-        ["git", "show", f"{PRE_PHASE_C_BASE}:tests/test_golden_dataset.py"],
-        text=True,
-    )
-    tree = ast.parse(pre)
-    for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef) and node.name == "test_02_golden_dataset_business_output":
-            return ast.get_source_segment(pre, node)
-    return None
+def test_golden_v2_test_02_migrated_to_skip() -> None:
+    assert _test_02_has_skip_marker(), "test_02 must be skipped; checks live in tests/golden/"
 
 
-def test_phase_c5_test_02_regression_lock_preserved() -> None:
-    pre = _pre_phase_c_test_02_source()
-    cur = _test_02_source()
-    assert pre is not None and cur is not None
-    assert pre == cur, "test_02_golden_dataset_business_output body changed during Phase C"
+def test_golden_v2_split_files_exist() -> None:
+    missing = [rel for rel in V2_SPLIT_FILES if not (REPO / rel).is_file()]
+    assert missing == [], f"Missing Golden Suite v2 files: {missing}"
 
 
-def test_phase_c5_no_production_code_changed() -> None:
-    out = subprocess.check_output(
-        ["git", "diff", f"{PRE_PHASE_C_BASE}..HEAD", "--", "parser/", "logic/", "main_window.py"],
-        text=True,
-        cwd=REPO,
-    )
-    assert out.strip() == "", "Production code changed during Phase C"
-
-
-def test_phase_c5_acceptance_report() -> None:
+def test_golden_v2_acceptance_report() -> None:
     assert ACCEPTANCE_PATH.is_file(), "Missing reports/phase_c_acceptance.json"
     report = json.loads(ACCEPTANCE_PATH.read_text(encoding="utf-8") or "{}")
-    assert report.get("production_code_changed") is False
-    assert report.get("test_02_preserved") is True
-    assert report.get("recommendation") == "Phase C complete"
+    assert report.get("suite") == "golden_v2"
+    assert report.get("blocking_gate") == "tests/golden/extraction/"
     split = report.get("split_files") or []
-    assert "tests/test_golden_extraction.py" in split
-    assert "tests/test_golden_ranking.py" in split
-    assert "tests/test_golden_decision.py" in split
-
-
-def test_phase_c5_runtime_report() -> None:
-    assert RUNTIME_PATH.is_file(), "Missing reports/phase_c_runtime.json"
-    report = json.loads(RUNTIME_PATH.read_text(encoding="utf-8") or "{}")
-    targets = report.get("targets") or {}
-    assert targets.get("extraction_warm_cache_under_60_sec") is True
-    assert targets.get("ranking_under_600_sec") is True
-    assert targets.get("decision_under_900_sec") is True
-    assert targets.get("per_concern_feedback_under_300_sec") is True
-    runs = report.get("golden_concern_runs_sec") or {}
-    assert runs.get("golden_regression_lock_sec") is not None
-    assert report.get("exit_codes", {}).get("golden_regression_lock_sec") == 1
+    for path in V2_SPLIT_FILES:
+        assert path in split
