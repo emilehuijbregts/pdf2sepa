@@ -1,0 +1,13 @@
+{
+  "source_file": "DAWO Factuur251237.pdf",
+  "invoice_number": "251237",
+  "supplier_name": "DAWO EPS B.V.",
+  "iban": "NL32RABO0157196127",
+  "amount": "446.39",
+  "amount_status": "confirmed",
+  "customer_code": "10890",
+  "description": "10890 / 251237",
+  "discount_percentage": "0.00",
+  "invoice_date": "2025-06-18",
+  "payment_terms_days": 30
+}

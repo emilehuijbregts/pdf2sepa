@@ -1,0 +1,13 @@
+{
+  "source_file": "Houthandel jacobs 1301075848.pdf",
+  "invoice_number": "1301075848",
+  "supplier_name": "Jacobs Hout- en Bouwmaterialen",
+  "iban": "NL14RABO0120102099",
+  "amount": "675.43",
+  "amount_status": "confirmed",
+  "customer_code": "10000612",
+  "description": "10000612 / 1301075848",
+  "discount_percentage": "0.00",
+  "invoice_date": "2025-06-06",
+  "payment_terms_days": 30
+}

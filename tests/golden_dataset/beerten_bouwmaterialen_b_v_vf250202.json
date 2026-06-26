@@ -1,0 +1,13 @@
+{
+  "source_file": "beerten Factuur-VF250202.pdf",
+  "invoice_number": "VF250202",
+  "supplier_name": "Beerten Bouwmaterialen B.V.",
+  "iban": "NL33RABO0351700218",
+  "amount": "1918.58",
+  "amount_status": "confirmed",
+  "customer_code": "000153",
+  "description": "000153 / VF250202",
+  "discount_percentage": "0.00",
+  "invoice_date": "2025-09-23",
+  "payment_terms_days": 7
+}

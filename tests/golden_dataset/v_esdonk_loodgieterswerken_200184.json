@@ -1,0 +1,13 @@
+{
+  "source_file": "esdonk Factuur200184.pdf",
+  "invoice_number": "200184",
+  "supplier_name": "v. Esdonk loodgieterswerken",
+  "iban": "NL28INGB0006306553",
+  "amount": "3455.69",
+  "amount_status": "confirmed",
+  "customer_code": "907",
+  "description": "907 / 200184",
+  "discount_percentage": "0.00",
+  "invoice_date": "2025-09-28",
+  "payment_terms_days": 10
+}

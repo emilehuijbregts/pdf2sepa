@@ -1,0 +1,13 @@
+{
+  "source_file": "magnum heating 12580464.pdf",
+  "invoice_number": "12580464",
+  "supplier_name": "MAGNUM Heating B.V.",
+  "iban": "NL37INGB0655775129",
+  "amount": "108.14",
+  "amount_status": "confirmed",
+  "customer_code": "35052",
+  "description": "35052 / 12580464",
+  "discount_percentage": "0.00",
+  "invoice_date": "2025-05-09",
+  "payment_terms_days": 14
+}

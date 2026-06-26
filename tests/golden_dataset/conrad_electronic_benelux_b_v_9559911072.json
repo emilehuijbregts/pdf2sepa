@@ -1,0 +1,13 @@
+{
+  "source_file": "conrad 9559911072.pdf",
+  "invoice_number": "9559911072",
+  "supplier_name": "Conrad Electronic Benelux B.V.",
+  "iban": "NL60RABO0396709478",
+  "amount": "54.97",
+  "amount_status": "confirmed",
+  "customer_code": "545574603",
+  "description": "545574603 / 9559911072",
+  "discount_percentage": "0.00",
+  "invoice_date": "2025-09-09",
+  "payment_terms_days": 0
+}

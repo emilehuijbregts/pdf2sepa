@@ -1,0 +1,13 @@
+{
+  "source_file": "Masterwatt inv25702553.PDF",
+  "invoice_number": "25702553",
+  "supplier_name": "Masterwatt B.V.",
+  "iban": "NL37INGB0391553143",
+  "amount": "3648.15",
+  "amount_status": "confirmed",
+  "customer_code": "3797",
+  "description": "3797 / 25702553",
+  "discount_percentage": "0.00",
+  "invoice_date": "2025-07-08",
+  "payment_terms_days": 30
+}

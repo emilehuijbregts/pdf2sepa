@@ -1,0 +1,13 @@
+{
+  "source_file": "E-Check BV Factuur 25151.pdf",
+  "invoice_number": "25151",
+  "supplier_name": "E-Check B.V.",
+  "iban": "NL33RABO0143928449",
+  "amount": "1028.50",
+  "amount_status": "confirmed",
+  "customer_code": "1147",
+  "description": "1147 / 25151",
+  "discount_percentage": "0.00",
+  "invoice_date": "2025-04-23",
+  "payment_terms_days": 14
+}

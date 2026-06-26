@@ -1,0 +1,13 @@
+{
+  "source_file": "Voets Bedrijfskleding Factuur 20256627.pdf",
+  "invoice_number": "20256627",
+  "supplier_name": "Voets Bedrijfskleding",
+  "iban": "NL24RABO0112909272",
+  "amount": "167.34",
+  "amount_status": "confirmed",
+  "customer_code": "",
+  "description": "",
+  "discount_percentage": "0.00",
+  "invoice_date": "2025-12-19",
+  "payment_terms_days": 14
+}

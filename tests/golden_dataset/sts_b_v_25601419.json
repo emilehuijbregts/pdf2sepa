@@ -1,0 +1,13 @@
+{
+  "source_file": "sts 25601419.pdf",
+  "invoice_number": "25601419",
+  "supplier_name": "STS B.V.",
+  "iban": "NL37RABO0341333174",
+  "amount": "322.45",
+  "amount_status": "confirmed",
+  "customer_code": "1013",
+  "description": "1013 / 25601419",
+  "discount_percentage": "0.00",
+  "invoice_date": "2025-09-24",
+  "payment_terms_days": 30
+}

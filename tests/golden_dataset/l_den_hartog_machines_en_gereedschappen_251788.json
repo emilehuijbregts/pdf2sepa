@@ -1,0 +1,13 @@
+{
+  "source_file": "L. den Hartog Service- en Handelsonderneming Factuur 251788.pdf",
+  "invoice_number": "251788",
+  "supplier_name": "L. Den Hartog Machines en Gereedschappen",
+  "iban": "NL12INGB0009040204",
+  "amount": "446.49",
+  "amount_status": "confirmed",
+  "customer_code": "71575",
+  "description": "71575 / 251788",
+  "discount_percentage": "0.00",
+  "invoice_date": "2025-04-18",
+  "payment_terms_days": 8
+}

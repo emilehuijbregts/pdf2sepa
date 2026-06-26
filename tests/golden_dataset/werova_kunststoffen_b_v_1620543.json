@@ -1,0 +1,13 @@
+{
+  "source_file": "Werova 1620543.pdf",
+  "invoice_number": "1620543",
+  "supplier_name": "WEROVA Kunststoffen B.V.",
+  "iban": "NL93RABO0133581543",
+  "amount": "1017.13",
+  "amount_status": "confirmed",
+  "customer_code": "010525",
+  "description": "010525 / 1620543",
+  "discount_percentage": "0.00",
+  "invoice_date": "2025-12-15",
+  "payment_terms_days": 14
+}

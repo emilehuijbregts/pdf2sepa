@@ -1,0 +1,13 @@
+{
+  "source_file": "DSG Factuur 025261476.pdf",
+  "invoice_number": "025261476",
+  "supplier_name": "DSG Diensten BV.",
+  "iban": "NL16INGB0105635448",
+  "amount": "80.90",
+  "amount_status": "confirmed",
+  "customer_code": "314219",
+  "description": "314219 / 025261476",
+  "discount_percentage": "0.00",
+  "invoice_date": "2025-05-22",
+  "payment_terms_days": 30
+}

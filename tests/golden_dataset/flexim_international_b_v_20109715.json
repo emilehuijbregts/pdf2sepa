@@ -1,0 +1,13 @@
+{
+  "source_file": "Flexim FCT20109715.PDF",
+  "invoice_number": "20109715",
+  "supplier_name": "Flexim International B.V.",
+  "iban": "NL70ABNA0490638589",
+  "amount": "4910.54",
+  "amount_status": "confirmed",
+  "customer_code": "12997",
+  "description": "12997 / 20109715",
+  "discount_percentage": "2.00",
+  "invoice_date": "2025-06-18",
+  "payment_terms_days": 14
+}

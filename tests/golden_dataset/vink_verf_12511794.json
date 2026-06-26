@@ -1,0 +1,13 @@
+{
+  "source_file": "Vinkverf 12511794.PDF",
+  "invoice_number": "12511794",
+  "supplier_name": "Vink Verf",
+  "iban": "NL34ABNA0532811151",
+  "amount": "78.67",
+  "amount_status": "confirmed",
+  "customer_code": "12035",
+  "description": "12035 / 12511794",
+  "discount_percentage": "0.00",
+  "invoice_date": "2025-09-15",
+  "payment_terms_days": 30
+}

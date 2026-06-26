@@ -1,0 +1,13 @@
+{
+  "source_file": "Martendo stoelen FCT20250716.PDF",
+  "invoice_number": "20250716",
+  "supplier_name": "Martendo B.V.",
+  "iban": "NL76RABO0116617810",
+  "amount": "362.40",
+  "amount_status": "confirmed",
+  "customer_code": "04349",
+  "description": "04349 / 20250716",
+  "discount_percentage": "0.00",
+  "invoice_date": "2025-03-04",
+  "payment_terms_days": 14
+}

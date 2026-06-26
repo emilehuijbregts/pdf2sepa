@@ -1,0 +1,13 @@
+{
+  "source_file": "JSK Handelsonderneming Factuur 1225540.pdf",
+  "invoice_number": "",
+  "supplier_name": "JSK Handelsonderneming",
+  "iban": "NL27RABO0102224668",
+  "amount": "62.14",
+  "amount_status": "confirmed",
+  "customer_code": "",
+  "description": "",
+  "discount_percentage": "0.00",
+  "invoice_date": "2025-02-20",
+  "payment_terms_days": 0
+}

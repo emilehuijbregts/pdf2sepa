@@ -1,0 +1,13 @@
+{
+  "source_file": "Wintec inv25700050.PDF",
+  "invoice_number": "25700050",
+  "supplier_name": "Wintec Trading",
+  "iban": "NL72INGB0008995377",
+  "amount": "264.91",
+  "amount_status": "confirmed",
+  "customer_code": "28425",
+  "description": "28425 / 25700050",
+  "discount_percentage": "0.00",
+  "invoice_date": "2025-04-15",
+  "payment_terms_days": 14
+}
