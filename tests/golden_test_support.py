@@ -35,6 +35,8 @@ APP_BASE = Path(__file__).resolve().parents[1]
 GOLDEN_DIR = APP_BASE / "tests" / "golden_dataset"
 GOLDEN_PDFS_DIR = GOLDEN_DIR / "pdfs"
 CACHE_DIR = APP_BASE / "tests" / ".cache"
+# Bump when parser/golden contract changes so stale pickles are never reused.
+GOLDEN_PIPELINE_CACHE_VERSION = "v5-iban-context-primary-slash-customer"
 MATCHED_CACHE_FILE = CACHE_DIR / "golden_matched_v1.pkl"
 PIPELINE_CACHE_FILE = CACHE_DIR / "golden_pipeline_v1.pkl"
 SNAPSHOT_PATH = APP_BASE / "tests" / "snapshots" / "phase_a_ranking_snapshot.json"
@@ -159,7 +161,7 @@ def _debtor_kwargs() -> dict[str, str | None]:
 
 
 def _matched_cache_fingerprint() -> str:
-    parts: list[str] = []
+    parts: list[str] = [f"schema:{GOLDEN_PIPELINE_CACHE_VERSION}"]
     if GOLDEN_PDFS_DIR.is_dir():
         for pdf in sorted(GOLDEN_PDFS_DIR.glob("*.pdf")):
             st = pdf.stat()

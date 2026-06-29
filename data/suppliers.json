@@ -739,11 +739,12 @@
       ]
     },
     {
-      "name": "Installatie",
+      "name": "Installatiebalie.nl",
       "iban": "NL86INGB0008220774",
       "discount": 0.0,
       "aliases": [
-        "Installatie"
+        "Installatie",
+        "Installatiebalie.nl"
       ],
       "customer_codes": [
         "K12493"
@@ -1233,11 +1234,12 @@
       ]
     },
     {
-      "name": "Factuur Roba Metals B.V.",
+      "name": "Roba Metals B.V.",
       "iban": "NL02ABNA0556739590",
       "discount": 0.0,
       "aliases": [
-        "Factuur Roba Metals B.V."
+        "Factuur Roba Metals B.V.",
+        "Roba Metals B.V."
       ],
       "customer_codes": [
         "C05630"
@@ -1878,6 +1880,898 @@
           "confidence": 100
         }
       }
+    },
+    {
+      "name": "Ankofit Industries B.V.",
+      "iban": "NL45RABO0159891329",
+      "discount": 2.0,
+      "aliases": [
+        "Ankofit Industries B.V."
+      ],
+      "customer_codes": [],
+      "default_payment_term_days": 8,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL800695434B01"
+      ],
+      "kvk_numbers": [
+        "08024564"
+      ],
+      "email_domains": [
+        "duister.eu"
+      ]
+    },
+    {
+      "name": "Beerten Bouwmaterialen B.V.",
+      "iban": "NL33RABO0351700218",
+      "discount": 0.0,
+      "aliases": [
+        "Beerten Bouwmaterialen B.V."
+      ],
+      "customer_codes": [
+        "000153"
+      ],
+      "default_payment_term_days": 7,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL861026627B01"
+      ],
+      "kvk_numbers": [
+        "77499441"
+      ],
+      "email_domains": [
+        "beertenbouwmaterialen.nl"
+      ]
+    },
+    {
+      "name": "Conrad Electronic Benelux B.V.",
+      "iban": "NL60RABO0396709478",
+      "discount": 0.0,
+      "aliases": [
+        "Conrad Electronic Benelux B.V."
+      ],
+      "customer_codes": [
+        "545574603"
+      ],
+      "default_payment_term_days": 0,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL007738213B01"
+      ],
+      "kvk_numbers": [],
+      "email_domains": [
+        "conrad.nl"
+      ]
+    },
+    {
+      "name": "DAWO EPS B.V.",
+      "iban": "NL32RABO0157196127",
+      "discount": 0.0,
+      "aliases": [
+        "DAWO EPS B.V."
+      ],
+      "customer_codes": [
+        "10890"
+      ],
+      "default_payment_term_days": 30,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL818614328B01"
+      ],
+      "kvk_numbers": [
+        "08165077"
+      ],
+      "email_domains": [
+        "dawo-eps.nl"
+      ]
+    },
+    {
+      "name": "DSG Diensten BV.",
+      "iban": "NL16INGB0105635448",
+      "discount": 0.0,
+      "aliases": [
+        "DSG Diensten BV."
+      ],
+      "customer_codes": [
+        "314219"
+      ],
+      "default_payment_term_days": 30,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL818775270B01"
+      ],
+      "kvk_numbers": [
+        "30232830"
+      ],
+      "email_domains": [
+        "dsgdiensten.nl.bereikbaar"
+      ]
+    },
+    {
+      "name": "E-Check B.V.",
+      "iban": "NL33RABO0143928449",
+      "discount": 0.0,
+      "aliases": [
+        "E-Check B.V."
+      ],
+      "customer_codes": [
+        "1147"
+      ],
+      "default_payment_term_days": 14,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL821392402B01"
+      ],
+      "kvk_numbers": [
+        "30241843"
+      ],
+      "email_domains": [
+        "e-check.nl"
+      ]
+    },
+    {
+      "name": "v. Esdonk loodgieterswerken",
+      "iban": "NL28INGB0006306553",
+      "discount": 0.0,
+      "aliases": [
+        "v. Esdonk loodgieterswerken"
+      ],
+      "customer_codes": [
+        "907"
+      ],
+      "default_payment_term_days": 10,
+      "vat_rate": 21,
+      "vat_numbers": [],
+      "kvk_numbers": [
+        "83445781"
+      ],
+      "email_domains": [
+        "kpnmail.nl"
+      ]
+    },
+    {
+      "name": "Flexim International B.V.",
+      "iban": "NL70ABNA0490638589",
+      "discount": 2.0,
+      "aliases": [
+        "Flexim International B.V."
+      ],
+      "customer_codes": [
+        "12997"
+      ],
+      "default_payment_term_days": 14,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL864755156B01"
+      ],
+      "kvk_numbers": [
+        "88733475"
+      ],
+      "email_domains": [
+        "flexim.eu"
+      ]
+    },
+    {
+      "name": "Jacobs Hout- en Bouwmaterialen",
+      "iban": "NL14RABO0120102099",
+      "discount": 0.0,
+      "aliases": [
+        "Jacobs Hout- en Bouwmaterialen"
+      ],
+      "customer_codes": [
+        "10000612"
+      ],
+      "default_payment_term_days": 30,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL802011615B02"
+      ],
+      "kvk_numbers": [
+        "16070496"
+      ],
+      "email_domains": [
+        "jacobshbm.nl"
+      ]
+    },
+    {
+      "name": "JSK Handelsonderneming",
+      "iban": "NL27RABO0102224668",
+      "discount": 0.0,
+      "aliases": [
+        "JSK Handelsonderneming"
+      ],
+      "customer_codes": [],
+      "default_payment_term_days": 0,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL822481236B01"
+      ],
+      "kvk_numbers": [
+        "37148861"
+      ],
+      "email_domains": [
+        "jskhandelsonderneming.nl"
+      ]
+    },
+    {
+      "name": "L. Den Hartog Machines en Gereedschappen",
+      "iban": "NL12INGB0009040204",
+      "discount": 0.0,
+      "aliases": [
+        "L. Den Hartog Machines en Gereedschappen"
+      ],
+      "customer_codes": [
+        "71575"
+      ],
+      "default_payment_term_days": 8,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL001796776B56"
+      ],
+      "kvk_numbers": [
+        "24298059"
+      ],
+      "email_domains": [
+        "ldenhartog.nl"
+      ]
+    },
+    {
+      "name": "MAGNUM Heating B.V.",
+      "iban": "NL37INGB0655775129",
+      "discount": 0.0,
+      "aliases": [
+        "MAGNUM Heating B.V."
+      ],
+      "customer_codes": [
+        "35052"
+      ],
+      "default_payment_term_days": 14,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL807491950B01"
+      ],
+      "kvk_numbers": [
+        "22043037"
+      ],
+      "email_domains": [
+        "magnumheating.nl"
+      ]
+    },
+    {
+      "name": "Martendo B.V.",
+      "iban": "NL76RABO0116617810",
+      "discount": 0.0,
+      "aliases": [
+        "Martendo B.V."
+      ],
+      "customer_codes": [
+        "04349"
+      ],
+      "default_payment_term_days": 14,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL866409890B01"
+      ],
+      "kvk_numbers": [
+        "93457707"
+      ],
+      "email_domains": [
+        "martendo.nl"
+      ]
+    },
+    {
+      "name": "Masterwatt B.V.",
+      "iban": "NL37INGB0391553143",
+      "discount": 0.0,
+      "aliases": [
+        "Masterwatt B.V."
+      ],
+      "customer_codes": [
+        "3797"
+      ],
+      "default_payment_term_days": 30,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL856697163B01"
+      ],
+      "kvk_numbers": [
+        "66786592"
+      ],
+      "email_domains": [
+        "masterwatt.com"
+      ]
+    },
+    {
+      "name": "STS B.V.",
+      "iban": "NL37RABO0341333174",
+      "discount": 0.0,
+      "aliases": [
+        "STS B.V."
+      ],
+      "customer_codes": [
+        "1013"
+      ],
+      "default_payment_term_days": 30,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL808348577B01"
+      ],
+      "kvk_numbers": [
+        "11045702"
+      ],
+      "email_domains": [
+        "stsbv.nl"
+      ]
+    },
+    {
+      "name": "Vink Verf",
+      "iban": "NL34ABNA0532811151",
+      "discount": 0.0,
+      "aliases": [
+        "Vink Verf"
+      ],
+      "customer_codes": [
+        "12035"
+      ],
+      "default_payment_term_days": 30,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL802006838B01"
+      ],
+      "kvk_numbers": [
+        "16070887"
+      ],
+      "email_domains": [
+        "vinkverf.nl"
+      ]
+    },
+    {
+      "name": "Voets Bedrijfskleding",
+      "iban": "NL24RABO0112909272",
+      "discount": 0.0,
+      "aliases": [
+        "Voets Bedrijfskleding"
+      ],
+      "customer_codes": [],
+      "default_payment_term_days": 14,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL854995869B01"
+      ],
+      "kvk_numbers": [
+        "62879618"
+      ],
+      "email_domains": [
+        "voetsbedrijfskleding.nl"
+      ]
+    },
+    {
+      "name": "WEROVA Kunststoffen B.V.",
+      "iban": "NL93RABO0133581543",
+      "discount": 0.0,
+      "aliases": [
+        "WEROVA Kunststoffen B.V."
+      ],
+      "customer_codes": [
+        "010525"
+      ],
+      "default_payment_term_days": 14,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL818732374B01"
+      ],
+      "kvk_numbers": [
+        "09176689"
+      ],
+      "email_domains": [
+        "werova.nl"
+      ]
+    },
+    {
+      "name": "Wintec Trading",
+      "iban": "NL72INGB0008995377",
+      "discount": 0.0,
+      "aliases": [
+        "Wintec Trading"
+      ],
+      "customer_codes": [
+        "28425"
+      ],
+      "default_payment_term_days": 14,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL004138068B29"
+      ],
+      "kvk_numbers": [
+        "91039665"
+      ],
+      "email_domains": [
+        "wintec-trading.nl"
+      ]
+    },
+    {
+      "name": "B&M Techniek BV",
+      "iban": "NL52INGB0686210743",
+      "discount": 0.0,
+      "aliases": [
+        "B&M Techniek BV"
+      ],
+      "customer_codes": [
+        "114080"
+      ],
+      "default_payment_term_days": 1,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL855743992B01"
+      ],
+      "kvk_numbers": [
+        "64613755"
+      ],
+      "email_domains": [
+        "bmtechniek.nl"
+      ]
+    },
+    {
+      "name": "Wildkamp Veghel B.V.",
+      "iban": "NL73RABO0348902794",
+      "discount": 0.0,
+      "aliases": [
+        "Wildkamp Veghel B.V."
+      ],
+      "customer_codes": [
+        "4025590"
+      ],
+      "default_payment_term_days": 30,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL863075009B01"
+      ],
+      "kvk_numbers": [
+        "84046198"
+      ],
+      "email_domains": [
+        "wildkamp.nl"
+      ]
+    },
+    {
+      "name": "T.E. Solutions",
+      "iban": "NL25RABO0327935847",
+      "discount": 0.0,
+      "aliases": [
+        "T.E. Solutions"
+      ],
+      "customer_codes": [
+        "82"
+      ],
+      "default_payment_term_days": 8,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL001757473B24"
+      ],
+      "kvk_numbers": [
+        "17166946"
+      ],
+      "email_domains": [
+        "tesolutions.nl"
+      ],
+      "extraction_profile": {
+        "learned_from": "Bram T.E. Solutions 2025092.pdf",
+        "amount": {
+          "label": "te betalen",
+          "strategy": "same_line_last_amount",
+          "confirmed_value": "378.13",
+          "confidence": 100
+        },
+        "invoice_number": {
+          "label": "Factuurnummer: ",
+          "strategy": "same_line_after_colon",
+          "confirmed_value": "2025092",
+          "confidence": 100
+        },
+        "customer_number": {
+          "label": "Klantnummer: ",
+          "strategy": "same_line_after_colon",
+          "confirmed_value": "82",
+          "confidence": 100
+        },
+        "vat_number": {
+          "label": "BTW",
+          "strategy": "same_line_after_colon",
+          "confirmed_value": "NL001757473B24",
+          "confidence": 100
+        },
+        "kvk_number": {
+          "label": "Kvk",
+          "strategy": "same_line_after_colon",
+          "confirmed_value": "17166946",
+          "confidence": 100
+        },
+        "email_domain": {
+          "label": "Email : ",
+          "strategy": "same_line_after_colon",
+          "confirmed_value": "tesolutions.nl",
+          "confidence": 100
+        }
+      }
+    },
+    {
+      "name": "Brozus B.V.",
+      "iban": "NL07RABO0128361581",
+      "discount": 0.0,
+      "aliases": [
+        "Brozus B.V."
+      ],
+      "customer_codes": [
+        "11287"
+      ],
+      "default_payment_term_days": 30,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL818097383B01"
+      ],
+      "kvk_numbers": [
+        "17207528"
+      ],
+      "email_domains": [
+        "brozus.nl"
+      ]
+    },
+    {
+      "name": "Bruil beton & mix",
+      "iban": "NL33ABNA0470972505",
+      "discount": 0.0,
+      "aliases": [
+        "Bruil beton & mix"
+      ],
+      "customer_codes": [
+        "212554"
+      ],
+      "default_payment_term_days": 0,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL814608176B01"
+      ],
+      "kvk_numbers": [],
+      "email_domains": [
+        "bruil.nl"
+      ]
+    },
+    {
+      "name": "Data IO Nederland B.V.",
+      "iban": "NL18RABO0145363252",
+      "discount": 0.0,
+      "aliases": [
+        "Data IO Nederland B.V."
+      ],
+      "customer_codes": [],
+      "default_payment_term_days": 1,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL859289849B01"
+      ],
+      "kvk_numbers": [
+        "72930268"
+      ],
+      "email_domains": [
+        "dataio.nl"
+      ]
+    },
+    {
+      "name": "Dewin Isolatie",
+      "iban": "NL15ABNA0591821249",
+      "discount": 0.0,
+      "aliases": [
+        "Dewin Isolatie"
+      ],
+      "customer_codes": [],
+      "default_payment_term_days": 30,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL805513152B01"
+      ],
+      "kvk_numbers": [],
+      "email_domains": [
+        "dewinisolatie.nl"
+      ]
+    },
+    {
+      "name": "DiscountOffice.nl B.V.",
+      "iban": "NL72RABO0116071966",
+      "discount": 0.0,
+      "aliases": [
+        "DiscountOffice.nl B.V."
+      ],
+      "customer_codes": [
+        "D533176"
+      ],
+      "default_payment_term_days": 14,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL805302013B01"
+      ],
+      "kvk_numbers": [
+        "29021972"
+      ],
+      "email_domains": [
+        "discountoffice.nl"
+      ],
+      "extraction_profile": {
+        "learned_from": "DiscountOffice.nl-factuur-F2661213.pdf",
+        "amount": {
+          "label": "Te betalen",
+          "strategy": "same_line_last_amount",
+          "confirmed_value": "51.37",
+          "confidence": 100
+        },
+        "customer_number": {
+          "label": "Klantnummer",
+          "strategy": "same_line_after_colon",
+          "confirmed_value": "D533176",
+          "confidence": 100
+        },
+        "iban": {
+          "label": "iban",
+          "strategy": "same_line_first_iban",
+          "confirmed_value": "NL72RABO0116071966",
+          "confidence": 92
+        }
+      }
+    },
+    {
+      "name": "Emporte B.V.",
+      "iban": "NL29RABO0158134850",
+      "discount": 0.0,
+      "aliases": [
+        "Emporte B.V."
+      ],
+      "customer_codes": [],
+      "default_payment_term_days": 2,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL863990198B01"
+      ],
+      "kvk_numbers": [
+        "86507214"
+      ],
+      "email_domains": [
+        "emporte.nl"
+      ],
+      "extraction_profile": {
+        "learned_from": "Emporte Factuur_F_2025_01779.pdf",
+        "amount": {
+          "label": "Verschuldigd bedrag €",
+          "strategy": "same_line_last_amount",
+          "confirmed_value": "224.50",
+          "confidence": 100
+        },
+        "invoice_date": {
+          "label": "Factuurdatum: ",
+          "strategy": "next_line_first_token",
+          "confirmed_value": "2025-11-19",
+          "confidence": 100
+        }
+      }
+    },
+    {
+      "name": "Eurosalt Handelmaatschappij B.V.",
+      "iban": "NL76RABO0121476928",
+      "discount": 0.0,
+      "aliases": [
+        "Eurosalt Handelmaatschappij B.V."
+      ],
+      "customer_codes": [
+        "839525"
+      ],
+      "default_payment_term_days": 30,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL008536910B01"
+      ],
+      "kvk_numbers": [
+        "24179430"
+      ],
+      "email_domains": [
+        "eurosalt.nl"
+      ]
+    },
+    {
+      "name": "GrainPlastics",
+      "iban": "NL41RABO0362292280",
+      "discount": 0.0,
+      "aliases": [
+        "GrainPlastics"
+      ],
+      "customer_codes": [
+        "1071"
+      ],
+      "default_payment_term_days": 30,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL809941557B01"
+      ],
+      "kvk_numbers": [
+        "01093004"
+      ],
+      "email_domains": [
+        "grainplastics.nl"
+      ]
+    },
+    {
+      "name": "Hasmi Propaangereedschappen",
+      "iban": "NL82ABNA0516811010",
+      "discount": 0.0,
+      "aliases": [
+        "Hasmi Propaangereedschappen"
+      ],
+      "customer_codes": [
+        "1003242"
+      ],
+      "default_payment_term_days": 30,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL004559150B01"
+      ],
+      "kvk_numbers": [
+        "27092718"
+      ],
+      "email_domains": [
+        "hasmi.nl"
+      ]
+    },
+    {
+      "name": "Nedsale B.V.",
+      "iban": "NL16RABO0121226875",
+      "discount": 0.0,
+      "aliases": [
+        "Nedsale B.V."
+      ],
+      "customer_codes": [],
+      "default_payment_term_days": 30,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL827631169B01"
+      ],
+      "kvk_numbers": [
+        "36038932"
+      ],
+      "email_domains": [
+        "nedsale.nl"
+      ]
+    },
+    {
+      "name": "Skylux N.V.",
+      "iban": "BE68385011181234",
+      "discount": 0.0,
+      "aliases": [
+        "Skylux N.V."
+      ],
+      "customer_codes": [
+        "09177"
+      ],
+      "default_payment_term_days": 10,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "VF25058813"
+      ],
+      "kvk_numbers": [],
+      "email_domains": [
+        "skylux.be"
+      ]
+    },
+    {
+      "name": "Van Delft Staal B.V.",
+      "iban": "NL71RABO0308406494",
+      "discount": 0.0,
+      "aliases": [
+        "Van Delft Staal B.V."
+      ],
+      "customer_codes": [],
+      "default_payment_term_days": 30,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL009784214B02"
+      ],
+      "kvk_numbers": [
+        "18128169"
+      ],
+      "email_domains": [],
+      "extraction_profile": {
+        "learned_from": "Van Delft staal Factuur 321546 8  juli 2025.pdf",
+        "amount": {
+          "label": "totaal",
+          "strategy": "same_line_last_amount",
+          "confirmed_value": "75.84",
+          "confidence": 100
+        },
+        "invoice_number": {
+          "label": "Factuur nr.",
+          "strategy": "same_line_after_colon",
+          "confirmed_value": "321546",
+          "confidence": 100
+        }
+      }
+    },
+    {
+      "name": "Totaalsfeer B.V.",
+      "iban": "NL81RABO0177458739",
+      "discount": 0.0,
+      "aliases": [
+        "Totaalsfeer B.V."
+      ],
+      "customer_codes": [],
+      "default_payment_term_days": 7,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL862491782B01"
+      ],
+      "kvk_numbers": [
+        "82492891"
+      ],
+      "email_domains": [
+        "totaalsfeer.nl"
+      ]
+    },
+    {
+      "name": "FEGON NL B.V.",
+      "iban": "NL02INGB0003077406",
+      "discount": 0.0,
+      "aliases": [
+        "FEGON NL B.V."
+      ],
+      "customer_codes": [
+        "66167"
+      ],
+      "default_payment_term_days": 14,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL818900957B01"
+      ],
+      "kvk_numbers": [
+        "24428015"
+      ],
+      "email_domains": [
+        "talentforwater.nl"
+      ]
+    },
+    {
+      "name": "Goossens Technics",
+      "iban": "BE74734054989107",
+      "discount": 0.0,
+      "aliases": [
+        "Goossens Technics"
+      ],
+      "customer_codes": [
+        "002260/000"
+      ],
+      "default_payment_term_days": 1,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "KG11300001"
+      ],
+      "kvk_numbers": [],
+      "email_domains": []
+    },
+    {
+      "name": "Unatherm GmbH",
+      "iban": "DE34550305000300112859",
+      "discount": 0.0,
+      "aliases": [
+        "Unatherm GmbH",
+        "UNATHERM",
+        "Unatherm"
+      ],
+      "customer_codes": [
+        "53516"
+      ],
+      "default_payment_term_days": 30,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "DE273112570"
+      ],
+      "kvk_numbers": [],
+      "email_domains": [
+        "unatherm.com"
+      ]
     }
   ]
 }

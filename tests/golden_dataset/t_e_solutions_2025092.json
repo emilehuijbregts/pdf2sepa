@@ -1,0 +1,13 @@
+{
+  "source_file": "Bram T.E. Solutions 2025092.pdf",
+  "invoice_number": "2025092",
+  "supplier_name": "T.E. Solutions",
+  "iban": "NL25RABO0327935847",
+  "amount": "378.13",
+  "amount_status": "confirmed",
+  "customer_code": "82",
+  "description": "82 / 2025092",
+  "discount_percentage": "0.00",
+  "invoice_date": "2025-02-19",
+  "payment_terms_days": 8
+}

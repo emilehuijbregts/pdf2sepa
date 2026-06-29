@@ -1,0 +1,13 @@
+{
+  "source_file": "Bruil Factuur265334.pdf",
+  "invoice_number": "265334",
+  "supplier_name": "Bruil beton & mix",
+  "iban": "NL33ABNA0470972505",
+  "amount": "1027.44",
+  "amount_status": "confirmed",
+  "customer_code": "212554",
+  "description": "212554 / 265334",
+  "discount_percentage": "0.00",
+  "invoice_date": "2025-10-28",
+  "payment_terms_days": 0
+}

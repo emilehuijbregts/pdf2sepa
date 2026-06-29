@@ -714,6 +714,13 @@ def patch_authoritative_row_fields_into_invoice(
         if "customer_number" in user_overridden_fields and isinstance(customer_result, dict):
             apply_resolved_field_result(inv, "customer_number", customer_result)
 
+    if str(payload.get("vat_number") or "").strip():
+        inv["vat_number"] = str(payload.get("vat_number") or "").strip()
+    if str(payload.get("kvk_number") or "").strip():
+        inv["kvk_number"] = str(payload.get("kvk_number") or "").strip()
+    if str(payload.get("email_domain") or "").strip():
+        inv["email_domain"] = str(payload.get("email_domain") or "").strip()
+
     for field_id in REVIEW_FIELD_IDS:
         if field_id in ("customer_number", "iban"):
             continue
@@ -722,6 +729,10 @@ def patch_authoritative_row_fields_into_invoice(
         snap_fr = field_results.get(field_id)
         if isinstance(snap_fr, dict):
             apply_resolved_field_result(inv, field_id, snap_fr)
+
+    # User confirmed supplier master data via «Voeg toe / update»; payment term from DB
+    # may be applied even when automatic matching stays needs_review (e.g. IBAN-only).
+    inv["supplier_sync_confirmed"] = True
 
 
 class PaymentColumn(IntEnum):
@@ -1899,6 +1910,7 @@ class MainWindow(QMainWindow):
                 selected,
                 debtor_iban=debtor_iban,
                 debtor_kvk=debtor_kvk,
+                debtor_name=self.get_debtor_name() or None,
             )
 
         return PaymentSource(name=f"Map: {selected.name}", load=load)
@@ -1954,6 +1966,7 @@ class MainWindow(QMainWindow):
             folder,
             debtor_iban=debtor_iban,
             debtor_kvk=debtor_kvk,
+            debtor_name=self.get_debtor_name() or None,
         )
         self._parsed_batch_cache.store(
             folder,
@@ -2102,6 +2115,8 @@ class MainWindow(QMainWindow):
         if term_it:
             term_it.setText(term_lbl)
             term_it.setData(_ROW_EFFECTIVE_TERM_ROLE, eff)
+            if trusted is not None:
+                term_it.setData(_ROW_TERM_TRUSTED_ROLE, trusted)
 
         status_it = self._table.item(row, PaymentColumn.STATUS)
         if status_it:
@@ -6044,6 +6059,10 @@ class MainWindow(QMainWindow):
                 )
             else:
                 self._mark_row_pending_engine_update(row, "customer_code_changed")
+        elif col == PaymentColumn.TERM_HINT:
+            days = _parse_term_days_from_text(item.text())
+            if days is not None:
+                item.setData(_ROW_EFFECTIVE_TERM_ROLE, days)
         self._refresh_export_batch_status_label()
 
     def _on_table_cell_clicked(self, row: int, column: int) -> None:

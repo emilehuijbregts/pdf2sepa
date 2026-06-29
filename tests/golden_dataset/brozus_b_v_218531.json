@@ -1,0 +1,13 @@
+{
+  "source_file": "Brozus Factuur_218531.pdf",
+  "invoice_number": "218531",
+  "supplier_name": "Brozus B.V.",
+  "iban": "NL07RABO0128361581",
+  "amount": "120.73",
+  "amount_status": "confirmed",
+  "customer_code": "11287",
+  "description": "11287 / 218531",
+  "discount_percentage": "0.00",
+  "invoice_date": "2025-01-31",
+  "payment_terms_days": 30
+}

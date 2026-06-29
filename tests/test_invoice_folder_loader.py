@@ -13,9 +13,16 @@ def test_load_error_no_text(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
     def empty_text(_path: str) -> str:
         return ""
 
+    def empty_ocr(_path: str) -> str:
+        return ""
+
     monkeypatch.setattr(
         "logic.invoice_folder_loader.extract_text_strict",
         empty_text,
+    )
+    monkeypatch.setattr(
+        "logic.invoice_folder_loader.extract_ocr_supplement_text",
+        empty_ocr,
     )
     pdf = tmp_path / "scan.pdf"
     pdf.write_bytes(b"x")
@@ -24,6 +31,42 @@ def test_load_error_no_text(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
     assert out[0]["load_error"] == "no_text"
     assert out[0]["source_file"] == str(pdf.resolve())
     assert "raw_text" not in out[0]
+
+
+def test_image_only_pdf_uses_ocr_when_text_layer_empty(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ocr_sample = (
+        "IBAN: NL25CITI0266075452\n"
+        "Totaal te betalen EUR 10,00\n"
+        "Factuurnummer 108895\n"
+        "Klantnummer 66167\n"
+        "Factuurdatum 29-08-2025\n"
+    )
+
+    def empty_text(_path: str) -> str:
+        return ""
+
+    def fake_ocr(_path: str) -> str:
+        return ocr_sample
+
+    monkeypatch.setattr(
+        "logic.invoice_folder_loader.extract_text_strict",
+        empty_text,
+    )
+    monkeypatch.setattr(
+        "logic.invoice_folder_loader.extract_ocr_supplement_text",
+        fake_ocr,
+    )
+    pdf = tmp_path / "scan.pdf"
+    pdf.write_bytes(b"x")
+    out = load_invoices_from_folder(tmp_path)
+    assert len(out) == 1
+    assert out[0].get("load_error") is None
+    assert out[0].get("raw_text") == ""
+    assert out[0].get("ocr_text") == ocr_sample.strip()
+    assert out[0].get("invoice_number") == "108895"
+    assert out[0].get("customer_number") == "66167"
 
 
 def test_load_error_read_failed_on_extract_exception(
@@ -122,3 +165,9 @@ def test_skips_hidden_appledouble_pdfs(tmp_path: Path, monkeypatch: pytest.Monke
     out = load_invoices_from_folder(tmp_path)
     assert len(out) == 1
     assert Path(str(out[0].get("source_file") or "")).name == "Omniplast 3245984_0.pdf"
+
+
+def test_ocr_nl_vat_handles_spaced_ocr_suffix() -> None:
+    from logic.invoice_folder_loader import _ocr_nl_vat_from_text
+
+    assert _ocr_nl_vat_from_text("NL 8055131 52 BO1 NL15ABNA0591821249") == "NL805513152B01"

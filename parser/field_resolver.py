@@ -387,6 +387,25 @@ def resolve_field(
                     (str(best_db.source or ""), str(best_db.value or ""))
                 ] = "pdf_labeled_priority_over_db"
 
+    if field_id == "customer_number" and winner.value is not None:
+        wv = str(winner.value).strip()
+        if re.fullmatch(r"(?i)\d+[A-Z]{1,4}", wv):
+            db_pick = next(
+                (
+                    c
+                    for c in ranked
+                    if str(c.source or "").strip().lower() == "db_master"
+                    and str(c.value or "").strip().casefold() != wv.casefold()
+                ),
+                None,
+            )
+            if db_pick is not None:
+                forced_excluded_reasons[
+                    (str(winner.source or ""), str(winner.value or ""))
+                ] = "supplier_brand_not_customer_code"
+                winner = db_pick
+                forced_final_reason = "db_master_over_brand_token"
+
     if winner is not ranked[0]:
         winner_key = (str(winner.source or ""), str(winner.value or ""))
         ranked = [winner] + [c for c in ranked if (str(c.source or ""), str(c.value or "")) != winner_key]

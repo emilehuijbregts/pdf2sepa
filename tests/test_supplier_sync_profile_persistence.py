@@ -26,6 +26,13 @@ SUPPLIER_NAME = "SALO B.V."
 SUPPLIER_IBAN = "NL64ABNA0589033654"
 
 
+@pytest.fixture
+def empty_db(tmp_path: Path) -> SupplierDB:
+    p = tmp_path / "suppliers.json"
+    p.write_text('{"suppliers": []}', encoding="utf-8")
+    return SupplierDB(path=str(p))
+
+
 def _absent_customer_result(*, user_selected: bool = True) -> dict:
     return {
         "value": None,
@@ -348,3 +355,77 @@ def test_merge_or_add_supplier_skips_customer_code_when_none_locked(
     codes_after = list(sup_after.get("customer_codes") or [])
     assert codes_after == codes_before
     assert "99999" not in codes_after
+
+
+def test_merge_or_add_supplier_persists_payment_term_for_new_supplier(
+    empty_db: SupplierDB,
+) -> None:
+    assert empty_db.merge_or_add_supplier(
+        "UNATHERM",
+        "DE34550305000300112859",
+        "53516",
+        0.0,
+        default_payment_term_days=30,
+        vat_number="DE273112570",
+    )
+    sup = empty_db.find_supplier("UNATHERM", "DE34550305000300112859")
+    assert sup is not None
+    assert sup.get("default_payment_term_days") == 30
+
+
+def test_supplier_sync_confirmed_trusts_payment_term_for_iban_only_match(
+    tmp_path: Path,
+) -> None:
+    """IBAN-only suppliers (e.g. no customer code on invoice) stay needs_review but term applies after sync."""
+    dewin_iban = "NL15ABNA0591821249"
+    data = {
+        "suppliers": [
+            {
+                "name": "Dewin Isolatie",
+                "iban": dewin_iban,
+                "discount": 0.0,
+                "aliases": ["Dewin Isolatie"],
+                "customer_codes": [],
+                "default_payment_term_days": 30,
+            }
+        ]
+    }
+    p = tmp_path / "suppliers.json"
+    p.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    db = SupplierDB(path=str(p))
+
+    parsed = [
+        {
+            "source_file": "/tmp/dewin.pdf",
+            "supplier_hint": "Dewin Isolatie",
+            "iban": dewin_iban,
+        }
+    ]
+    before = match_suppliers(deepcopy(parsed), db)[0]
+    assert before["match_status"] == "needs_review"
+    assert before["supplier_term_trusted"] is False
+
+    payload = build_supplier_sync_payload_from_parts(
+        name="Dewin Isolatie",
+        iban_cell=dewin_iban,
+        customer_code_cell="",
+        discount_raw="0",
+        term_raw="30",
+        iban_result=None,
+        customer_result=None,
+        row_snap=None,
+        supplier_exists=True,
+    )
+    patch_authoritative_row_fields_into_invoice(
+        parsed[0],
+        name="Dewin Isolatie",
+        payload=payload,
+        iban_result=None,
+        customer_result=None,
+        field_results={},
+        user_overridden_fields=frozenset(),
+    )
+    after = match_suppliers(parsed, db)[0]
+    assert after["match_status"] == "needs_review"
+    assert after["supplier_term_trusted"] is True
+    assert after["supplier_payment_term_days_raw"] == 30

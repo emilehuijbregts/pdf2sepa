@@ -1,0 +1,13 @@
+{
+  "source_file": "Fegon Factuur 108895, klantnummer 66167.pdf",
+  "invoice_number": "108895",
+  "supplier_name": "FEGON NL B.V.",
+  "iban": "NL02INGB0003077406",
+  "amount": "111.24",
+  "amount_status": "confirmed",
+  "customer_code": "66167",
+  "description": "66167 / 108895",
+  "discount_percentage": "0.00",
+  "invoice_date": "2025-08-29",
+  "payment_terms_days": 14
+}

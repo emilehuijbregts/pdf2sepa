@@ -51,6 +51,15 @@ _FACTUUR_COLON_RE = re.compile(
 _FACTUUR_PLAIN_RE = re.compile(
     r"(?im)^\s*Factuur\b\s+([A-Za-z0-9][A-Za-z0-9\-\/]{5,})\s*$"
 )
+# Inline: ``Factuur F2661213``, ``FACTUUR 125004140``, ``FACTUUR F.25000090``.
+_FACTUUR_INLINE_RE = re.compile(
+    r"(?i)\b(?:FACTUUR|Factuur)\s+([A-Za-z]?\.?[A-Za-z0-9][A-Za-z0-9\-\/\.]{4,})\b"
+)
+# Skylux-achtig: ``Nummer.............................:VF25-058813``.
+_DOTTED_LABEL_VALUE_RE = re.compile(
+    r"(?i)\b(?:Nummer|Factuurnummer|Factuurnr|Faktuurnummer|FaktuurNr|Belegnummer)\s*"
+    r"[\.\s]{2,}:?\s*([A-Za-z0-9][A-Za-z0-9\-\/\.\u00ad]{3,})"
+)
 _FACTUUR_PREFIXED_RE = re.compile(
     r"(?i)\bFactuur\s+([A-Za-z]{1,8})\s+(\d{6,})\b"
 )
@@ -60,6 +69,18 @@ _FACTUUR_INLINE_PAGINA_RE = re.compile(
 _NUMMER_INV_RE = re.compile(r"(?i)\bNummer\s+(INV-[A-Za-z0-9\-]+)\b")
 _NUMMER_REG_INVOICE_RE = re.compile(
     r"(?i)\bNummer\s+(REG[A-Z0-9][A-Z0-9\-\/]*\d+)\b"
+)
+# Duitse factuurlayout: Vorgangsnummer + Belegnummer → ``668 2025-10235``.
+_VORGANGS_LABEL_RE = re.compile(r"(?i)\bVorgangsnummer\b")
+_BELEG_LABEL_RE = re.compile(r"(?i)\bBelegnummer\b")
+_VORGANGS_INLINE_VALUE_RE = re.compile(
+    r"(?i)\bVorgangsnummer\s*[:\.]?\s*(\d{2,4})\b"
+)
+_BELEG_INLINE_VALUE_RE = re.compile(
+    r"(?i)\bBelegnummer\s*[:\.]?\s*(\d{4}-\d+)\b"
+)
+_VORGANGS_BELEG_ROW_RE = re.compile(
+    r"^\s*(\d{2,4})\s+(\d{4}-\d+)\b"
 )
 _REG_INVOICE_ROW_RE = re.compile(
     r"(?im)^\s*(REG[A-Z0-9][A-Z0-9\-\/]*\d+)\b"
@@ -92,6 +113,10 @@ _KLANT_LINE_K_RE = re.compile(r"(?i)\bKlant[^\n]{0,48}\s*[:]?\s*(K\d{3,12})\b")
 _DELIVERY_BLOCK_SIX_DIGIT_RE = re.compile(
     r"(?is)\bAfleveradres\b[^\n]{0,88}(?:\n[^\n]*){1,10}?\s*(\d{6})(?!\d)"
 )
+_AFLEVERBON_CONTEXT_RE = re.compile(r"(?i)\b(?:afleverbon|pakbon|leveringsbon)\b")
+_BANK_ACCOUNT_CONTEXT_RE = re.compile(
+    r"(?i)\b(?:iban|rekening(?:nummer)?|bankrekening|rabobank|abn\s*amro)\b"
+)
 # K + cijfers: veel leveranciers (Option Tape, Wavin, …); case-insensitive, OCR-spaties.
 _STANDALONE_K_CUSTOMER_RE = re.compile(r"(?i)(?<![a-z])(k\d{4,12})(?!\d)")
 _SPACED_K_CUSTOMER_RE = re.compile(r"(?i)(?<![a-z])(k(?:\s*\d){4,12})(?!\d)")
@@ -103,7 +128,7 @@ _COLLAPSED_K_IN_TEXT_RE = re.compile(r"(?i)k0?\d{4,7}(?!\d)")
 _CUSTOMER_FIELD_LABEL_RE = re.compile(
     r"(?i)\b(?:klantnummer|klant-nummer|klant\s*nummer|klantcode|klantnr\.?|klant-nr\.?|"
     r"klantrekening|uw\s+klant|klant(?=\s+\d)|"
-    r"debiteur(?:en)?(?:\s*nummer|\s*nr\.?)|"
+    r"debiteur(?:en)?(?:\s*[-]?\s*nr\.?|\s*nummer)|"
     r"deb\.?\s*(?:nr\.?|nummer)|debnr\.?|debiteur|debtor(?:\s*(?:number|no\.?|nr\.?|id))?|"
     r"betaler(?:\s*(?:nr\.?|nummer|no\.?|id))?|"
     r"relatie(?:\s*nummer|\s*nr\.?)?|relatie|"
@@ -120,7 +145,7 @@ _KLANTCODE_INLINE_RE = re.compile(
 )
 _UW_REFERENTIE_LINE_RE = re.compile(r"(?i)\buw\s+referentie\b")
 _ORDER_REF_TOKEN_RE = re.compile(r"^20\d{4,6}$")
-_REF_SLASH_CUSTOMER_RE = re.compile(r"\b(?!\d{2}/\d{7})(\d{5,})\s*/\s*(\d{4,})\b")
+_REF_SLASH_CUSTOMER_RE = re.compile(r"\b(?!\d{2}/\d{7})(\d{4,})\s*/\s*(\d{4,})\b")
 _ORDER_HINT_RE = re.compile(
     r"(?i)\b(?:ordernummer|order\s*(?:nr\.?|number|no\.?)|bestel(?:nummer|nr\.?)|purchase\s*order|po\s*number|uw\s+referentie|onze\s+referentie|referentie)\b"
 )
@@ -129,12 +154,13 @@ _INVOICE_HINT_RE = re.compile(
     r"rechnungsnummer|documentnr\.?|nummer)\b"
 )
 _EXPLICIT_INVOICE_LABEL_RE = re.compile(
-    r"(?i)\b(?:factuurnummer|factuurnr|factuur\s*nr\.?|invoice\s*(?:number|no\.?|nr\.?)?|\binvoice\b|"
-    r"rechnung|rechnungsnummer)\b"
+    r"(?i)\b(?:factuurnummer|factuurnr|faktuurnummer|faktuur\s*nr|factuur\s*nr\.?|"
+    r"invoice\s*(?:number|no\.?|nr\.?)?|\binvoice\b|"
+    r"rechnung|rechnungsnummer|belegnummer|nummer)\b"
 )
 _STRICT_ORDER_HINT_RE = re.compile(
     r"(?i)\b(?:ordernummer|order\s*(?:nr\.?|number|no\.?)|bestel(?:nummer|nr\.?)|"
-    r"purchase\s*order|po\s*number)\b"
+    r"purchase\s*order|po\s*number|opdrachtnummer|uw\s+opdracht|uw\s+kenmerk)\b"
 )
 _PAKBON_HINT_RE = re.compile(
     r"(?i)\b(?:pakbon(?:nummer|-nummer)?|packing\s*slip|leveringsbon|afleverbon)\b"
@@ -387,6 +413,9 @@ def _infer_match_type(source: str) -> str:
         "nummer_inv",
         "nummer_reg",
         "tabular",
+        "vorgangs_beleg_table",
+        "vorgangs_beleg_inline",
+        "vorgangs_beleg_labeled",
     }:
         return "label"
     if src.startswith(_REGEX_SOURCE_PREFIXES):
@@ -450,9 +479,11 @@ _MATCH_TYPE_PRIORITY = {
 }
 
 _SPECIFIC_LABEL_HINT_RE = re.compile(
-    r"(?i)\b(?:factuurnummer|factuurnr|factuur\s*nr\.?|invoice\s*(?:number|no\.?|nr\.?)?|\binvoice\b|"
-    r"rechnungsnummer|nummer|"
-    r"klantnummer|klantcode|betaler|relatie|customer\s*(?:number|code|id)?|"
+    r"(?i)\b(?:factuurnummer|factuurnr|faktuurnummer|faktuurnr|factuur\s*nr\.?|"
+    r"invoice\s*(?:number|no\.?|nr\.?)?|\binvoice\b|"
+    r"rechnungsnummer|belegnummer|nummer|"
+    r"klantnummer|klantcode|debiteurnummer|debiteur(?:en)?(?:nummer|nr)|deb\.?\s*nr|debnr|"
+    r"betaler|relatie|customer\s*(?:number|code|id)?|kundennummer|"
     r"polisnummer|relatienummer|contractnummer|"
     r"creditnota|verkoopcredit|creditfactuur|"
     r"btw|vat|kvk|iban|e-?mail)\b"
@@ -474,6 +505,9 @@ _SOURCE_PRIORITY_EXACT: dict[str, int] = {
     "header_table_invoice": 109,
     "header_table_customer": 108,
     "nummer_datum_table": 107,
+    "vorgangs_beleg_table": 136,
+    "vorgangs_beleg_inline": 135,
+    "vorgangs_beleg_labeled": 134,
     "nummer_inv": 106,
     "nummer_reg": 105,
     "factuur_inline_pagina": 104,
@@ -486,6 +520,8 @@ _SOURCE_PRIORITY_EXACT: dict[str, int] = {
     "invoice_date_label_next_line": 104,
     "factuur_colon": 98,
     "factuur_plain": 97,
+    "factuur_inline": 98,
+    "dotted_label_value": 100,
     "factuur_prefixed_digits": 96,
     "date_invoice_line": 95,
     "year_slash_ref": 94,
@@ -583,6 +619,8 @@ def _context_proximity_score(cand: IdentFieldCandidate) -> int:
     meta = cand.meta if isinstance(cand.meta, dict) else {}
     method = str(meta.get("extraction_method") or "").strip().lower()
     label_reason = str(meta.get("label_reason") or "").lower()
+    if src.startswith("vorgangs_beleg_"):
+        return 102
     if src in {"label_block_same_line", "label"} or "same_line" in src:
         return 100
     if method == "label_match" and "same" in label_reason:
@@ -869,6 +907,8 @@ def _candidate_conflict_type(
     hay = " ".join((src, label, context, value))
 
     if field_id == "invoice_number":
+        if src.startswith("header_table_"):
+            return None
         if _STRICT_ORDER_HINT_RE.search(hay) or (
             _ORDER_HINT_RE.search(hay)
             and re.search(r"(?i)\b(?:ordernummer|bestel|purchase\s*order|po\s*number)\b", hay)
@@ -897,6 +937,8 @@ def _candidate_conflict_type(
             re.search(r"(?i)\b(?:ordernummer|bestel|purchase\s*order|po\s*number)\b", order_hay)
             and src in {"ref_slash", "year_slash_ref"}
         ):
+            return "order_number"
+        if re.search(r"(?i)\b(?:opdrachtnummer|uw\s+opdracht|uw\s+kenmerk)\b", order_hay):
             return "order_number"
     return None
 
@@ -1084,6 +1126,8 @@ def _normalize_customer_token(raw: str) -> str:
     compact = re.sub(r"\s+", "", token)
     if re.fullmatch(r"(?i)K[O0]\d{3,12}", compact):
         return "K0" + compact[2:]
+    if re.fullmatch(r"(?i)NLO\d{7,8}", compact):
+        return "NL0" + compact[3:]
     m = re.fullmatch(r"(?i)(?:nr|no)\W*(\d{3,})", token)
     if m:
         return m.group(1)
@@ -1556,19 +1600,20 @@ def _filter_invoice_number_candidates(
         if not val:
             continue
         line = (cand.context or "").strip()
-        if not line:
+        effective_label = str(cand.label or "")
+        if str(cand.source or "").startswith("header_table_"):
+            # Waarderegel kan ``Btw nr:`` bevatten; geen VAT/IBAN-guards op die context.
+            line = ""
+            effective_label = ""
+        elif not line:
             pos = text.find(val)
             if pos >= 0:
                 line = _line_at_pos(text, pos)
-        effective_label = str(cand.label or "")
-        if str(cand.source or "").startswith("header_table_"):
-            # Volledige kopregel kan BTW/Klant-kolommen bevatten; geen VAT-context voor waarde.
-            effective_label = ""
         if _invoice_candidate_ok(
             val,
             line=line,
             label=effective_label,
-            context=str(cand.context or ""),
+            context="" if str(cand.source or "").startswith("header_table_") else str(cand.context or ""),
             source=str(cand.source or ""),
             internal_vat_blacklist=blacklist,
         ):
@@ -1740,16 +1785,61 @@ def _line_looks_like_postcode_row(line: str) -> bool:
     return bool(re.search(r"\b\d{4}\s+[A-Z]{2}\b", line or ""))
 
 
+def _truncate_at_next_field_label(segment: str) -> str:
+    """Stop token scan at the next invoice/customer label on the same PDF line."""
+    m = re.search(
+        r"(?i)\b(?:factuurnummer|factuurnr|faktuurnummer|faktuur\s*nr|factuur\s*nr|"
+        r"fact\.?\s*nr|invoice|klantnummer|klant\s*nr|debiteur|deb\.?\s*nr|debnr)\b",
+        segment,
+    )
+    if m and m.start() > 0:
+        return segment[: m.start()]
+    return segment
+
+
+def _line_looks_like_combined_label_value_row(line: str) -> bool:
+    """``Deb. nr. 114080 Factuur nr.76793 …`` — data row, not a table header."""
+    ln = str(line or "")
+    if not (
+        _CUSTOMER_FIELD_LABEL_RE.search(ln)
+        or re.search(r"(?i)\b(?:factuurnr|factuurnummer|factuur\s*nr)\b", ln)
+    ):
+        return False
+    date_hits = len(_DD_MM_YYYY_RE.findall(ln)) + len(_ISO_DATE_RE.findall(ln))
+    num_hits = len(re.findall(r"(?<!\d)\d{5,}(?!\d)", ln))
+    if date_hits >= 1 and num_hits >= 2:
+        return True
+    # ``Factuurnr 025261476 Ordernummer …`` / ``Factuur nr: 1620543 Ordernummer: …``
+    if re.search(r"(?i)\b(?:factuurnr|factuurnummer|factuur\s*nr)\b", ln) and num_hits >= 1:
+        return True
+    return False
+
+
+def _line_looks_like_order_reference_row(line: str) -> bool:
+    """``80394 : 20250284`` — internal order ref, not a header-table value row."""
+    ln = str(line or "").strip()
+    return bool(re.match(r"^\d{4,}\s*:\s*\d", ln))
+
+
 def _line_looks_like_label_not_value(line: str) -> bool:
     """Volgende regel is zelf een label, geen tabelwaarde."""
     ln = str(line or "")
     if re.search(
-        r"(?i)\b(?:factuurnummer|factuurnr|invoice\s*no|debiteur|klant\s*nr|"
-        r"ordernummer|betaler|relatie)\b",
+        r"(?i)\b(?:factuurnummer|factuurnr|invoice\s*no|debiteurnr|debiteur(?:en)?(?:\s*nr)?|"
+        r"klant\s*nr|ordernummer|leveringsnummer|leveringsnr|factuurdatum|vervaldatum|"
+        r"betaler|relatie)\b",
         ln,
     ):
         return True
     if re.search(r"(?i)\baanschrijving\b", ln):
+        return True
+    if re.search(
+        r"(?i)\b(?:verkoop|volgens|bestellingnummer|laaddatum|losdatum|"
+        r"betaald|bij\s+betaling)\b",
+        ln,
+    ):
+        return True
+    if re.search(r"(?i)\b(?:bestelling|order)\b", ln) and ":" in ln:
         return True
     if re.search(r"(?i)\b(?:totaal|te\s+betalen)\b", ln) and re.search(
         r"(?i)\b(?:eur|€)\b", ln
@@ -1803,13 +1893,17 @@ def _table_header_field_count(hdr: str) -> int:
     """Aantal herkende kolomkoppen op één regel (tabular vereist ≥2)."""
     n = 0
     for pat in (
-        r"(?i)\b(?:factuurnr|factuurnummer|factuur\s*nr|fact\.?\s*nr|invoice|nummer)\b",
-        r"(?i)\b(?:betaler|klant(?:nr|nummer)?|deb|relatie|customer)\b",
+        r"(?i)\b(?:factuurnr|factuurnummer|faktuurnummer|faktuurnr|factuur\s*nr|fact\.?\s*nr|invoice|nummer)\b",
+        r"(?i)\b(?:betaler|klant(?:nr|nummer)?|deb|relatie|customer|kundennummer)\b",
         r"(?i)\b(?:datum|facturatiedatum|factuurdatum|verzenddatum|vervaldatum|procedure)\b",
         r"(?i)\b(?:ordernummer|referentie|project)\b",
     ):
         if re.search(pat, hdr or ""):
             n += 1
+    if re.search(r"(?i)faktuurnummer", hdr or "") and re.search(
+        r"(?i)factuurdatum", hdr or ""
+    ):
+        n = max(n, 2)
     if re.search(r"(?i)\bfactuur\b", hdr or "") and re.search(
         r"(?i)\b(?:debiteur|klant|customer|betaler)\b", hdr or ""
     ):
@@ -1857,8 +1951,8 @@ _HEADER_COLUMN_PATTERN_SPECS: tuple[tuple[re.Pattern[str], str], ...] = (
     ),
     (
         re.compile(
-            r"(?i)debiteurennummer|debiteurnr\.?|klantnummer|klantnr\.?|"
-            r"customer(?:\s*number)?|relatienummer|relatie\s*nr\.?"
+            r"(?i)debiteurennummer|debiteurnr\.?|klantnummer|klantnr\.?|klant\.?nr|"
+            r"customer(?:\s*number)?|kundennummer|relatienummer|relatie\s*nr\.?"
         ),
         "customer",
     ),
@@ -1948,6 +2042,10 @@ def _header_word_indices(hdr: str) -> tuple[int | None, int | None]:
             bare_factuur_indices.append(i)
             if inv_i is None and any(x in words for x in ("relatie", "datum", "nummer", "nr")):
                 inv_i = i
+        elif w == "nr" and i > 0 and words[i - 1] in ("factuur", "faktuur"):
+            inv_i = i - 1
+        elif w == "nr" and i > 0 and words[i - 1] in ("deb", "debnr"):
+            cust_i = i - 1
         elif inv_i is None and (
             (w == "nummer" and "datum" not in words)
             or w == "invoice"
@@ -1965,9 +2063,11 @@ def _header_word_indices(hdr: str) -> tuple[int | None, int | None]:
                 "customer",
                 "relatie",
                 "client",
+                "kundennummer",
             )
             or w.startswith("klant")
             or w.startswith("debiteur")
+            or w.startswith("kunden")
         ):
             cust_i = i
     if (
@@ -2030,13 +2130,15 @@ def _collect_header_value_table_candidates(
         h_low = (hdr or "").lower()
         if _line_looks_like_prose_not_table_header(hdr):
             continue
+        if _line_looks_like_combined_label_value_row(hdr):
+            continue
         inv_i, cust_i = _header_word_indices(hdr)
         col_spans = _header_column_spans(hdr)
         has_inv_hdr = (
             not re.search(r"(?i)\bdatum\s+nummer\b", hdr)
             and (
                 inv_i is not None
-                or re.search(r"(?i)\b(?:factuurnr|factuurnummer|factuur\s*nr)\b", hdr)
+                or re.search(r"(?i)\b(?:factuurnr|factuurnummer|faktuurnummer|factuur\s*nr)\b", hdr)
                 or (
                     re.search(r"(?i)\bfactuur\b", hdr)
                     and re.search(r"(?i)\b(?:relatie|datum)\b", hdr)
@@ -2070,6 +2172,7 @@ def _collect_header_value_table_candidates(
                 not val_line.strip()
                 or _line_looks_like_postcode_row(val_line)
                 or _line_looks_like_label_not_value(val_line)
+                or _line_looks_like_order_reference_row(val_line)
             ):
                 continue
             vals = _shift_leading_phone_token(_parse_table_row_tokens(val_line), hdr)
@@ -2079,7 +2182,13 @@ def _collect_header_value_table_candidates(
             inv_i2, cust_i2 = inv_i, cust_i
             debiteur_factuur_hdr = bool(
                 re.search(r"(?i)\bfactuur\b", hdr)
-                and re.search(r"(?i)\b(?:debiteur|klant|customer|betaler)\b", hdr)
+                and re.search(
+                    r"(?i)\b(?:deb\.?\s*nr|debiteur|\bdeb\b|klant|customer|betaler)\b", hdr
+                )
+            )
+            deb_nr_factuur_nr_hdr = bool(
+                re.search(r"(?i)\bdeb\.?\s*nr", hdr)
+                and re.search(r"(?i)\bfactuur\s*nr", hdr)
             )
             if inv_i2 is None and has_inv_hdr and not debiteur_factuur_hdr:
                 inv_i2 = 0
@@ -2096,18 +2205,23 @@ def _collect_header_value_table_candidates(
             if field_kind == "invoice_number":
                 inv_pick: str | None = None
                 ambiguous = False
-                mapped_i = _mapped_value_index("invoice", inv_i2)
-                if mapped_i is not None and mapped_i < len(vals):
-                    inv_pick = vals[mapped_i]
-                elif mapped_i is not None:
-                    ambiguous = True
-                elif (
-                    re.search(r"(?i)\bfactuurnummer\b", hdr)
-                    and re.search(r"(?i)\bfactuurdatum\b", hdr)
-                    and vals
-                    and not col_spans
-                ):
-                    inv_pick = vals[-1]
+                if deb_nr_factuur_nr_hdr and len(vals) >= 2:
+                    inv_pick = vals[1]
+                else:
+                    mapped_i = _mapped_value_index("invoice", inv_i2)
+                    if mapped_i is not None and mapped_i < len(vals):
+                        inv_pick = vals[mapped_i]
+                    elif mapped_i is not None:
+                        ambiguous = True
+                    elif (
+                        re.search(r"(?i)\b(?:factuurnummer|faktuurnummer)\b", hdr)
+                        and re.search(r"(?i)\bfactuurdatum\b", hdr)
+                        and vals
+                        and not col_spans
+                    ):
+                        inv_pick = vals[-1]
+                    elif has_inv_hdr and len(vals) == 1 and _invoice_candidate_ok(vals[0]):
+                        inv_pick = vals[0]
                 if inv_pick:
                     conf = (55 if ambiguous else 90 - j)
                     _append(
@@ -2122,11 +2236,20 @@ def _collect_header_value_table_candidates(
             if field_kind == "customer_number" and vals:
                 cust_pick: str | None = None
                 ambiguous = False
-                mapped_i = _mapped_value_index("customer", cust_i2)
-                if mapped_i is not None and mapped_i < len(vals):
-                    cust_pick = vals[mapped_i]
-                elif mapped_i is not None:
-                    ambiguous = True
+                if deb_nr_factuur_nr_hdr and vals:
+                    cust_pick = vals[0]
+                elif debiteur_factuur_hdr and vals:
+                    mapped_i = _mapped_value_index("customer", cust_i2)
+                    if mapped_i is not None and mapped_i < len(vals):
+                        cust_pick = vals[mapped_i]
+                    else:
+                        cust_pick = vals[0]
+                else:
+                    mapped_i = _mapped_value_index("customer", cust_i2)
+                    if mapped_i is not None and mapped_i < len(vals):
+                        cust_pick = vals[mapped_i]
+                    elif mapped_i is not None:
+                        ambiguous = True
                 if cust_pick:
                     conf = (55 if ambiguous else 89 - j)
                     _append(
@@ -2358,12 +2481,156 @@ def _collect_customer_layout_fallback_candidates(text: str) -> list[IdentFieldCa
     return cands
 
 
+def _parse_vorgangs_beleg_row(val_line: str) -> tuple[str, str] | None:
+    """Parse ``668 2025-10235 …`` uit een tabelwaarderegel (korte vorgang + beleg)."""
+    m = _VORGANGS_BELEG_ROW_RE.match(val_line or "")
+    if not m:
+        return None
+    vorg, beleg = m.group(1).strip(), m.group(2).strip()
+    if re.fullmatch(r"\d{2,4}", vorg) and re.fullmatch(r"\d{4}-\d+", beleg):
+        return vorg, beleg
+    return None
+
+
+def _labeled_scalar_after(
+    lines: list[str],
+    label_re: re.Pattern[str],
+    *,
+    value_re: re.Pattern[str] | None = None,
+) -> str | None:
+    """Waarde op dezelfde regel als label, of op de eerste niet-label regel eronder."""
+    for i, line in enumerate(lines):
+        for m in label_re.finditer(line or ""):
+            after = (line or "")[m.end() :]
+            if value_re:
+                vm = value_re.search(after)
+                if vm:
+                    return vm.group(1).strip()
+            vals = _tokens_after_label(line, m.end(), join_spaced_digits=False)
+            if vals:
+                return vals[0]
+            for j in range(1, 3):
+                if i + j >= len(lines):
+                    break
+                nxt = lines[i + j] or ""
+                if _line_looks_like_label_not_value(nxt):
+                    continue
+                if value_re:
+                    vm = value_re.search(nxt)
+                    if vm:
+                        return vm.group(1).strip()
+                nxt_vals = _tokens_after_label(nxt, 0, join_spaced_digits=False)
+                if nxt_vals:
+                    return nxt_vals[0]
+    return None
+
+
+def _collect_vorgangs_beleg_invoice_candidates(text: str) -> list[IdentFieldCandidate]:
+    """
+    Combineer Vorgangsnummer + Belegnummer wanneer beide labels in het document staan.
+
+    Alleen actief bij duidelijke Duitse kop/waarde-layout; geen leverancier-hardcoding.
+    """
+    body = text or ""
+    if not (_VORGANGS_LABEL_RE.search(body) and _BELEG_LABEL_RE.search(body)):
+        return []
+
+    def _append(combined: str, *, ctx: str, label: str, source: str) -> IdentFieldCandidate | None:
+        val = str(combined or "").strip()
+        if not val or not _invoice_candidate_ok(val, label=label, source=source):
+            return None
+        return IdentFieldCandidate(
+            value=val,
+            source=source,
+            confidence=92,
+            context=ctx[:160],
+            label=label,
+            meta=_candidate_explain_meta(
+                extraction_method="label_match",
+                label_reason="Vorgangsnummer + Belegnummer combined",
+                score_breakdown={"base": 92, "layout_bonus": 4},
+                match_type="label",
+                label_source="Belegnummer Vorgangsnummer",
+            ),
+        )
+
+    cands: list[IdentFieldCandidate] = []
+    lines = body.splitlines()
+
+    # Kopregel met beide labels + waarderegel (tabulaire layout).
+    for i, hdr in enumerate(lines):
+        if not (_VORGANGS_LABEL_RE.search(hdr) and _BELEG_LABEL_RE.search(hdr)):
+            continue
+        if _line_looks_like_prose_not_table_header(hdr):
+            continue
+        ctx_hdr = re.sub(r"\s+", " ", hdr).strip()[:160]
+        for j in range(1, 4):
+            if i + j >= len(lines):
+                break
+            val_line = lines[i + j] or ""
+            if not val_line.strip() or _line_looks_like_label_not_value(val_line):
+                continue
+            pair = _parse_vorgangs_beleg_row(val_line)
+            if pair is None:
+                continue
+            combined = f"{pair[0]} {pair[1]}"
+            cand = _append(
+                combined,
+                ctx=f"{ctx_hdr} >> {val_line.strip()[:80]}",
+                label="Vorgangsnummer Belegnummer",
+                source="vorgangs_beleg_table",
+            )
+            if cand:
+                cands.append(cand)
+
+    # Inline labels: ``Vorgangsnummer: 668`` en ``Belegnummer: 2025-10235``.
+    vorg_inline = _VORGANGS_INLINE_VALUE_RE.search(body)
+    beleg_inline = _BELEG_INLINE_VALUE_RE.search(body)
+    if vorg_inline and beleg_inline:
+        combined = f"{vorg_inline.group(1).strip()} {beleg_inline.group(1).strip()}"
+        cand = _append(
+            combined,
+            ctx=re.sub(r"\s+", " ", vorg_inline.group(0) + " " + beleg_inline.group(0))[:160],
+            label="Vorgangsnummer Belegnummer",
+            source="vorgangs_beleg_inline",
+        )
+        if cand:
+            cands.append(cand)
+
+    if cands:
+        return cands
+
+    # Label op aparte regel / waarde op volgende regel.
+    vorg = _labeled_scalar_after(
+        lines,
+        _VORGANGS_LABEL_RE,
+        value_re=re.compile(r"(\d{2,4})\b"),
+    )
+    beleg = _labeled_scalar_after(
+        lines,
+        _BELEG_LABEL_RE,
+        value_re=re.compile(r"(\d{4}-\d+)\b"),
+    )
+    if vorg and beleg:
+        combined = f"{vorg} {beleg}"
+        cand = _append(
+            combined,
+            ctx=f"Vorgangsnummer {vorg}; Belegnummer {beleg}",
+            label="Vorgangsnummer Belegnummer",
+            source="vorgangs_beleg_labeled",
+        )
+        if cand:
+            cands.append(cand)
+    return cands
+
+
 def _collect_invoice_fallback_candidates(text: str) -> list[IdentFieldCandidate]:
     """Layout-fallbacks zonder expliciet factuurnummer-label."""
     cands: list[IdentFieldCandidate] = []
     body = text or ""
 
     cands.extend(_collect_datum_nummer_table_candidates(body))
+    cands.extend(_collect_vorgangs_beleg_invoice_candidates(body))
     cands.extend(_collect_invoice_layout_fallback_candidates(body))
 
     for m in _FACTUUR_COLON_RE.finditer(body):
@@ -2398,6 +2665,42 @@ def _collect_invoice_fallback_candidates(text: str) -> list[IdentFieldCandidate]
                         extraction_method="regex",
                         label_reason="regex match: _FACTUUR_PLAIN_RE",
                         score_breakdown={"base": 83, "regex_bonus": 2},
+                    ),
+                )
+            )
+
+    for m in _FACTUUR_INLINE_RE.finditer(body):
+        val = m.group(1).strip()
+        if _invoice_candidate_ok(val):
+            cands.append(
+                IdentFieldCandidate(
+                    value=val,
+                    source="factuur_inline",
+                    confidence=85,
+                    context=_line_context_at(body, m.start()),
+                    label="Factuur",
+                    meta=_candidate_explain_meta(
+                        extraction_method="regex",
+                        label_reason="regex match: _FACTUUR_INLINE_RE",
+                        score_breakdown={"base": 85, "regex_bonus": 2},
+                    ),
+                )
+            )
+
+    for m in _DOTTED_LABEL_VALUE_RE.finditer(body):
+        val = m.group(1).strip().replace("\u00ad", "-")
+        if _invoice_candidate_ok(val):
+            cands.append(
+                IdentFieldCandidate(
+                    value=val,
+                    source="dotted_label_value",
+                    confidence=88,
+                    context=_line_context_at(body, m.start()),
+                    label="Nummer",
+                    meta=_candidate_explain_meta(
+                        extraction_method="regex",
+                        label_reason="regex match: _DOTTED_LABEL_VALUE_RE",
+                        score_breakdown={"base": 88, "regex_bonus": 3},
                     ),
                 )
             )
@@ -2497,13 +2800,31 @@ def _collect_invoice_fallback_candidates(text: str) -> list[IdentFieldCandidate]
     return cands
 
 
-def _customer_candidate_ok(value: str) -> bool:
+def _customer_candidate_ok(value: str, *, labeled: bool = False) -> bool:
+    min_len = 2 if labeled else 3
     return bool(
         re.search(r"\d", value)
-        and len(value) >= 3
+        and len(value) >= min_len
         and not _is_noise_value(value)
         and not _looks_like_date_token(value)
+        and not _looks_like_bic_token(value)
     )
+
+
+_BIC_TOKEN_RE = re.compile(r"(?i)^[A-Z]{4}[A-Z]{2}[A-Z0-9]{2,5}$")
+_NL_VAT_SHAPE_RE = re.compile(r"(?i)^NL[0-9OIl]{9}B\d{2}$")
+
+
+def _looks_like_bic_token(value: str) -> bool:
+    compact = re.sub(r"[^A-Za-z0-9]", "", str(value or "")).upper()
+    return bool(_BIC_TOKEN_RE.fullmatch(compact) and len(compact) in (8, 11))
+
+
+def _looks_like_nl_vat_token(value: str) -> bool:
+    compact = re.sub(r"[^0-9A-Za-z]", "", str(value or "")).upper()
+    if re.fullmatch(r"(?:NL)?\d{9}B\d{2}", compact):
+        return True
+    return bool(_NL_VAT_SHAPE_RE.fullmatch(compact))
 
 
 def _normalize_k_customer_code(raw: str) -> str | None:
@@ -2647,6 +2968,15 @@ def _customer_resolution_allowed(
     return False
 
 
+def _slash_compound_customer_after_label(after: str) -> str | None:
+    """``603540 / 880`` of ``113073/17078`` direct na klantnummer-label."""
+    rem = re.sub(r"^[\s:]+", "", (after or "").strip())
+    m = re.match(r"^(\d{2,12}\s*/\s*\d{2,12})\b", rem)
+    if not m:
+        return None
+    return m.group(1).strip()
+
+
 def _same_line_plausible_customer_values(
     vals: list[str],
     *,
@@ -2657,6 +2987,8 @@ def _same_line_plausible_customer_values(
     for val in vals:
         val = _normalize_customer_token(val)
         if not _customer_value_ok(val, label_line=label_line, candidate_line=label_line):
+            continue
+        if re.search(r"(?i)\bbinnen\s+\d{1,3}\s+dagen\b", label_line or ""):
             continue
         if not re.search(r"\d", val):
             continue
@@ -2746,11 +3078,11 @@ def _customer_value_ok(
     candidate_line: str = "",
 ) -> bool:
     v = _normalize_customer_token(str(value or "").strip())
-    if not _customer_candidate_ok(v):
-        return False
     labeled = _has_customer_label_context(
         label_line=label_line, candidate_line=candidate_line
     )
+    if not _customer_candidate_ok(v, labeled=labeled):
+        return False
     if _is_order_or_reference_token(v, line=label_line):
         return False
     if _PAKBON_HINT_RE.search(f"{label_line}\n{candidate_line}"):
@@ -2762,6 +3094,15 @@ def _customer_value_ok(
     if re.fullmatch(r"(?i)F\d{5,}", v):
         return False
     if re.fullmatch(r"(?i)NL[0-9A-Z]{2,6}", v):
+        return False
+    if _looks_like_bic_token(v):
+        return False
+    if _looks_like_nl_vat_token(v):
+        return False
+    if re.fullmatch(r"(?i)[A-Z]{2,5}", v) and not re.search(r"\d", v):
+        return False
+    # ``2BA``-achtige leveranciersmerken (cijfer + korte letters, geen klantlabel).
+    if re.fullmatch(r"(?i)\d+[A-Z]{1,4}", v) and not labeled:
         return False
     if re.fullmatch(r"\d{9,}", v) and not labeled:
         return False
@@ -2786,8 +3127,6 @@ def _customer_value_ok(
         if re.search(r"(?i)\b(?:bron|referentie|levering|ref\.?)\b", str(candidate_line or "")):
             return False
     compact = re.sub(r"[\s.\-_/]+", "", v).upper()
-    if re.fullmatch(r"(?:NL)?\d{9,12}B\d{2}", compact):
-        return False
     if re.fullmatch(r"NL\d{2}[A-Z]{4}\d{6,20}", compact):
         return False
     if re.fullmatch(r"(?i)\d{4}[a-z]{2}", v):
@@ -2797,6 +3136,9 @@ def _customer_value_ok(
         if re.search(rf"\b{re.escape(v)}\s+[A-Za-z]{{2}}\b", line):
             return False
     if re.fullmatch(r"(?i)klant(?:nummer|code|nr)?", v):
+        return False
+    ctx = f"{label_line}\n{candidate_line}"
+    if _BANK_ACCOUNT_CONTEXT_RE.search(ctx) and not labeled:
         return False
     return True
 
@@ -2811,16 +3153,29 @@ def _collect_customer_label_block_candidates(text: str) -> list[IdentFieldCandid
         m = _CUSTOMER_FIELD_LABEL_RE.search(line or "")
         if not m:
             continue
+        if re.search(
+            r"(?i)\b(?:binnen\s+\d{1,3}\s+dagen|payment\s+terms?|betaaltermijn|"
+            r"factuur-\s*en\s+debiteurennummer)\b",
+            line or "",
+        ):
+            continue
         if _REFERENTIE_ONLY_LINE_RE.search(line or "") and not re.search(
             r"(?i)klant(?:nummer|code|nr)", line or ""
         ):
             continue
         label_span = (line or "")[m.start() : m.end()].strip()
         ctx = re.sub(r"\s+", " ", (line or "")).strip()[:160]
-        same_line_vals = _same_line_plausible_customer_values(
-            _tokens_after_label(line, m.end(), join_spaced_digits=False),
-            label_line=line,
-        )
+        after_label = _truncate_at_next_field_label((line or "")[m.end() :])
+        compound = _slash_compound_customer_after_label(after_label)
+        if compound and _customer_value_ok(
+            compound, label_line=line, candidate_line=line
+        ):
+            same_line_vals = [compound]
+        else:
+            same_line_vals = _same_line_plausible_customer_values(
+                _tokens_after_label(after_label, 0, join_spaced_digits=False),
+                label_line=line,
+            )
         for idx, val in enumerate(same_line_vals):
             norm = _normalize_k_customer_code(val) or val
             cands.append(
@@ -3116,10 +3471,15 @@ def _collect_customer_fallback_candidates(text: str) -> list[IdentFieldCandidate
         (_DELIVERY_BLOCK_SIX_DIGIT_RE, "delivery_block_six_digit", 84),
     ):
         for m in rx.finditer(body):
+            if source == "delivery_block_six_digit":
+                ctx_start = max(0, m.start() - 40)
+                ctx_end = min(len(body), m.end() + 40)
+                if _AFLEVERBON_CONTEXT_RE.search(body[ctx_start:ctx_end]):
+                    continue
             _add(m.group(1), source, conf, m.start())
 
     for m in _REF_SLASH_CUSTOMER_RE.finditer(body):
-        _add(m.group(2), "ref_slash_customer", 76, m.start(2))
+        _add(m.group(1), "ref_slash_customer", 76, m.start(1))
 
     for m in _STANDALONE_K_CUSTOMER_RE.finditer(body):
         norm = _normalize_k_customer_code(m.group(1))
@@ -3326,6 +3686,11 @@ def collect_ident_field_candidates(
                 vals = _tokens_after_label(line, m.end(), join_spaced_digits=join_digits)
                 for j in (0, 1, 2):
                     if j > 0:
+                        if _line_looks_like_combined_label_value_row(line or ""):
+                            break
+                        if field_kind == "invoice_number" and vals:
+                            if any(_invoice_candidate_ok(str(v)) for v in vals):
+                                break
                         if field_kind == "customer_number" and vals:
                             break
                         if i + j >= len(lines):
@@ -3554,6 +3919,28 @@ def extract_invoice_number_result(
     cands.extend(_collect_credit_note_invoice_candidates(text))
     cands = _filter_order_like_invoice_candidates(cands)
     cands = _filter_parent_invoice_refs_on_credit(cands, text)
+    cands = [
+        c
+        for c in cands
+        if not (
+            str(c.source or "") == "multi_slash_ref"
+            and "+++" in str(c.context or "")
+        )
+    ]
+    cands = [
+        c
+        for c in cands
+        if not (
+            str(c.source or "").endswith("_next_line")
+            and re.search(r"(?i)\bordernummer?\b", str(c.label or ""))
+            and re.search(r"(?i)[a-z]", str(c.value or ""))
+        )
+    ]
+    cands = [
+        c
+        for c in cands
+        if not re.search(r"(?i)betaald", str(c.value or ""))
+    ]
     blacklist = internal_vat_blacklist or frozenset()
     cands = _filter_invoice_number_candidates(cands, text, internal_vat_blacklist=blacklist)
     cands = _filter_internal_vat_blacklist(cands, blacklist, field_id="invoice_number")
@@ -3605,15 +3992,23 @@ def extract_customer_number_result(
     resolved_source: str | None = None,
     supplier_customer_absent: bool = False,
     customer_number_mode: str | None = None,
+    internal_vat_blacklist: frozenset[str] | None = None,
 ) -> IdentFieldResult:
     mode = str(customer_number_mode or "").strip().upper()
     if supplier_customer_absent or mode == "NONE":
         return absent_customer_number_result(supplier_profile=True)
 
     body = text or ""
+    blacklist = internal_vat_blacklist or frozenset()
     resolved, resolved_source = _sanitize_legacy_customer_resolved(
         resolved, resolved_source, body
     )
+    if resolved:
+        rv = str(resolved).strip()
+        if _looks_like_bic_token(rv) or _looks_like_nl_vat_token(rv):
+            resolved, resolved_source = None, None
+        elif blacklist and _value_matches_internal_vat(rv, blacklist):
+            resolved, resolved_source = None, None
     block_cands = _collect_customer_label_block_candidates(body)
     label_cands = collect_ident_field_candidates(
         body,
@@ -3640,7 +4035,16 @@ def extract_customer_number_result(
     cands = _prefer_slashed_customer_candidates(cands)
     cands = _drop_short_suffix_customer_candidates(cands)
     cands = _filter_weak_customer_fallbacks(cands)
+    if not _CUSTOMER_FIELD_LABEL_RE.search(body):
+        cands = [c for c in cands if str(c.source or "") != "collapsed_k_token"]
     cands = _filter_unlabeled_customer_fallbacks(cands)
+    cands = _filter_internal_vat_blacklist(cands, blacklist, field_id="customer_number")
+    cands = [
+        c
+        for c in cands
+        if not _looks_like_bic_token(str(c.value or ""))
+        and not _looks_like_nl_vat_token(str(c.value or ""))
+    ]
     resolved, resolved_source = _reject_weak_resolved_against_candidates(
         resolved, resolved_source, cands
     )
@@ -3677,6 +4081,50 @@ def _normalize_email_domain(domain_or_email: str) -> str | None:
         return None
     return s or None
 
+
+_DEBTOR_EMAIL_LINE_RE = re.compile(
+    r"(?i)\b(?:"
+    r"voor\s+handelsonderneming|afleveradres|afleverbon|factuur\s*adres|"
+    r"e-?mail\s*factuur|tesselschadestraat|debiteur|debtor|niederlande"
+    r")\b"
+)
+
+
+def collect_debtor_email_domain_blocklist(
+    text: str,
+    *,
+    debtor_name: str | None = None,
+) -> frozenset[str]:
+    """Domains tied to the debtor/customer block — not supplier identity."""
+    body = text or ""
+    blocked: set[str] = set()
+    debtor_tokens = [
+        t
+        for t in re.findall(r"[a-z0-9]{3,}", str(debtor_name or "").casefold())
+        if t not in {"handelsonderneming", "b", "v", "bv", "nv"}
+    ]
+    for line in body.splitlines():
+        low = (line or "").casefold()
+        debtor_line = bool(_DEBTOR_EMAIL_LINE_RE.search(low))
+        if debtor_tokens and any(tok in low for tok in debtor_tokens):
+            debtor_line = True
+        if not debtor_line:
+            continue
+        for m in _EMAIL_RE.finditer(line or ""):
+            dom = _normalize_email_domain(m.group(1))
+            if dom:
+                blocked.add(dom)
+    return frozenset(blocked)
+
+
+def _filter_debtor_email_candidates(
+    cands: list[IdentFieldCandidate],
+    *,
+    blocklist: frozenset[str],
+) -> list[IdentFieldCandidate]:
+    if not blocklist:
+        return cands
+    return [c for c in cands if _normalize_email_domain(str(c.value or "")) not in blocklist]
 
 def _vat_candidate_from_token(
     body: str,
@@ -4108,8 +4556,13 @@ def extract_email_domain_result(
     *,
     resolved: str | None = None,
     resolved_source: str | None = None,
+    debtor_name: str | None = None,
+    debtor_email_domain_blocklist: frozenset[str] | None = None,
 ) -> IdentFieldResult:
     body = text or ""
+    blocklist = debtor_email_domain_blocklist or collect_debtor_email_domain_blocklist(
+        body, debtor_name=debtor_name
+    )
     cands = _collect_email_domain_candidates_primary(body)
 
     header = _header_segment(body)
@@ -4134,12 +4587,17 @@ def extract_email_domain_result(
     if not cands:
         cands = _collect_email_domain_candidates_fallback(body)
 
+    cands = _filter_debtor_email_candidates(cands, blocklist=blocklist)
     cands = _filter_ident_contamination(cands, field_id="email_domain", body=body)
     cands = _dedupe_candidates(cands)
+    resolved_dom = _normalize_email_domain(resolved or "") if resolved else None
+    if resolved_dom and resolved_dom in blocklist:
+        resolved_dom = None
     return build_ident_field_result(
         cands,
-        resolved_value=_normalize_email_domain(resolved or "") if resolved else None,
+        resolved_value=resolved_dom,
         resolved_source=resolved_source,
+        field_id="email_domain",
     )
 
 
@@ -4345,6 +4803,8 @@ def extract_invoice_date_result(
     for i, line in enumerate(lines):
         if _DATE_EXCLUDE_HINT_RE.search(line or ""):
             continue
+        if re.search(r"(?i)\b(?:bouwvak|vakantie|gesloten|fijne\s+zomer)\b", line or ""):
+            continue
         lm = _INVOICE_DATE_LABEL_RE.search(line or "")
         if not lm:
             continue
@@ -4355,6 +4815,11 @@ def extract_invoice_date_result(
         same_line_conf = 90
         if re.search(r"(?i)\bna\s+factuurdatum\b", line or ""):
             same_line_conf = 60
+        tail = re.sub(
+            r"(?<=\d{4})(\d{1,2}[\./-]\d{1,2}[\./-]\d{2,4})",
+            r" \1",
+            tail,
+        )
         for rx in (_ISO_DATE_RE, _DD_MM_YYYY_RE, _MONTH_NAME_DATE_RE):
             dm = rx.search(tail)
             if dm:
@@ -4423,12 +4888,40 @@ def extract_invoice_date_result(
                 )
                 break
 
+    # ``Factuur nr. 321546 … 8 juli 2025`` header rows.
+    for m in re.finditer(
+        r"(?i)\bfactuur\s*nr\.?\s+\S+.{0,80}?(\d{1,2}\s+[A-Za-z]{3,}\s+\d{4})",
+        body,
+    ):
+        raw_tok = m.group(1)
+        iso, meta = _date_token_to_iso_explain(raw_tok)
+        if iso:
+            cands.append(
+                IdentFieldCandidate(
+                    value=iso,
+                    source="invoice_header_month_date",
+                    confidence=91,
+                    context=_line_context_at(body, m.start()),
+                    label="Factuurdatum",
+                    meta={
+                        **meta,
+                        **_candidate_explain_meta(
+                            extraction_method="regex",
+                            label_reason="month-name date on factuur header line",
+                            score_breakdown={"base": 91, "label_bonus": 4},
+                        ),
+                    },
+                )
+            )
+
     # Deterministic fallback: if no label candidates were found, consider non-due dates
     # document-wide and rank them lower than labeled/near-label candidates.
     if not cands:
         for line in lines:
             ln = line or ""
             if _DATE_EXCLUDE_HINT_RE.search(ln):
+                continue
+            if re.search(r"(?i)\b(?:bouwvak|vakantie|gesloten|fijne\s+zomer)\b", ln):
                 continue
             for rx in (_ISO_DATE_RE, _DD_MM_YYYY_RE, _MONTH_NAME_DATE_RE):
                 dm = rx.search(ln)

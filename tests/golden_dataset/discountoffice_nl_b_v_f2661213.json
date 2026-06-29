@@ -1,0 +1,13 @@
+{
+  "source_file": "DiscountOffice.nl-factuur-F2661213.pdf",
+  "invoice_number": "F2661213",
+  "supplier_name": "DiscountOffice.nl B.V.",
+  "iban": "NL72RABO0116071966",
+  "amount": "51.37",
+  "amount_status": "confirmed",
+  "customer_code": "D533176",
+  "description": "D533176 / F2661213",
+  "discount_percentage": "0.00",
+  "invoice_date": "2025-11-07",
+  "payment_terms_days": 14
+}

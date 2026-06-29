@@ -1,0 +1,13 @@
+{
+  "source_file": "dataio factuur-968161.pdf",
+  "invoice_number": "968161",
+  "supplier_name": "Data IO Nederland B.V.",
+  "iban": "NL18RABO0145363252",
+  "amount": "38.90",
+  "amount_status": "confirmed",
+  "customer_code": "",
+  "description": "",
+  "discount_percentage": "0.00",
+  "invoice_date": "2025-04-16",
+  "payment_terms_days": 1
+}

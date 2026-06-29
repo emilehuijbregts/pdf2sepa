@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from parser.field_candidates import (
     IdentFieldCandidate,
     build_ident_field_result,
@@ -15,6 +17,7 @@ from parser.field_candidates import (
     extract_vat_number_result,
     normalize_internal_vat_blacklist,
     normalize_internal_vat_numbers_for_storage,
+    normalize_internal_vat_blacklist,
     parse_internal_vat_numbers,
 )
 from parser.pdf_parser import extract_invoice_data, extract_text_strict
@@ -85,6 +88,15 @@ class TestCustomerNumberCandidates:
         r = extract_customer_number_result(text)
         assert r.value == "04816069"
         assert any(c.value == "04816069" for c in r.candidates)
+
+    def test_klantnummer_slash_compound_same_line(self):
+        """Bauder: ``Klantnummer: 603540 / 880`` op één regel."""
+        text = (
+            "Tesselschadestraat 28 Klantnummer: 603540 / 880\n"
+            "Factuur 24065433\n"
+        )
+        r = extract_customer_number_result(text)
+        assert r.value == "603540 / 880"
 
     def test_delivery_block_ignored_when_klantcode_labeled(self):
         """Polyglass: legacy afleveradres-6-cijfer mag label ``Klantcode`` niet overrulen."""
@@ -176,6 +188,61 @@ class TestCustomerNumberCandidates:
         assert r.value is None
         assert r.candidates == []
         assert r.status == "not_applicable"
+
+    def test_rejects_bic_on_klantnr_line(self):
+        text = "Klantnr K12493 Uw referentie 230556 BIC INGBNL2A\n"
+        r = extract_customer_number_result(text)
+        assert r.value == "K12493"
+        assert "INGBNL2A" not in {c.value for c in r.candidates}
+
+    def test_rejects_internal_vat_in_customer_table(self):
+        text = (
+            "Faktuurnummer Fkt. Datum Klant Nr° Klant BTW Nr°\n"
+            "1210001330 24.03.2026 1025995 NL001740777B35\n"
+        )
+        bl = normalize_internal_vat_blacklist(["NL001740777B35"])
+        r = extract_customer_number_result(text, internal_vat_blacklist=bl)
+        assert r.value == "1025995"
+        assert "NL001740777B35" not in {c.value for c in r.candidates}
+
+    def test_2ba_debiteurnummer_not_supplier_brand(self):
+        text = (
+            "Bestand Beheer Artikelen bv 2BA\n"
+            "Factuurnummer : 260789 Factuurdatum : 14-01-2026\n"
+            "Debiteurnummer : 113073/17078 Vervaldatum : 28-01-2026\n"
+        )
+        r = extract_customer_number_result(text)
+        assert r.value == "113073/17078"
+        assert "2BA" not in {c.value for c in r.candidates}
+
+    def test_bosta_ocr_nlo_debiteur_normalized(self):
+        text = "Debiteuren nummer : NLO1114276\n"
+        r = extract_customer_number_result(text)
+        assert r.value == "NL01114276"
+
+
+_GOLDEN_PDF_DIR = Path(__file__).resolve().parent / "golden_dataset" / "pdfs"
+_GOLDEN_CUSTOMER_NUMBER_CASES: tuple[tuple[str, str], ...] = (
+    ("2ba Fact-2BA-20260114-260789-Duister.pdf", "113073/17078"),
+    ("Bosta Factuur NL01D00074953_2.pdf", "NL01114276"),
+    (
+        "Caleffi Invoice Caleffi NV N° 1210001330  of 24.03.2026. pdf.pdf",
+        "1025995",
+    ),
+    ("Installatiebalie Verkoopfactuur VF26-05543.pdf", "K12493"),
+)
+
+
+class TestGoldenPdfCustomerNumberRegression:
+    @pytest.mark.parametrize(("pdf_name", "expected"), _GOLDEN_CUSTOMER_NUMBER_CASES)
+    def test_golden_pdf_customer_number(self, pdf_name: str, expected: str) -> None:
+        pdf = _GOLDEN_PDF_DIR / pdf_name
+        if not pdf.is_file():
+            pytest.skip(f"Missing golden PDF: {pdf}")
+        text = extract_text_strict(str(pdf))
+        bl = normalize_internal_vat_blacklist(["NL001740777B35"])
+        r = extract_customer_number_result(text, internal_vat_blacklist=bl)
+        assert r.value == expected
 
 
 class TestPolyglassInvoiceCandidates:
@@ -395,7 +462,19 @@ class TestBatch6LayoutSnippets:
             "Bestelbonnr. 20260458 18-03-2026 10476 93557\n"
         )
         inv = extract_invoice_number_result(text)
+        cust = extract_customer_number_result(text)
         assert "93557" in {c.value for c in inv.candidates}
+        assert cust.value == "10476"
+
+    def test_dawo_factuur_debiteur_table_row(self):
+        text = (
+            "Factuur Debiteur Factuur\n"
+            "20250817 / DEN BOSCH 18-06-2025 10890 251237\n"
+        )
+        inv = extract_invoice_number_result(text)
+        cust = extract_customer_number_result(text)
+        assert inv.value == "251237"
+        assert cust.value == "10890"
 
     def test_de_waal_short_invoice_number_same_line_label(self):
         text = (
@@ -907,3 +986,174 @@ class TestInvoiceDateCandidateRanking:
         )
         r = extract_invoice_date_result(text)
         assert r.value == "2026-02-05"
+
+
+class TestBatch8LayoutSnippets:
+    def test_te_solutions_short_labeled_klantnummer(self):
+        text = (
+            "Factuurnummer: 2025092\n"
+            "Klantnummer: 82\n"
+            "Uw kenmerk: 250071\n"
+        )
+        r = extract_customer_number_result(text)
+        assert r.value == "82"
+
+    def test_brozus_debiteur_not_payment_ref_slash(self):
+        text = (
+            "Debiteur-nr: 11287\n"
+            "Factuurnummer: 218531\n"
+            "Betalingskenmerk: 11287/218531\n"
+        )
+        r = extract_customer_number_result(text)
+        assert r.value == "11287"
+
+    def test_bruil_debiteurnummer_beats_opdrachtnummer(self):
+        text = (
+            "Debiteurnummer : 212554 Factuurdatum : 28-10-2025\n"
+            "Klantnummer / Projectnummer : 212554 / VO097572\n"
+            "Uw opdrachtnummer : 20251405\n"
+        )
+        r = extract_customer_number_result(text)
+        assert r.value == "212554"
+
+    def test_discount_office_factuur_inline(self):
+        text = "Factuur F2661213 Factuuradres: Duister\n"
+        r = extract_invoice_number_result(text)
+        assert r.value == "F2661213"
+
+    def test_hasmi_faktuurnr_label(self):
+        text = "DebiteurNr.: 1003242 FaktuurNr. : 2511381 Datum: 17-11-2025\n"
+        r = extract_invoice_number_result(text)
+        assert r.value == "2511381"
+
+    def test_nedsale_faktuurnummer_table(self):
+        text = (
+            "FACTUUR Factuurdatum Faktuurnummer\n"
+            "Bij betaling vermelden\n"
+            "Btw nr: code DUIDEN 11-11-2025 1007-81032\n"
+        )
+        r = extract_invoice_number_result(text)
+        assert r.value == "1007-81032"
+
+    def test_wildkamp_factuur_inline_number(self):
+        text = "FACTUUR 125004140 Datum: 28-09-2025\n"
+        r = extract_invoice_number_result(text)
+        assert r.value == "125004140"
+
+    def test_unatherm_belegnummer(self):
+        text = "Belegnummer 2025-10235\nKundennummer 53516\n"
+        r = extract_invoice_number_result(text)
+        assert r.value == "2025-10235"
+
+    def test_unatherm_vorgangs_beleg_combined_table(self):
+        text = "Vorgangsnummer Belegnummer\n668 2025-10235\n"
+        r = extract_invoice_number_result(text)
+        assert r.value == "668 2025-10235"
+
+    def test_unatherm_vorgangs_beleg_combined_inline(self):
+        text = "Vorgangsnummer: 668\nBelegnummer: 2025-10235\n"
+        r = extract_invoice_number_result(text)
+        assert r.value == "668 2025-10235"
+
+    def test_unatherm_vorgangs_beleg_not_combined_without_vorgang(self):
+        text = "Belegnummer 2025-10235\n"
+        r = extract_invoice_number_result(text)
+        assert r.value == "2025-10235"
+
+    def test_eurosalt_header_table_deb_factuur(self):
+        text = (
+            "Deb. nr. Factuur nr. Datum Ordernr.:\n"
+            "Verkoop Volgens Bestellingnummer: 2954/BETAALD\n"
+            "839525 25704611 30-06-2025 20254628\n"
+        )
+        inv = extract_invoice_number_result(text)
+        cust = extract_customer_number_result(text)
+        assert inv.value == "25704611"
+        assert cust.value == "839525"
+
+    def test_goossens_factuur_f_prefix(self):
+        text = (
+            "FACTUUR F.25000090\n"
+            "Datum Klant.Nr Btw.Nr Referentie Klant\n"
+            "21/05/2025 002260/000 NL001740777B35\n"
+        )
+        r = extract_invoice_number_result(text)
+        assert r.value == "F.25000090"
+
+    def test_skylux_dotted_nummer_label(self):
+        text = "Nummer.............................:VF25-058813\n"
+        r = extract_invoice_number_result(text)
+        assert r.value == "VF25-058813"
+
+    def test_grainplastics_fact_dat_not_orderdatum(self):
+        text = (
+            "Debiteurnummer : 1071 Orderdatum : 09-04-2025\n"
+            "Fact.dat. : 11-04-2025\n"
+        )
+        r = extract_invoice_date_result(text)
+        assert r.value == "2025-04-11"
+
+    def test_dewin_no_customer_from_afleverbon(self):
+        text = (
+            "Factuurnummer 192432\n"
+            "Afleveradres:\n"
+            "Handelsonderneming Duister\n"
+            "Onze afleverbon: 746646 Onze order: 58841\n"
+        )
+        r = extract_customer_number_result(text)
+        assert r.value is None
+
+    def test_dewin_email_prefers_supplier_domain_over_debtor_billing(self):
+        text = (
+            "0543-518822 E dewin@dewinisolatie.nl dewinisolatie.nl\n"
+            "E-mail factuur@duister.eu\n"
+            "Voor Handelsonderneming Duister\n"
+        )
+        r = extract_email_domain_result(text, debtor_name="Handelsonderneming Duister")
+        assert r.value == "dewinisolatie.nl"
+
+    def test_unatherm_rechnung_datum_not_payment_due(self):
+        text = (
+            "Rechnung\n"
+            "Belegnummer 2025-10235\n"
+            "Datum 18.12.2025\n"
+            "Kundennummer 53516\n"
+            "30Tage (bis 17.01.2026) ohne Abzug 27.818,00EUR\n"
+        )
+        r = extract_invoice_date_result(text)
+        assert r.value == "2025-12-18"
+        assert r.source.startswith("invoice_date_label")
+
+    def test_vloerbedekking_no_customer_from_bank(self):
+        text = (
+            "Rekening nummer: Rabobank 1774.58.739\n"
+            "Iban: NL81RABO0177458739\n"
+            "Factuurnummer : 2025-4606\n"
+        )
+        r = extract_customer_number_result(text)
+        assert r.value is None
+
+    def test_prima_arbo_no_customer_from_payment_term_days(self):
+        text = (
+            "Factuurdatum Factuurnummer Debiteurennummer Onderwerp\n"
+            "09-01-2026 20260075 20180168 Factuur\n"
+            "U wordt verzocht het bovenstaande bedrag ovv uw factuur- en debiteurennummer binnen 14 dagen over te maken\n"
+        )
+        r = extract_customer_number_result(text)
+        assert r.value == "20180168"
+
+    def test_werova_combined_factuur_line_not_header_table(self):
+        text = (
+            "Factuur nr: 1620543 Ordernummer: 181795\n"
+            "Debiteurnr: 010525 Uw referentie: Dhr. W Duister\n"
+        )
+        r = extract_invoice_number_result(text)
+        assert r.value == "1620543"
+
+    def test_dsg_combined_factuurnr_line_not_header_table(self):
+        text = (
+            "Factuurnr 025261476 Ordernummer 0020135829 Verkoper\n"
+            "Factuurdatum 22-05-2025 Leveringsnummer 15011880 Theo Beset\n"
+        )
+        r = extract_invoice_number_result(text)
+        assert r.value == "025261476"

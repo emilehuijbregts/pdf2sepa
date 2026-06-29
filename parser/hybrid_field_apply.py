@@ -46,16 +46,23 @@ def _profile_candidate(
     *,
     validated: bool,
     context: str = "",
+    spec_confidence: int | None = None,
 ) -> FieldCandidate:
     meta: dict[str, Any] = {"profile_validated": bool(validated)}
     if field_id == "amount" and validated:
         # Resolver amount ranking is payable_score-first; validated profiles must beat generic incl.
         meta["payable_score"] = 100
         meta["type"] = "incl"
+    conf = profile_confidence_for_field(field_id, validated=validated)
+    if validated and spec_confidence is not None:
+        try:
+            conf = max(conf, int(spec_confidence))
+        except (TypeError, ValueError):
+            pass
     return FieldCandidate(
         value=value,
         source="profile",
-        confidence=profile_confidence_for_field(field_id, validated=validated),
+        confidence=conf,
         context=context,
         meta=meta,
     )
@@ -152,6 +159,36 @@ def _build_db_override_candidates(
     return out
 
 
+_STRONG_CUSTOMER_GENERIC_SOURCES = frozenset(
+    {
+        "label_block_same_line",
+        "label_same_line",
+        "ref_slash_customer",
+        "header_table_customer",
+    }
+)
+
+
+def _boost_db_customer_from_generic_candidates(
+    overrides: list[FieldCandidate],
+    generic_fr,
+) -> None:
+    """When DB klantcode ook als sterke PDF-kandidaat staat, geef db_master die confidence."""
+    for ov in overrides:
+        if str(ov.source or "") != "db_master":
+            continue
+        db_val = str(ov.value or "").strip()
+        if not db_val:
+            continue
+        best = int(ov.confidence or 0)
+        for gc in generic_fr.candidates:
+            if str(gc.value or "").strip() != db_val:
+                continue
+            if str(gc.source or "") in _STRONG_CUSTOMER_GENERIC_SOURCES:
+                best = max(best, int(gc.confidence or 0))
+        ov.confidence = best
+
+
 def apply_hybrid_field_extraction(
     invoice: dict,
     invoice_copy: dict,
@@ -215,6 +252,8 @@ def apply_hybrid_field_extraction(
 
         overrides: list[FieldCandidate] = []
         overrides.extend(_build_db_override_candidates(field_id, supplier, invoice, db))
+        if field_id == "customer_number":
+            _boost_db_customer_from_generic_candidates(overrides, generic_fr)
 
         prof_val = extracted.get(field_id)
         if prof_val is not None and profile and field_id in profile:
@@ -243,12 +282,20 @@ def apply_hybrid_field_extraction(
                         field_spec_dict,
                         prof_val,
                     )
+                spec_conf: int | None = None
+                try:
+                    raw_conf = field_spec_dict.get("confidence")
+                    if raw_conf is not None:
+                        spec_conf = int(raw_conf)
+                except (TypeError, ValueError):
+                    spec_conf = None
                 overrides.append(
                     _profile_candidate(
                         field_id,
                         cand_val,
                         validated=field_valid,
                         context=str(profile.get(field_id, {}).get("label") or ""),
+                        spec_confidence=spec_conf,
                     )
                 )
 

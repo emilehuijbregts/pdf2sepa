@@ -16,30 +16,74 @@ from parser.pdf_parser import _scan_sepa_ibans_in_text
 _IBAN_LABEL_RE = re.compile(
     r"(?i)\b(?:IBAN|Rekening(?:nummer)?|Bankrekening|Bank\s*rekening|BIC\s*/\s*IBAN)\b"
 )
+_PAGE_FOOTER_MARKER_RE = re.compile(r"\b\d{1,3}\s*/\s*\d{1,3}\s*$")
+_LABELED_IBAN_ON_LINE_RE = re.compile(r"(?i)\bIBAN\b")
 
 
 def _has_label_on_line(line: str) -> bool:
     return bool(_IBAN_LABEL_RE.search(line or ""))
 
 
-def _context_for_iban_in_text(text: str, iban: str) -> str:
-    lines = (text or "").split("\n")
+def _iban_line_confidence_adjustment(line: str, iban: str) -> int:
+    """Contextuele bonus/penalty voor meerdere IBAN's op één factuur (bv. PGB-footer)."""
+    adj = 0
+    if re.search(r"(?i)\bpeppol\b", line or ""):
+        adj -= 25
+    if _PAGE_FOOTER_MARKER_RE.search((line or "").strip()):
+        adj -= 20
+    ibans = _scan_sepa_ibans_in_text(line or "")
+    if len(ibans) <= 1:
+        return adj
+    adj -= 4 * (len(ibans) - 1)
     compact = clean_iban(iban)
-    for line in lines:
+    try:
+        pos = ibans.index(compact)
+    except ValueError:
+        return adj
+    labeled_count = len(_LABELED_IBAN_ON_LINE_RE.findall(line or ""))
+    if labeled_count > 1:
+        adj += pos * 4
+    elif labeled_count == 0:
+        adj -= pos * 4
+    return adj
+
+
+def _best_iban_line_context(text: str, iban: str) -> tuple[str, int]:
+    """Kies de meest betrouwbare regel voor context + confidence-adjustment."""
+    compact = clean_iban(iban)
+    best_ctx = ""
+    best_adj = -999
+    best_idx = 999999
+    for i, line in enumerate((text or "").splitlines()):
         line_compact = re.sub(r"\s+", "", (line or "").upper())
-        if compact and compact in line_compact:
-            return re.sub(r"\s+", " ", (line or "").strip())[:160]
+        if not compact or compact not in line_compact:
+            continue
+        adj = _iban_line_confidence_adjustment(line, iban)
+        ctx = re.sub(r"\s+", " ", (line or "").strip())[:160]
+        if adj > best_adj or (adj == best_adj and i < best_idx):
+            best_adj = adj
+            best_ctx = ctx
+            best_idx = i
+    if best_ctx:
+        return best_ctx, best_adj
     if len(compact) > 6:
-        return f"IBAN {compact[:4]}…{compact[-4:]}"
-    return compact
+        return f"IBAN {compact[:4]}…{compact[-4:]}", 0
+    return compact, 0
+
+
+def _context_for_iban_in_text(text: str, iban: str) -> str:
+    ctx, _adj = _best_iban_line_context(text, iban)
+    return ctx
 
 
 def collect_iban_candidates_from_text(
     text: str,
     *,
     debtor_iban: str | None = None,
+    context_text: str | None = None,
 ) -> list[IdentFieldCandidate]:
     debtor_clean = clean_iban(debtor_iban) if debtor_iban else ""
+    ctx_source = context_text if context_text is not None else text
     lines = (text or "").split("\n")
     raw_ibans = _scan_sepa_ibans_in_text(text or "")
     # Extra cross-line pass: label line + next line merge (OCR/PDF line breaks).
@@ -63,18 +107,18 @@ def collect_iban_candidates_from_text(
             continue
         seen_values.add(iban)
 
-        ctx = _context_for_iban_in_text(text, iban)
+        ctx, ctx_adj = _best_iban_line_context(ctx_source, iban)
         has_label = any(
             _has_label_on_line(line)
             for line in (text or "").split("\n")
             if clean_iban(iban) in re.sub(r"\s+", "", (line or "").upper())
         )
         if has_label:
-            conf = 88
+            conf = max(40, min(95, 88 + ctx_adj))
         elif pdf_rank == 0:
-            conf = 78
+            conf = max(40, min(90, 78 + ctx_adj))
         else:
-            conf = 72
+            conf = max(40, min(85, 72 + ctx_adj))
 
         cands.append(
             IdentFieldCandidate(
@@ -87,6 +131,7 @@ def collect_iban_candidates_from_text(
                     "match_type": "label" if has_label else "fallback",
                     "label_source": "IBAN" if has_label else "",
                     "field_id": "iban",
+                    "iban_context_adjustment": ctx_adj,
                 },
             )
         )
@@ -165,8 +210,13 @@ def extract_iban_result(
     ocr_ibans: list[str] | None = None,
     resolved: str | None = None,
     resolved_source: str | None = None,
+    context_text: str | None = None,
 ) -> IdentFieldResult:
-    pdf_cands = collect_iban_candidates_from_text(text, debtor_iban=debtor_iban)
+    pdf_cands = collect_iban_candidates_from_text(
+        text,
+        debtor_iban=debtor_iban,
+        context_text=context_text,
+    )
     ocr_cands = collect_iban_candidates_from_ocr(
         list(ocr_ibans or []),
         pdf_had_any=bool(pdf_cands),

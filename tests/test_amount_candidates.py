@@ -47,6 +47,16 @@ class TestNormalizeAmountDecimal:
     def test_rounding(self):
         assert normalize_amount_decimal("99,999") == Decimal("100.00")
 
+    def test_space_thousands_dot_decimal(self):
+        assert normalize_amount_decimal("4 208.00") == Decimal("4208.00")
+        assert normalize_amount_decimal("12 345.67") == Decimal("12345.67")
+        assert normalize_amount_decimal("1 250.50") == Decimal("1250.50")
+
+    def test_existing_separators_unchanged(self):
+        assert normalize_amount_decimal("4.208,00") == Decimal("4208.00")
+        assert normalize_amount_decimal("4,208.00") == Decimal("4208.00")
+        assert normalize_amount_decimal("4208.00") == Decimal("4208.00")
+
 
 # ---------------------------------------------------------------------------
 # _select_amount — all 5 status paths
@@ -780,3 +790,33 @@ class TestEngineLegacyFallback:
         payments, errors = calculate_payments([inv])
         assert len(payments) == 0
         assert any(e["reason"] == "missing_amount" for e in errors)
+
+
+class TestBatch8AmountSnippets:
+    def test_bm_betaald_line(self):
+        text = (
+            "Deze factuur is reeds door u voldaan.\n"
+            "B.T.W. grondslag€ 361,37 B.T.W. 21,00 % B.T.W. bedrag€ 75,89 Betaald € 437,26\n"
+        )
+        r = _select_amount(_extract_amount_candidates(text))
+        assert r.value == Decimal("437.26")
+        assert r.status == "confirmed"
+
+    def test_nedsale_faktuurbedrag_summary_table(self):
+        text = (
+            "goederenbedrag btw btw bedrag Val Faktuurbedrag\n"
+            "527,04 21% 110,68 EUR 637,72\n"
+        )
+        r = _select_amount(_extract_amount_candidates(text))
+        assert r.value == Decimal("637.72")
+        assert r.status == "confirmed"
+
+    def test_wildkamp_vat_summary_not_payable(self):
+        text = (
+            "Valuta Totaal excl. BTW BTW% Door u te betalen\n"
+            "EUR 7,28 1,53 21%\n"
+            "Reclames mogelijk binnen 8 dagen Totaal 8,81 EUR\n"
+        )
+        r = _select_amount(_extract_amount_candidates(text))
+        assert r.value == Decimal("8.81")
+        assert r.status == "confirmed"

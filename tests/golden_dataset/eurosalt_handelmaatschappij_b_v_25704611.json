@@ -1,0 +1,13 @@
+{
+  "source_file": "Eurosalt 25704611_20254628_20250630_122726.pdf",
+  "invoice_number": "25704611",
+  "supplier_name": "Eurosalt Handelmaatschappij B.V.",
+  "iban": "NL76RABO0121476928",
+  "amount": "398.09",
+  "amount_status": "confirmed",
+  "customer_code": "839525",
+  "description": "839525 / 25704611",
+  "discount_percentage": "0.00",
+  "invoice_date": "2025-06-30",
+  "payment_terms_days": 30
+}

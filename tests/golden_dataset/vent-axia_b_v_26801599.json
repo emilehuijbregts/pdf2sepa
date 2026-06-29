@@ -1,0 +1,13 @@
+{
+  "source_file": "Vent axia 26801599.PDF",
+  "invoice_number": "26801599",
+  "supplier_name": "Vent-Axia B.V.",
+  "iban": "NL21INGB0004686488",
+  "amount": "1246.69",
+  "amount_status": "confirmed",
+  "customer_code": "219073",
+  "description": "219073 / 26801599",
+  "discount_percentage": "0.00",
+  "invoice_date": "2026-02-05",
+  "payment_terms_days": 30
+}

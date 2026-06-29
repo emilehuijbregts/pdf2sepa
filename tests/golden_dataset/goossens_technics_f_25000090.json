@@ -1,0 +1,13 @@
+{
+  "source_file": "goossens K_FC_STD_25000090_21-05-2025_14u37.pdf",
+  "invoice_number": "F.25000090",
+  "supplier_name": "Goossens Technics",
+  "iban": "BE74734054989107",
+  "amount": "4208.00",
+  "amount_status": "confirmed",
+  "customer_code": "002260/000",
+  "description": "002260/000 / F.25000090",
+  "discount_percentage": "0.00",
+  "invoice_date": "2025-05-21",
+  "payment_terms_days": 1
+}

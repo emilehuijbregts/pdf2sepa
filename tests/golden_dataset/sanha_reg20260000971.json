@@ -1,0 +1,13 @@
+{
+  "source_file": "Sanha REG-3461477.pdf",
+  "invoice_number": "REG20260000971",
+  "supplier_name": "Sanha",
+  "iban": "BE38370115758372",
+  "amount": "1579.97",
+  "amount_status": "confirmed",
+  "customer_code": "1004563",
+  "description": "1004563 / REG20260000971",
+  "discount_percentage": "2.00",
+  "invoice_date": "2026-02-24",
+  "payment_terms_days": 14
+}

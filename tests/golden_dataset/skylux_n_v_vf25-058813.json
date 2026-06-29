@@ -1,0 +1,13 @@
+{
+  "source_file": "Skylux Factuur_VF25-058813.pdf",
+  "invoice_number": "VF25-058813",
+  "supplier_name": "Skylux N.V.",
+  "iban": "BE68385011181234",
+  "amount": "297.28",
+  "amount_status": "confirmed",
+  "customer_code": "09177",
+  "description": "09177 / VF25-058813",
+  "discount_percentage": "0.00",
+  "invoice_date": "2025-10-21",
+  "payment_terms_days": 10
+}

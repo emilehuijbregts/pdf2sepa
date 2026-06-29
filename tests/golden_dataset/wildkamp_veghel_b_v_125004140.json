@@ -1,0 +1,13 @@
+{
+  "source_file": "wildkamp Factuur-125004140.pdf",
+  "invoice_number": "125004140",
+  "supplier_name": "Wildkamp Veghel B.V.",
+  "iban": "NL73RABO0348902794",
+  "amount": "8.81",
+  "amount_status": "confirmed",
+  "customer_code": "4025590",
+  "description": "4025590 / 125004140",
+  "discount_percentage": "0.00",
+  "invoice_date": "2025-09-28",
+  "payment_terms_days": 30
+}

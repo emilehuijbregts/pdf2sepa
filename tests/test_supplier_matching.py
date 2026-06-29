@@ -76,6 +76,33 @@ class TestIbanMatch:
         assert result["supplier_name"] == "Wavin Nederland B.V."
         assert result["match_status"] == "confirmed"
 
+    def test_iban_plus_vat_confirmed(self, tmp_path):
+        """IBAN + supplier BTW on invoice → confirmed (Dewin-like)."""
+        data = {
+            "suppliers": [
+                {
+                    "name": "Dewin Isolatie",
+                    "iban": "NL15ABNA0591821249",
+                    "discount": 0.0,
+                    "aliases": ["Dewin Isolatie"],
+                    "customer_codes": [],
+                    "vat_numbers": ["NL805513152B01"],
+                }
+            ]
+        }
+        p = tmp_path / "suppliers.json"
+        p.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        db = SupplierDB(path=str(p))
+        inv = {
+            "supplier_hint": "Dewin Isolatie",
+            "iban": "NL15ABNA0591821249",
+            "customer_number": None,
+            "vat_number": "NL805513152B01",
+        }
+        result = match_suppliers([inv], db)[0]
+        assert result["match_status"] == "confirmed"
+        assert "BTW" in (result.get("db_core_matches") or [])
+
     def test_iban_plus_alias_needs_review(self, db_with_suppliers):
         """IBAN + exact alias: naam telt niet als tweede kernkenmerk."""
         inv = {"supplier_hint": "Wavin NL", "iban": "NL25CITI0266075452", "customer_number": None}
@@ -702,6 +729,73 @@ class TestProfilePipeline:
         assert result["amount_result"]["source"] == "profile"
         assert result["amount_result"]["status"] == "confirmed"
         assert "raw_text" in result
+
+    def test_validated_profile_spec_confidence_beats_generic_tentative(self, tmp_path: Path) -> None:
+        """Emporte-like: generic incl conflict → tentative; profile spec confidence 100 wins."""
+        data = {
+            "suppliers": [
+                {
+                    "name": "Emporte B.V.",
+                    "iban": "NL29RABO0158134850",
+                    "discount": 0.0,
+                    "aliases": ["Emporte B.V."],
+                    "customer_codes": [],
+                    "vat_numbers": ["NL863990198B01"],
+                    "kvk_numbers": ["86507214"],
+                    "extraction_profile": {
+                        "amount": {
+                            "label": "Verschuldigd bedrag €",
+                            "strategy": "same_line_last_amount",
+                            "confirmed_value": "224.50",
+                            "confidence": 100,
+                        }
+                    },
+                }
+            ]
+        }
+        p = tmp_path / "suppliers.json"
+        p.write_text(json.dumps(data), encoding="utf-8")
+        db = SupplierDB(path=str(p))
+        text = (
+            "Verschuldigd bedrag € 224,50\n"
+            "Betaald op 02-10-2025 € 436,00\n"
+            "Totaal € 660,50\n"
+        )
+        inv = {
+            "supplier_hint": "Emporte B.V.",
+            "iban": "NL29RABO0158134850",
+            "vat_number": "NL863990198B01",
+            "kvk_number": "86507214",
+            "raw_text": text,
+            "amount_result": {
+                "status": "tentative",
+                "source": "TOTAL_LABEL_INSURANCE",
+                "value": "224.50",
+                "confidence": 93,
+                "candidates": [
+                    {
+                        "value": "224.50",
+                        "source": "total_label_insurance",
+                        "confidence": 93,
+                        "context": "Verschuldigd bedrag € 224,50",
+                        "type": "incl",
+                    },
+                    {
+                        "value": "436.00",
+                        "source": "total_label_payable",
+                        "confidence": 100,
+                        "context": "Betaald op 02-10-2025 € 436,00",
+                        "type": "incl",
+                    },
+                ],
+            },
+        }
+        result = match_suppliers([inv], db)[0]
+        assert result["match_status"] == "confirmed"
+        assert result["amount_result"]["source"] == "profile"
+        assert result["amount_result"]["status"] == "confirmed"
+        assert float(result["amount_result"]["value"]) == pytest.approx(224.50, abs=0.01)
+        assert "amount" in result["profile_fields"]
 
     def test_needs_review_with_iban_applies_profile_tentative(self, db_with_suppliers):
         """IBAN-match + profiel: bedrag uit profiel, status tentative (export nog review)."""

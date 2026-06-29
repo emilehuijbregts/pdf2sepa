@@ -1,0 +1,13 @@
+{
+  "source_file": "B&M Factuur 76793.pdf",
+  "invoice_number": "76793",
+  "supplier_name": "B&M Techniek BV",
+  "iban": "NL52INGB0686210743",
+  "amount": "437.26",
+  "amount_status": "confirmed",
+  "customer_code": "114080",
+  "description": "114080 / 76793",
+  "discount_percentage": "0.00",
+  "invoice_date": "2025-04-04",
+  "payment_terms_days": 1
+}

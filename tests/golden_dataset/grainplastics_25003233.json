@@ -1,0 +1,13 @@
+{
+  "source_file": "Grainplastics 25003233.pdf",
+  "invoice_number": "25003233",
+  "supplier_name": "GrainPlastics",
+  "iban": "NL41RABO0362292280",
+  "amount": "1060.38",
+  "amount_status": "confirmed",
+  "customer_code": "1071",
+  "description": "1071 / 25003233",
+  "discount_percentage": "0.00",
+  "invoice_date": "2025-04-11",
+  "payment_terms_days": 30
+}

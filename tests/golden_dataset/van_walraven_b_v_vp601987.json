@@ -1,0 +1,13 @@
+{
+  "source_file": "van Walraven Factuur_801083_VP601987.pdf",
+  "invoice_number": "VP601987",
+  "supplier_name": "Van Walraven B.V.",
+  "iban": "NL27RABO0135262577",
+  "amount": "1410.07",
+  "amount_status": "confirmed",
+  "customer_code": "801083",
+  "description": "801083 / VP601987",
+  "discount_percentage": "0.00",
+  "invoice_date": "2026-03-17",
+  "payment_terms_days": 14
+}

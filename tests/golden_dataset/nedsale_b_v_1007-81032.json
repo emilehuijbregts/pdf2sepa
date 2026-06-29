@@ -1,0 +1,13 @@
+{
+  "source_file": "Nedsale FCT00081032.PDF",
+  "invoice_number": "1007-81032",
+  "supplier_name": "Nedsale B.V.",
+  "iban": "NL16RABO0121226875",
+  "amount": "637.72",
+  "amount_status": "confirmed",
+  "customer_code": "",
+  "description": "",
+  "discount_percentage": "0.00",
+  "invoice_date": "2025-11-11",
+  "payment_terms_days": 30
+}

@@ -19,6 +19,7 @@ from parser.pdf_parser import (
 from logic.invoice_parse_cache import list_invoice_pdf_paths
 from logic.validation import mask_iban_for_log
 
+
 # #region agent log (debug mode - session 935dd7)
 _DEBUG_935_PATH = "/Users/eh/Documents/Cursor/PDF2SEPA/.cursor/debug-935dd7.log"
 _DEBUG_935_SESSION = "935dd7"
@@ -93,6 +94,27 @@ def _dbg_10a5df(hypothesis_id: str, location: str, message: str, data: dict, run
 
 # #endregion
 
+def _ocr_nl_vat_from_text(text: str) -> str | None:
+    """Extract NL BTW from OCR-noisy text (spaced digits, O/0 confusion in suffix)."""
+    if not (text or "").strip():
+        return None
+    patterns = (
+        r"(?i)\bNL\s*[\dO\s]{10,18}\s*B[\sO\d]{2}\b",
+        r"(?i)\bNL\s*\d{4}[\s.\-]*\d{2}[\s.\-]*\d{3}[\s.\-]*B[\s.\-]*\d{2}\b",
+        r"(?i)\bN\s*L\s*\d{9}\s*B\s*\d{2}\b",
+        r"(?i)\bNL\d{9}\s*B\d{2}\b",
+    )
+    for pat in patterns:
+        for m in re.finditer(pat, text):
+            compact = re.sub(r"[^0-9A-Z]", "", str(m.group(0) or "").upper())
+            if compact.startswith("NL") and "B" in compact:
+                prefix, _, suffix = compact.partition("B")
+                compact = prefix.replace("O", "0") + "B" + suffix.replace("O", "0")
+            if re.fullmatch(r"NL\d{9}B\d{2}", compact):
+                return compact
+    return None
+
+
 def _supplier_hint_from_ocr_text(text: str) -> str | None:
     tokens = re.findall(r"[A-Za-z][A-Za-z&\-]{2,}", text or "")
     for tok in tokens:
@@ -148,6 +170,7 @@ def load_invoice_from_pdf_path(
     debtor_iban: str | None = None,
     debtor_kvk: str | None = None,
     debtor_vat: str | None = None,
+    debtor_name: str | None = None,
 ) -> dict:
     """
     Parse één factuur-PDF naar factuurdict (inclusief OCR-verrijking indien nodig).
@@ -168,29 +191,33 @@ def load_invoice_from_pdf_path(
     except Exception as exc:
         ocr_supplement_error = f"{type(exc).__name__}"
 
-    primary_text = text or ""
+    pdf_text_layer = text or ""
     sup_stripped = (ocr_supplement or "").strip()
-    ocr_text = sup_stripped
 
-    if not (primary_text or "").strip():
+    if not pdf_text_layer.strip() and not sup_stripped:
         return _invoice_load_error_dict(path, "no_text")
+
+    # Image-only PDFs have no text layer; parse from OCR when available.
+    parse_primary = pdf_text_layer if pdf_text_layer.strip() else sup_stripped
+    ocr_text = sup_stripped if pdf_text_layer.strip() else None
 
     try:
         data = extract_invoice_data(
-            primary_text,
+            parse_primary,
             ocr_text=ocr_text,
             debtor_iban=debtor_iban,
             debtor_kvk=debtor_kvk,
             debtor_vat=debtor_vat,
+            debtor_name=debtor_name,
         )
     except Exception:
         return _invoice_load_error_dict(path, "read_failed")
 
     data["source_file"] = str(path.resolve())
     # Contract: keep raw_text as primary PDF text layer (no OCR amounts noise).
-    data["raw_text"] = primary_text
-    data["ocr_text"] = ocr_text
-    data["ocr_supplement_len"] = int(len(ocr_text))
+    data["raw_text"] = pdf_text_layer
+    data["ocr_text"] = sup_stripped
+    data["ocr_supplement_len"] = int(len(sup_stripped))
     data["ocr_supplement_error"] = ocr_supplement_error
 
     _dbg_935(
@@ -330,31 +357,63 @@ def load_invoice_from_pdf_path(
     except Exception as exc:
         data["ocr_iban_error"] = f"{type(exc).__name__}"
 
-    # If key supplier-identification signals are missing, do a lightweight OCR enrichment pass.
-    # This addresses invoices where VAT/KvK/email live only in a logo/header image even when IBAN is present.
+    # OCR enrichment when identity signals are missing or debtor email domain was picked.
     ocr_ident_attempted = False
     ocr_ident_error = None
     ocr_ident_text_len = 0
-    if not str(data.get("vat_number") or "").strip() or not str(data.get("kvk_number") or "").strip() or not str(data.get("email_domain") or "").strip():
+    from parser.field_candidates import collect_debtor_email_domain_blocklist
+
+    pre_ident_text = f"{parse_primary}\n{sup_stripped}".strip()
+    pre_email_blocklist = collect_debtor_email_domain_blocklist(
+        pre_ident_text, debtor_name=debtor_name
+    )
+    current_email_dom = str(data.get("email_domain") or "").strip().lower()
+    need_ocr_ident = (
+        not str(data.get("vat_number") or "").strip()
+        or not str(data.get("kvk_number") or "").strip()
+        or not current_email_dom
+        or current_email_dom in pre_email_blocklist
+    )
+    if need_ocr_ident:
         try:
             ocr_ident_attempted = True
             ocr_text_ident = sup_stripped or extract_text_from_images(str(path)) or ""
-            if not str(data.get("vat_number") or "").strip() or not str(data.get("kvk_number") or "").strip() or not str(data.get("email_domain") or "").strip():
+            if not str(data.get("vat_number") or "").strip() or not str(data.get("kvk_number") or "").strip() or not current_email_dom or current_email_dom in pre_email_blocklist:
                 raster_extra = extract_text_force_raster_ocr(str(path), max_pages=1) or ""
                 if raster_extra.strip() and raster_extra.strip() not in ocr_text_ident:
                     ocr_text_ident = f"{ocr_text_ident.rstrip()}\n{raster_extra.strip()}".strip()
             ocr_ident_text_len = int(len(ocr_text_ident or ""))
             if ocr_text_ident:
-                # Email domain
-                if not str(data.get("email_domain") or "").strip():
-                    # Tolerate OCR spaces: "info @ felison . nl"
-                    m = re.search(
-                        r"\b[A-Za-z0-9._%+-]+\s*@\s*([A-Za-z0-9.-]+\s*\.\s*[A-Za-z]{2,})\b",
-                        ocr_text_ident,
-                    )
-                    if m:
-                        dom = re.sub(r"\s+", "", str(m.group(1) or "")).strip().lower()
-                        data["email_domain"] = dom or None
+                from parser.field_candidates import collect_debtor_email_domain_blocklist
+
+                email_blocklist = collect_debtor_email_domain_blocklist(
+                    ocr_text_ident, debtor_name=debtor_name
+                )
+                # Email domain: pick best supplier email, never debtor billing domain.
+                email_domains: list[str] = []
+                for m in re.finditer(
+                    r"\b[A-Za-z0-9._%+-]+\s*@\s*([A-Za-z0-9.-]+\s*\.\s*[A-Za-z]{2,})\b",
+                    ocr_text_ident,
+                ):
+                    dom = re.sub(r"\s+", "", str(m.group(1) or "")).strip().lower()
+                    if dom and dom not in email_blocklist:
+                        email_domains.append(dom)
+                current_dom = str(data.get("email_domain") or "").strip().lower()
+                if email_domains:
+                    best_dom = email_domains[0]
+                    if current_dom in email_blocklist or not current_dom:
+                        data["email_domain"] = best_dom
+                elif current_dom in email_blocklist:
+                    data["email_domain"] = None
+                # Prefer VAT from the same OCR line as the supplier IBAN.
+                iban_line_vat = None
+                for line in ocr_text_ident.splitlines():
+                    if re.search(r"(?i)\bNL\s*\d{2}[A-Z]{4}", line.replace(" ", "")):
+                        iban_line_vat = _ocr_nl_vat_from_text(line)
+                        if iban_line_vat:
+                            break
+                if iban_line_vat:
+                    data["vat_number"] = iban_line_vat
                 # KvK
                 if not str(data.get("kvk_number") or "").strip():
                     # Accept spaced/dotted digits around KvK label.
@@ -365,27 +424,30 @@ def load_invoice_from_pdf_path(
                             data["kvk_number"] = digits
                 # VAT
                 if not str(data.get("vat_number") or "").strip():
-                    # Accept spaced/punctuated OCR: "N L 123456789 B 01" / "NL 123456789B01"
-                    m = re.search(r"(?i)\bN\s*L\s*\d{9}\s*B\s*\d{2}\b", ocr_text_ident)
-                    if not m:
-                        m = re.search(r"(?i)\bNL\d{9}\s*B\d{2}\b", ocr_text_ident)
-                    if not m:
-                        # Dotted grouping seen in Felison OCR: "Btw NL8053.01.021.B.01"
-                        m = re.search(
-                            r"(?i)\bNL\s*\d{4}[\s.\-]*\d{2}[\s.\-]*\d{3}[\s.\-]*B[\s.\-]*\d{2}\b",
-                            ocr_text_ident,
-                        )
-                    if not m:
-                        m = re.search(
-                            r"(?i)\b(?:btw|vat)\s*:\s*([\d.\s]+B[\d.\s]+)",
-                            ocr_text_ident,
-                        )
-                    if m:
-                        raw = re.sub(r"[^0-9A-Za-z]", "", str(m.group(0) or "")).upper()
-                        if re.fullmatch(r"NL\d{9}B\d{2}", raw):
-                            data["vat_number"] = raw
+                    ocr_vat = _ocr_nl_vat_from_text(ocr_text_ident)
+                    if ocr_vat:
+                        data["vat_number"] = ocr_vat
+                    else:
+                        # Accept spaced/punctuated OCR: "N L 123456789 B 01" / "NL 123456789B01"
+                        m = re.search(r"(?i)\bN\s*L\s*\d{9}\s*B\s*\d{2}\b", ocr_text_ident)
+                        if not m:
+                            m = re.search(r"(?i)\bNL\d{9}\s*B\d{2}\b", ocr_text_ident)
+                        if not m:
+                            # Dotted grouping seen in Felison OCR: "Btw NL8053.01.021.B.01"
+                            m = re.search(
+                                r"(?i)\bNL\s*\d{4}[\s.\-]*\d{2}[\s.\-]*\d{3}[\s.\-]*B[\s.\-]*\d{2}\b",
+                                ocr_text_ident,
+                            )
+                        if not m:
+                            m = re.search(
+                                r"(?i)\b(?:btw|vat)\s*:\s*([\d.\s]+B[\d.\s]+)",
+                                ocr_text_ident,
+                            )
+                        if m:
+                            raw = re.sub(r"[^0-9A-Za-z]", "", str(m.group(0) or "")).upper()
+                            if re.fullmatch(r"NL\d{9}B\d{2}", raw):
+                                data["vat_number"] = raw
 
-                # Debug (Felison focus): show whether OCR text contains our key hints.
                 try:
                     pdf_cf = path.name.casefold()
                     if "felison" in pdf_cf:
@@ -438,6 +500,23 @@ def load_invoice_from_pdf_path(
     data["ocr_ident_error"] = ocr_ident_error
     data["ocr_ident_text_len"] = int(ocr_ident_text_len or 0)
 
+    if str(data.get("vat_number") or "").strip() and not str(
+        (data.get("vat_number_result") or {}).get("value") or ""
+    ).strip():
+        try:
+            from parser.field_candidates import extract_vat_number_result
+
+            vat_res = extract_vat_number_result(
+                parse_primary,
+                resolved=str(data.get("vat_number") or "").strip(),
+                resolved_source="ocr",
+                debtor_vat=debtor_vat,
+            )
+            data["vat_number_result"] = vat_res.to_dict()
+            data["vat_number"] = vat_res.value or data.get("vat_number")
+        except Exception:
+            pass
+
     # --- Invoice date OCR repair (Frige-like headers) ---
     # If the selected invoice_date appears on a "verval/due" line in the PDF text,
     # it is likely the due date. In that case, try OCR text for header patterns
@@ -450,22 +529,31 @@ def load_invoice_from_pdf_path(
 
             for ln in (text or "").splitlines():
                 low = (ln or "").lower()
-                if "vervaldatum" in low or "due date" in low or "verval" in low or "due" in low:
-                    # Compare any date token on that line to inv_date (ISO).
-                    m_iso = _ISO_DATE_RE.search(ln)
-                    if m_iso:
-                        tok_iso = f"{m_iso.group(1)}-{m_iso.group(2)}-{m_iso.group(3)}"
-                        if tok_iso == inv_date:
-                            suspicious_due = True
-                            break
-                    m_dmy = _DD_MM_YYYY_RE.search(ln)
-                    if m_dmy:
-                        tok_iso = _iso_from_dmy(int(m_dmy.group(1)), int(m_dmy.group(2)), int(m_dmy.group(3)))
-                        if tok_iso and tok_iso == inv_date:
-                            suspicious_due = True
-                            break
+                due_hint = (
+                    "vervaldatum" in low
+                    or "due date" in low
+                    or "verval" in low
+                    or "due" in low
+                    or re.search(r"\bbis\b", low)
+                    or re.search(r"30\s*tage", low)
+                )
+                if not due_hint:
+                    continue
+                # Compare any date token on that line to inv_date (ISO).
+                m_iso = _ISO_DATE_RE.search(ln)
+                if m_iso:
+                    tok_iso = f"{m_iso.group(1)}-{m_iso.group(2)}-{m_iso.group(3)}"
+                    if tok_iso == inv_date:
+                        suspicious_due = True
+                        break
+                m_dmy = _DD_MM_YYYY_RE.search(ln)
+                if m_dmy:
+                    tok_iso = _iso_from_dmy(int(m_dmy.group(1)), int(m_dmy.group(2)), int(m_dmy.group(3)))
+                    if tok_iso and tok_iso == inv_date:
+                        suspicious_due = True
+                        break
         if suspicious_due:
-            ocr_text_date = extract_text_from_images(str(path)) or ""
+            ocr_text_date = (sup_stripped or extract_text_from_images(str(path)) or text or "")
             ocr_date, ocr_src = extract_invoice_date(ocr_text_date)
             if (not ocr_date) or int(len(ocr_text_date)) < 120:
                 # Stronger fallback: force raster OCR of first page for header blocks.
@@ -485,7 +573,7 @@ def load_invoice_from_pdf_path(
 
         synced_date = str(data.get("invoice_date") or "").strip() or None
         date_dict = build_invoice_date_result_snapshot(
-            primary_text,
+            parse_primary,
             invoice_date=synced_date,
             invoice_date_source=str(data.get("invoice_date_source") or "").strip() or None,
         )
@@ -560,6 +648,7 @@ def load_invoices_from_folder(
     debtor_iban: str | None = None,
     debtor_kvk: str | None = None,
     debtor_vat: str | None = None,
+    debtor_name: str | None = None,
 ) -> list[dict]:
     """
     Lees elke ``*.pdf`` in ``folder`` (niet recursief), parse naar factuurdict.
@@ -581,6 +670,7 @@ def load_invoices_from_folder(
             debtor_iban=debtor_iban,
             debtor_kvk=debtor_kvk,
             debtor_vat=debtor_vat,
+            debtor_name=debtor_name,
         )
         for path in list_invoice_pdf_paths(folder)
     ]

@@ -1,0 +1,13 @@
+{
+  "source_file": "Hasmi Faktuur 2511381.pdf",
+  "invoice_number": "2511381",
+  "supplier_name": "Hasmi Propaangereedschappen",
+  "iban": "NL82ABNA0516811010",
+  "amount": "547.98",
+  "amount_status": "confirmed",
+  "customer_code": "1003242",
+  "description": "1003242 / 2511381",
+  "discount_percentage": "0.00",
+  "invoice_date": "2025-11-17",
+  "payment_terms_days": 30
+}

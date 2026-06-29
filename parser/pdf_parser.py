@@ -489,8 +489,13 @@ def extract_text(file_path: str) -> str:
         logger.warning("PDF tekst uitlezen mislukt: %s", Path(file_path).name)
         return ""
 
-# Bedragstoken voor EU-notatie; accepteert ook 4+ cijfers zonder duizendseparator.
-_AMOUNT_TOKEN = r"(?:\d{1,3}(?:[.,]\d{3})+|\d+)[.,]\d{2}"
+# Bedragstoken voor EU-notatie; accepteert ook 4+ cijfers zonder duizendseparator
+# en spaties als duizendtal-scheider vóór een punt-decimaal (bijv. ``4 208.00``).
+_AMOUNT_TOKEN = (
+    r"(?:\d{1,3}(?: \d{3})+\.\d{2}"
+    r"|\d{1,3}(?:[.,]\d{3})+[.,]\d{2}"
+    r"|\d+[.,]\d{2})"
+)
 
 # Rightmost label match on a line: amounts *before* this are usually netto/subregels.
 _TOTAL_LABEL_ANCHOR_RE = re.compile(
@@ -499,6 +504,7 @@ _TOTAL_LABEL_ANCHOR_RE = re.compile(
     r"totaal\s+factuurbedrag|totaalbedrag|totaal\s+bedrag|"
     r"eindtotaal|eindbedrag|factuurbedrag|factuurtotaal|"
     r"te\s+betalen|totaal\s+te\s+betalen|totaal\s+te\s+voldoen|amount\s+due|total\s+due|"
+    r"betaald|paid|"
     r"totaal|total"
     r")\b"
 )
@@ -518,30 +524,36 @@ _EXCL_VAT_LABEL_RE = re.compile(
 )
 
 _INVOICE_LABEL_RE = re.compile(
-    r"(?:Factuurnummer|Factuurnr\.?|Factuur(?:\s*nummer|\s*nr\.?)|Fact\.?\s*nr\.?|"
+    r"(?:Factuurnummer|Factuurnr\.?|Faktuurnummer|FaktuurNr\.?|"
+    r"Factuur(?:\s*nummer|\s*nr\.?)|Fact\.?\s*nr\.?|"
     r"Document\s*nr\.?|Documentnr\.?|"
-    r"Invoice\s*(?:number|no\.?|nr\.?)|\bINVOICE\b|"
-    r"Rechnung\s*(?:nr\.?|nummer)|Rechnungsnummer|"
+    r"Invoice\s*(?:number|no\.?|nr\.?|date)?|Invoice\s*Number|"
+    r"\bINVOICE\b|"
+    r"Rechnung\s*(?:nr\.?|nummer)?|Rechnungsnummer|Belegnummer|"
     r"Nota(?:\s*nummer|\s*nr\.?)|"
     r"Polisnummer|Polis\s*nr\.?|Polis\s*nummer|"
-    r"(?i)(?<!(?:btw|vat)-)\bNummer\b(?=\s+(?:INV-|REG|SIN/)(?!\s*NL\d)))",
+    r"(?<!(?:btw|vat)-)\bNummer\b(?=\s*(?:INV-|REG|SIN/|VF)(?!\s*NL\d)))",
+    flags=re.IGNORECASE,
 )
 
 # Prefer real invoice identifiers over insurance "Polisnummer" when both exist in the same document.
 _INVOICE_LABEL_RE_NO_POLIS = re.compile(
-    r"(?:Factuurnummer|Factuurnr\.?|Factuur(?:\s*nummer|\s*nr\.?)|Fact\.?\s*nr\.?|"
+    r"(?:Factuurnummer|Factuurnr\.?|Faktuurnummer|FaktuurNr\.?|"
+    r"Factuur(?:\s*nummer|\s*nr\.?)|Fact\.?\s*nr\.?|"
     r"Document\s*nr\.?|Documentnr\.?|"
-    r"Invoice\s*(?:number|no\.?|nr\.?)|\bINVOICE\b|"
-    r"Rechnung\s*(?:nr\.?|nummer)|Rechnungsnummer|"
+    r"Invoice\s*(?:number|no\.?|nr\.?|date)?|Invoice\s*Number|"
+    r"\bINVOICE\b|"
+    r"Rechnung\s*(?:nr\.?|nummer)?|Rechnungsnummer|Belegnummer|"
     r"Nota(?:\s*nummer|\s*nr\.?)|"
-    r"(?i)(?<!(?:btw|vat)-)\bNummer\b(?=\s+(?:INV-|REG|SIN/)(?!\s*NL\d)))",
+    r"(?<!(?:btw|vat)-)\bNummer\b(?=\s*(?:INV-|REG|SIN/|VF)(?!\s*NL\d)))",
+    flags=re.IGNORECASE,
 )
 
 _CUSTOMER_LABEL_RE = re.compile(
     r"(?:\bKlantcode\b|\bklantnummer\b|\bklant-nummer\b|"
     r"Klant(?:en)?(?:\s*nummer|\s*nr\.?|-nr\.?|\s*code)|Klantnr\.?|"
     r"\bKlant\b(?=\s+\d)|"
-    r"Debiteur(?:en)?(?:\s*nummer|\s*nr\.?)|"
+    r"Debiteur(?:en)?(?:\s*[-]?\s*nr\.?|\s*nummer)|"
     r"Deb\.?\s*(?:nr\.?|nummer)|Debnr\.?|"
     r"Debiteur|"
     r"\bDebtor\b(?:\s*(?:number|no\.?|nr\.?|id))?|"
@@ -560,8 +572,8 @@ _CUSTOMER_LABEL_RE = re.compile(
 )
 
 _INVOICE_DATE_LABEL_RE = re.compile(
-    r"(?i)(?:Factuurdatum|Factuur\s*datum|Invoice\s*date|Date\s*of\s*invoice|"
-    r"\bDatum\s*factuur|Factuur\s*d\.?\s*d\.?)\b",
+    r"(?i)(?:Factuurdatum|Factuur\s*datum|Fact\.?\s*dat\.?|Invoice\s*date|Date\s*of\s*invoice|"
+    r"Invoice\s*Date|Datum\s*factuur|Factuur\s*d\.?\s*d\.?|(?<![\w-])\bDatum\b(?![\w-]))",
 )
 
 # Header variant seen on some invoices: "FACTUUR Nr. <id> van 30-01-2026"
@@ -576,7 +588,10 @@ _DD_MM_YYYY_RE = re.compile(
 )
 _ISO_DATE_RE = re.compile(r"\b(\d{4})-(\d{2})-(\d{2})\b")
 _DATE_EXCLUDE_HINT_RE = re.compile(
-    r"(?i)\b(?:vervaldatum|due\s*date|geleverd|pakbon|ordernummer|leverdatum|afleverbon|leveringsbon)\b"
+    r"(?i)\b(?:vervaldatum|due\s*date|geleverd|pakbon|ordernummer|orderdatum|besteldatum|"
+    r"leverdatum|afleverbon|leveringsbon|verzenddatum|uw\s+opdracht|"
+    r"\bbis\b|30\s*tage|zahlbar|f[aä]llig|lieferdatum)\b|"
+    r"\(\s*bis\s+"
 )
 
 _MONTH_NAME_DATE_RE = re.compile(r"(?i)\b(\d{1,2})\s+([A-Za-z]{3,})\.?\s+(\d{4})\b")
@@ -1136,8 +1151,10 @@ def build_invoice_date_result_snapshot(
     )
 
     legacy_date, legacy_src = _extract_invoice_date_from_text(text or "")
-    chosen_date = legacy_date or (str(invoice_date or "").strip() or None)
-    chosen_src = legacy_src if legacy_date else (str(invoice_date_source or "").strip() or "parsed")
+    pre_date = str(invoice_date or "").strip() or None
+    pre_src = str(invoice_date_source or "").strip() or "parsed"
+    chosen_date = pre_date or legacy_date
+    chosen_src = pre_src if pre_date else legacy_src
     if not chosen_date:
         return extract_invoice_date_result(text or "").to_dict()
 
@@ -1532,6 +1549,10 @@ def _classify_candidate_amount_type(*, classification_line: str, source: str) ->
     if source in ("total_label_insurance", "total_label_btw_inclusive"):
         return "incl"
     if source == "total_label_payable":
+        if re.search(r"(?i)\btotaal\s+excl\b", low) and re.search(
+            r"(?i)\b(?:btw%|btw\s*%|door\s+u\s+te\s+betalen)\b", low
+        ):
+            return "vat"
         return "incl"
     if source == "total_label_invoice":
         # Table layouts often render a header row like:
@@ -1593,6 +1614,14 @@ def _classify_candidate_amount_type(*, classification_line: str, source: str) ->
         return "incl"
 
     if source == "total_label_generic":
+        if re.search(r"(?i)\b(?:in\.?\s*btw|incl\.?\s*btw|inclusief)\b", low):
+            return "incl"
+        if re.search(r"(?i)\b(?:excl\.?\s*btw|subtotaal|totaal\s*excl)\b", low):
+            return "excl"
+        if re.search(r"(?i)\btotaal\s+\d+[,\.]\d{2}\s*eur\b", low) and not re.search(
+            r"(?i)\bexcl\b", low
+        ):
+            return "incl"
         # If the line contains a "Totaal EUR/€" anchor, ignore "excl/ex. btw" wording that appears
         # *before* that anchor (often shipping/payment terms like "vrachtkosten ... ex. btw").
         m_total_eur = re.search(r"(?i)\btotaal\s+(?:eur|€)\b", low)
@@ -1617,6 +1646,10 @@ def _classify_candidate_amount_type(*, classification_line: str, source: str) ->
         return "unknown"
     if source == "table_total_column":
         val_part = low.split(">>", 1)[-1] if ">>" in low else low
+        if re.search(r"(?i)\btotaal\s+excl\b", low) and re.search(
+            r"(?i)\b(?:door\s+u\s+te\s+betalen|btw%|btw\s*%)\b", low
+        ):
+            return "vat"
         if re.search(r"(?i)\b(?:btw|vat)\s*bedrag\b", val_part):
             return "vat"
         if re.search(r"(?i)\b(?:btw|vat)\s*amount\b", val_part):
@@ -1674,7 +1707,8 @@ _TOTAL_LABEL_PRIORITY: tuple[tuple[int, str, re.Pattern], ...] = (
             r"(?i)\b(?:"
             r"opensta(?:and|ande)\s+premie|"
             r"verschuldigde\s+(?:premie|premies|bedrag)|"
-            r"premie\s+verschuldigd(?:e)?"
+            r"premie\s+verschuldigd(?:e)?|"
+            r"verschuldigd(?:e)?\s+bedrag"
             r")\b"
         ),
     ),
@@ -1694,7 +1728,7 @@ _TOTAL_LABEL_PRIORITY: tuple[tuple[int, str, re.Pattern], ...] = (
         100,
         "total_label_payable",
         re.compile(
-            r"(?i)\b(?:te\s+betalen|te\s+voldoen|totaal\s+te\s+betalen|totaal\s+te\s+voldoen|amount\s+due|total\s+due)\b"
+            r"(?i)\b(?:te\s+betalen|te\s+voldoen|totaal\s+te\s+betalen|totaal\s+te\s+voldoen|amount\s+due|total\s+due|betaald|paid)\b"
         ),
     ),
     (95, "total_label_invoice", re.compile(r"(?i)\b(?:factuurbedrag|factuurtotaal|eindbedrag)\b")),
@@ -1708,7 +1742,8 @@ _TOTAL_LABEL_PRIORITY: tuple[tuple[int, str, re.Pattern], ...] = (
             r"totaalfactuurbedrag|totaal[\s\-:._]+factuurbedrag|totaal[\s\-:._]+factuur[\s\-:._]+bedrag|"
             r"totaal\s+factuurbedrag|"
             r"totaalbedrag|totaal\s+bedrag|eindtotaal|opensta(?:and|ande)(?:\s+bedrag)?|"
-            r"grand\s+total|invoice\s+total|balance\s+due|gesamtbetrag|rechnungsbetrag"
+            r"grand\s+total|invoice\s+total|balance\s+due|gesamtbetrag|rechnungsbetrag|"
+            r"endsumme|te\s+betalen\s+bedrag"
             r")\b"
         ),
     ),
@@ -1745,6 +1780,13 @@ _TABLE_TOTAL_INCL_HDR_RE = re.compile(
 # Keep strict: besides total+VAT, require summary semantics (excl/basis/bedrag/%).
 _VAT_SUMMARY_HDR_RE = re.compile(
     r"(?i)(?=.*\b(?:totaal|total)\b)(?=.*\b(?:btw|vat)\b)(?=.*\b(?:excl|exclusive|exclusief|basis|bedrag|%|percent)\b).+"
+)
+_PAYABLE_SUMMARY_HDR_RE = re.compile(
+    r"(?i)(?=.*\b(?:te\s+betalen|door\s+u\s+te\s+betalen)\b)(?=.*\b(?:btw|vat)\b).+"
+)
+_FACTUURBEDRAG_SUMMARY_HDR_RE = re.compile(
+    r"(?i)(?=.*\b(?:faktuurbedrag|factuurbedrag)\b)(?=.*\b(?:btw|vat)\b)"
+    r"(?=.*\b(?:goederenbedrag|bedrag)\b).+"
 )
 
 # Polyglass-achtig: kopregel ``% Bedrag TOTALE FACTUUR`` + bedragen op volgende regel.
@@ -1924,13 +1966,22 @@ def _append_value_line_amount_candidates(
         re.search(r"(?i)\b(?:totale\s+factuur|te\s+betalen|factuurbedrag)\b", hdr_low)
     )
     multi_emit = len(decs) >= 2 and (has_eur or is_payable_footer)
+    is_vat_summary_row = (
+        source == "total_label_payable"
+        and re.search(r"(?i)\btotaal\s+excl", hdr_low)
+        and re.search(r"(?i)\b(?:btw%|btw\s*%|door\s+u\s+te\s+betalen)\b", hdr_low)
+    )
 
     if multi_emit:
         for idx, v in enumerate(decs):
             conf = base_confidence if idx == len(decs) - 1 else max(base_confidence - 18, 42)
-            ctype: AmountCandidateType = "incl" if idx == len(decs) - 1 else "excl"
-            if idx < len(decs) - 1 and not has_eur:
-                ctype = "unknown"
+            if is_vat_summary_row:
+                ctype = "excl" if idx == 0 else "vat"
+                conf = max(base_confidence - 22, 38)
+            else:
+                ctype: AmountCandidateType = "incl" if idx == len(decs) - 1 else "excl"
+                if idx < len(decs) - 1 and not has_eur:
+                    ctype = "unknown"
             candidates.append(
                 AmountCandidate(
                     value=v,
@@ -2019,29 +2070,31 @@ def _extract_amount_candidates(text: str) -> list[AmountCandidate]:
 
         # VAT summary tables: header line mentions BTW/totaal, values line contains multiple € amounts.
         # Must run regardless of other "totaal" matches on the page.
-        if _VAT_SUMMARY_HDR_RE.search(ln) and i + 1 < len(lines):
-            nxt = lines[i + 1] or ""
-            toks = _iter_amount_tokens_excluding_percent(nxt)
-            # Only treat as VAT-summary when the values row has multiple money columns.
-            if len(toks) >= 3:
-                decs = [normalize_amount_decimal(t) for t in toks]
-                decs = [d for d in decs if d is not None and d > 0]
-                if decs:
-                    v_last = normalize_amount_decimal(toks[-1])
-                    v_max = max(decs)
-                    # In VAT summaries the last column is typically the payable total; require it equals max.
-                    if v_last is not None and v_last == v_max:
-                        ctx = re.sub(r"\s+", " ", ln).strip()[:160]
-                        nxt_ctx = re.sub(r"\s+", " ", nxt).strip()[:160]
-                        candidates.append(
-                            AmountCandidate(
-                                value=v_last,
-                                source="vat_summary_last_amount",
-                                confidence=95,
-                                context=f"{ctx} >> {nxt_ctx}",
-                                type="incl",
+        for summary_rx in (_VAT_SUMMARY_HDR_RE, _PAYABLE_SUMMARY_HDR_RE, _FACTUURBEDRAG_SUMMARY_HDR_RE):
+            if summary_rx.search(ln) and i + 1 < len(lines):
+                nxt = lines[i + 1] or ""
+                toks = _iter_amount_tokens_excluding_percent(nxt)
+                # Only treat as VAT-summary when the values row has multiple money columns.
+                if len(toks) >= 2:
+                    decs = [normalize_amount_decimal(t) for t in toks]
+                    decs = [d for d in decs if d is not None and d > 0]
+                    if decs:
+                        v_last = normalize_amount_decimal(toks[-1])
+                        v_max = max(decs)
+                        # In VAT summaries the last column is typically the payable total; require it equals max.
+                        if v_last is not None and v_last == v_max:
+                            ctx = re.sub(r"\s+", " ", ln).strip()[:160]
+                            nxt_ctx = re.sub(r"\s+", " ", nxt).strip()[:160]
+                            candidates.append(
+                                AmountCandidate(
+                                    value=v_last,
+                                    source="vat_summary_last_amount",
+                                    confidence=95,
+                                    context=f"{ctx} >> {nxt_ctx}",
+                                    type="incl",
+                                )
                             )
-                        )
+                break
         # Physical line ``i`` (never pair-merged) — ``total_label_sum`` incl/excl must not see payment text from ``i+1``.
         line_i_norm = re.sub(r"\s+", " ", ln).strip()[:160]
         matched_prio: int | None = None
@@ -2455,10 +2508,11 @@ _PAYABLE_SCORE_MARGIN = 25
 _NON_PAYABLE_AMOUNT_CTX_RE = re.compile(
     r"(?i)\b(?:sub[-\s]*totaal|totaal\s+excl|bedrag\s+excl|excl\.?\s*btw|"
     r"nettobedrag|netto\s+goederen|order(?:bedrag)?|bestel(?:bedrag)?|"
-    r"korting|discount|stuksprijs)\b"
+    r"korting|discount|stuksprijs|afleverdatum|artikel|omschrijving|aantal|eenheden|prijs)\b"
 )
 _PAYABLE_AMOUNT_CTX_RE = re.compile(
-    r"(?i)\b(?:te\s+betalen|totaal\s+te\s+(?:betalen|voldoen)|amount\s+due|total\s+due)\b"
+    r"(?i)\b(?:te\s+betalen|te\s+voldoen|totaal\s+te\s+(?:betalen|voldoen)|amount\s+due|total\s+due|"
+    r"verschuldigd(?:e)?\s+bedrag|door\s+u\s+te\s+betalen)\b"
 )
 
 
@@ -2466,6 +2520,7 @@ def _amount_payable_score_fields(
     ctype: str,
     source: str,
     context: str,
+    value: Decimal | None = None,
 ) -> int:
     """0–100 heuristic for selection only (no new extractors)."""
     ctx = str(context or "")
@@ -2491,6 +2546,30 @@ def _amount_payable_score_fields(
             score = max(score, 70)
         else:
             score = max(score, 100)
+    if re.search(r"(?i)\btotaal\s+excl\b", low) and re.search(
+        r"(?i)\b(?:door\s+u\s+te\s+betalen|btw%|btw\s*%)\b", low
+    ):
+        score = min(score, 18)
+    if src == "total_label_payable" and re.search(r"(?i)\btotaal\s+excl\b", low):
+        ctx_amounts = [
+            normalize_amount_decimal(m.group(0))
+            for m in re.finditer(r"\d+,\d{2}", low)
+        ]
+        ctx_amounts = [a for a in ctx_amounts if a is not None]
+        if (
+            value is not None
+            and len(ctx_amounts) >= 2
+            and value < max(ctx_amounts)
+        ):
+            score = min(score, 14)
+    if re.search(r"(?i)\b(?:afleverdatum|artikel|omschrijving|eenheden)\b", low):
+        score = min(score, 15)
+    if re.search(r"(?i)\b(?:prijs|aantal)\b", low) and re.search(r"(?i)\b(?:totaal|bedrag)\b", low):
+        score = min(score, 12)
+    if re.search(r"(?i)\btotaal\s+\d+[,\.]\d{2}\s*eur\b", low) and not re.search(
+        r"(?i)\bexcl\b", low
+    ):
+        score = max(score, 82)
     if src == "total_label_payable" and re.search(
         r"(?i)\b(?:iban|rekening(?:nummer)?|bankrekening)\b", low
     ):
@@ -2502,6 +2581,10 @@ def _amount_payable_score_fields(
         low,
     ):
         score = min(score, 18)
+    if re.search(r"(?i)\b(?:in\.?\s*btw|incl\.?\s*btw|inclusief|in\.?\s*vat)\b", low):
+        score = max(score, 88)
+    if re.search(r"(?i)\b(?:excl\.?\s*btw|subtotaal|totaal\s*excl)\b", low) and not _PAYABLE_AMOUNT_CTX_RE.search(low):
+        score = min(score, 22)
     if re.search(r"(?i)\bbtw\b", low) and not _PAYABLE_AMOUNT_CTX_RE.search(low):
         score = min(score, 28)
     if re.search(r"(?i)\b(?:factuurbedrag|factuurtotaal|eindbedrag)\b", low) and amount_type == "incl":
@@ -2514,6 +2597,7 @@ def _amount_payable_score(c: AmountCandidate) -> int:
         str(getattr(c, "type", "unknown") or "unknown"),
         str(c.source or ""),
         str(c.context or ""),
+        getattr(c, "value", None),
     )
 
 
@@ -2890,6 +2974,7 @@ def extract_invoice_data(
     debtor_iban: str | None = None,
     debtor_kvk: str | None = None,
     debtor_vat: str | None = None,
+    debtor_name: str | None = None,
     extraction_profile: dict | None = None,
     supplier_name: str | None = None,
     supplier_db_path: str | Path | None = None,
@@ -2977,7 +3062,11 @@ def extract_invoice_data(
         debtor_filtered = sum(
             1 for c in candidates_clean if debtor_clean and c.upper() == debtor_clean
         )
-        iban_result = extract_iban_result(ident_text, debtor_iban=debtor_iban)
+        iban_result = extract_iban_result(
+            ident_text,
+            debtor_iban=debtor_iban,
+            context_text=primary_text,
+        )
         iban = iban_result.value
         all_ibans = iban_values_from_candidates(iban_result.candidates)
         if iban:
@@ -3580,8 +3669,14 @@ def extract_invoice_data(
                     primary_text,
                 )
                 if md:
-                    customer_number = md.group(1).strip()
-                    customer_number_source = "delivery_block_six_digit"
+                    ctx_start = max(0, md.start() - 40)
+                    ctx_end = min(len(primary_text), md.end() + 40)
+                    ctx = primary_text[ctx_start:ctx_end]
+                    if not re.search(
+                        r"(?i)\b(?:afleverbon|pakbon|order|bon)\b", ctx
+                    ):
+                        customer_number = md.group(1).strip()
+                        customer_number_source = "delivery_block_six_digit"
         except Exception:
             pass
 
@@ -3609,7 +3704,11 @@ def extract_invoice_data(
 
     # Factuurdatum (gelabeld; anders missing)
     try:
-        invoice_date, invoice_date_source = _extract_invoice_date_from_text(primary_text)
+        from parser.field_candidates import extract_invoice_date_result
+
+        _date_res = extract_invoice_date_result(primary_text)
+        invoice_date = _date_res.value
+        invoice_date_source = str(_date_res.source or "missing") if invoice_date else "missing"
         if invoice_date:
             logger.debug("Factuurdatum gevonden: %s", invoice_date)
         else:
@@ -3806,6 +3905,7 @@ def extract_invoice_data(
         resolved_source=customer_number_source if customer_number else None,
         supplier_customer_absent=cust_mode == "NONE",
         customer_number_mode=cust_mode,
+        internal_vat_blacklist=internal_vat_blacklist,
     )
     if cust_result.value:
         customer_number = cust_result.value
@@ -3825,6 +3925,7 @@ def extract_invoice_data(
         ident_text,
         resolved=email_domain,
         resolved_source="parsed" if email_domain else None,
+        debtor_name=debtor_name,
     )
     if email_result.value:
         email_domain = email_result.value

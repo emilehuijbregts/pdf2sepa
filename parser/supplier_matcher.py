@@ -150,6 +150,39 @@ def _collect_match_signals(invoice: dict) -> list[str]:
         signals.append("vat")
     return signals
 
+
+def _apply_pdf_identity_signals(invoice: dict, match_info: dict) -> None:
+    """Count PDF-extracted supplier VAT/email as identity when IBAN already matches."""
+    if not match_info.get("iban_match"):
+        return
+    inv_vat = str(invoice.get("vat_number") or "").strip().upper()
+    if inv_vat and not match_info.get("vat_match"):
+        try:
+            from parser.field_candidates import _supplier_vat_shape_ok, _value_matches_internal_vat
+            from parser.pdf_parser import load_internal_vat_blacklist
+
+            blacklist = load_internal_vat_blacklist()
+            if _supplier_vat_shape_ok(inv_vat) and not _value_matches_internal_vat(inv_vat, blacklist):
+                match_info["vat_match"] = True
+                match_info["pdf_vat_identity"] = True
+        except Exception:
+            pass
+    inv_dom = str(invoice.get("email_domain") or "").strip().lower()
+    if inv_dom and not match_info.get("email_domain_match"):
+        try:
+            from parser.field_candidates import collect_debtor_email_domain_blocklist
+
+            body = str(invoice.get("raw_text") or "")
+            ocr = str(invoice.get("ocr_text") or "")
+            ident_text = f"{body}\n{ocr}".strip()
+            blocklist = collect_debtor_email_domain_blocklist(ident_text)
+            if inv_dom not in blocklist:
+                match_info["email_domain_match"] = True
+                match_info["pdf_email_identity"] = True
+        except Exception:
+            pass
+
+
 def _db_core_matches(match_info: dict) -> list[str]:
     core: list[str] = []
     if match_info.get("iban_match"):
@@ -160,6 +193,8 @@ def _db_core_matches(match_info: dict) -> list[str]:
         core.append("KvK")
     if match_info.get("vat_match"):
         core.append("BTW")
+    if match_info.get("email_domain_match"):
+        core.append("E-mail")
     return core
 
 
@@ -325,6 +360,8 @@ def match_suppliers(invoices: list[dict], db: SupplierDB) -> list[dict]:
             kvk_number=invoice.get("kvk_number"),
             email_domain=invoice.get("email_domain"),
         )
+        if supplier:
+            _apply_pdf_identity_signals(invoice, match_info)
 
         if supplier:
             try:
@@ -531,6 +568,8 @@ def match_suppliers(invoices: list[dict], db: SupplierDB) -> list[dict]:
             invoice_copy["supplier_term_trusted"] = (
                 invoice_copy.get("match_status") == "confirmed"
             )
+            if invoice.get("supplier_sync_confirmed"):
+                invoice_copy["supplier_term_trusted"] = True
             invoice_copy["supplier_vat_rate"] = normalize_supplier_vat_rate_pct(
                 supplier.get("vat_rate", 21)
             )
@@ -584,6 +623,23 @@ def match_suppliers(invoices: list[dict], db: SupplierDB) -> list[dict]:
             invoice_copy["supplier_payment_term_days_raw"] = 0
             invoice_copy["supplier_term_trusted"] = False
             invoice_copy["supplier_vat_rate"] = 21
+            if invoice.get("supplier_sync_confirmed"):
+                invoice_copy["supplier_term_trusted"] = True
+                if inv_iban:
+                    ic = db._clean_iban(inv_iban)
+                    for s in db.suppliers:
+                        if ic and db._clean_iban(s.get("iban") or "") == ic:
+                            invoice_copy["supplier_name"] = s["name"]
+                            try:
+                                invoice_copy["supplier_payment_term_days_raw"] = int(
+                                    s.get("default_payment_term_days") or 0
+                                )
+                            except (TypeError, ValueError):
+                                invoice_copy["supplier_payment_term_days_raw"] = 0
+                            invoice_copy["supplier_vat_rate"] = normalize_supplier_vat_rate_pct(
+                                s.get("vat_rate", 21)
+                            )
+                            break
             invoice_copy["extraction_source"] = "generic"
             invoice_copy["profile_fields"] = []
             apply_generic_field_resolution(invoice, invoice_copy)

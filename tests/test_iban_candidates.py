@@ -38,6 +38,27 @@ class TestCollectIbanCandidates:
         assert result.value in {NL1, NL2}
         assert len(result.candidates) >= 2
 
+    def test_multi_bank_footer_prefers_bnp_over_peppol_line(self):
+        """PGB: meerdere bank-IBAN's in footer; BNP wint over Peppol/ING-regel."""
+        text = (
+            "BTW-nummer : BE 0425.888.396 RPR GENT "
+            "KBC IBAN BE50 4459 6389 4118 BIC KREDBEBB "
+            "BNP IBAN BE78 2900 1606 0086 BIC GEBABEBB\n"
+            "Peppol ID : 9925:BE0425888396 ING IBAN BE98 3900 3232 4293 "
+            "BIC BBRUBEBB BEL IBAN BE30 5645 1378 2011 BIC GKCCBEBB 1 / 12\n"
+        )
+        result = extract_iban_result(text)
+        assert result.value == "BE78290016060086"
+
+    def test_pipe_separated_accounts_prefers_first(self):
+        """Feyts: twee rekeningen zonder IBAN-label — eerste wint."""
+        text = (
+            "KvK 14039954 l BTW NL008438602B01 l "
+            "ING NL38 INGB 0005 6088 46 l NL 15 RABO 0108 3871 00\n"
+        )
+        result = extract_iban_result(text)
+        assert result.value == "NL38INGB0005608846"
+
     def test_ocr_merge_when_no_pdf(self):
         ocr = collect_iban_candidates_from_ocr([NL1], pdf_had_any=False)
         assert ocr[0].confidence == 90

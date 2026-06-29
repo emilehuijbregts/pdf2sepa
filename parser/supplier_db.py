@@ -908,6 +908,7 @@ class SupplierDB:
                 discount,
                 aliases=[name],
                 customer_codes=add_codes,
+                default_payment_term_days=int(default_payment_term_days or 0),
                 vat_numbers=[vat_raw] if vat_raw else [],
                 kvk_numbers=[kvk_raw] if kvk_raw else [],
                 email_domains=[dom_raw] if dom_raw else [],

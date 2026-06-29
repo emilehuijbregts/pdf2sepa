@@ -1,0 +1,13 @@
+{
+  "source_file": "Emporte Factuur_F_2025_01779.pdf",
+  "invoice_number": "F/2025/01779",
+  "supplier_name": "Emporte B.V.",
+  "iban": "NL29RABO0158134850",
+  "amount": "224.50",
+  "amount_status": "confirmed",
+  "customer_code": "",
+  "description": "",
+  "discount_percentage": "0.00",
+  "invoice_date": "2025-11-19",
+  "payment_terms_days": 2
+}
