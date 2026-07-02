@@ -3,11 +3,11 @@
   "invoice_number": "102089217",
   "supplier_name": "Frige elektro groothandel",
   "iban": "NL20RABO0337693749",
-  "amount": "325.79",
+  "amount": "320.41",
   "amount_status": "confirmed",
   "customer_code": "11537",
   "description": "11537 / 102089217",
-  "discount_percentage": "0.00",
+  "discount_percentage": "2.00",
   "invoice_date": "2026-01-30",
   "payment_terms_days": 0
 }

@@ -1,0 +1,13 @@
+{
+  "source_file": "Lewo factuur 26402688.pdf",
+  "invoice_number": "26402688",
+  "supplier_name": "Lewo B.V.",
+  "iban": "NL45RABO0372422888",
+  "amount": "34.61",
+  "amount_status": "confirmed",
+  "customer_code": "700269",
+  "description": "700269 / 26402688",
+  "discount_percentage": "1.00",
+  "invoice_date": "2026-04-07",
+  "payment_terms_days": 10
+}

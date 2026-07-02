@@ -1,0 +1,13 @@
+{
+  "source_file": "DYKA Factuur 3360009053 14-01-2026.PDF",
+  "invoice_number": "3360009053",
+  "supplier_name": "Dyka B.V.",
+  "iban": "NL37INGB0657933864",
+  "amount": "201.72",
+  "amount_status": "confirmed",
+  "customer_code": "52972",
+  "description": "52972 / 3360009053",
+  "discount_percentage": "0.00",
+  "invoice_date": "2026-01-14",
+  "payment_terms_days": 30
+}

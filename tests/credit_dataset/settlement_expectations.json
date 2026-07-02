@@ -1,0 +1,30 @@
+{
+  "wasco_batch": {
+    "documents": [
+      "Wasco 8714252002430_5660148.pdf",
+      "Wasco 8714252002430_6230076.pdf",
+      "Wasco 8714252002430_6305463.pdf"
+    ],
+    "expected_groups": 1,
+    "expected_final_amount_due": "40.00",
+    "expected_allocation_statuses": ["matched", "matched"]
+  },
+  "vte_batch": {
+    "documents": [
+      "VTE Verkoopcreditnota VCR2600064+.pdf",
+      "VTE Verkoopfactuur VF2600048+.pdf",
+      "VTE Verkoopfactuur VF2601788+.pdf",
+      "vte Verkoopcreditnota VCR2600003+.pdf"
+    ],
+    "expected_groups": 3,
+    "expected_unresolved_credit": {
+      "credit_number": "VCR2600064",
+      "status": "unallocated_full",
+      "exportable": false
+    },
+    "expected_matched_credit": {
+      "credit_number": "VCR2600003",
+      "status": "matched"
+    }
+  }
+}

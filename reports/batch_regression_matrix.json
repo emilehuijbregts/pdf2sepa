@@ -1,0 +1,492 @@
+{
+  "summary": {
+    "total": 23,
+    "passed": 23,
+    "failed": 0
+  },
+  "entries": [
+    {
+      "batch_id": "synthetic_19_invoices",
+      "batch_type": "no-credit",
+      "expected": {
+        "legacy_rows": 19,
+        "settlement_groups": 0,
+        "review_docs": 0,
+        "pipeline": "legacy",
+        "shadow_status": "PASS"
+      },
+      "actual": {
+        "legacy_rows": 19,
+        "settlement_groups": 0,
+        "review_docs": 0,
+        "allocation_edges": 0,
+        "pipeline": "legacy",
+        "shadow_status": "PASS"
+      },
+      "status": "PASS",
+      "details": ""
+    },
+    {
+      "batch_id": "golden:2ba Fact-2BA-20260114-260789-Duister.pdf",
+      "batch_type": "no-credit",
+      "expected": {
+        "legacy_rows": 1,
+        "settlement_groups": 0,
+        "review_docs": 0,
+        "pipeline": "legacy",
+        "shadow_status": "PASS"
+      },
+      "actual": {
+        "legacy_rows": 1,
+        "settlement_groups": 0,
+        "review_docs": 0,
+        "allocation_edges": 0,
+        "pipeline": "legacy",
+        "shadow_status": "PASS"
+      },
+      "status": "PASS",
+      "details": ""
+    },
+    {
+      "batch_id": "golden:ASF Fischer 100460 26005032 29-01-2026.pdf",
+      "batch_type": "no-credit",
+      "expected": {
+        "legacy_rows": 1,
+        "settlement_groups": 0,
+        "review_docs": 0,
+        "pipeline": "legacy",
+        "shadow_status": "PASS"
+      },
+      "actual": {
+        "legacy_rows": 1,
+        "settlement_groups": 0,
+        "review_docs": 0,
+        "allocation_edges": 0,
+        "pipeline": "legacy",
+        "shadow_status": "PASS"
+      },
+      "status": "PASS",
+      "details": ""
+    },
+    {
+      "batch_id": "golden:Aco Sales Invoice - F444643.pdf",
+      "batch_type": "no-credit",
+      "expected": {
+        "legacy_rows": 1,
+        "settlement_groups": 0,
+        "review_docs": 0,
+        "pipeline": "legacy",
+        "shadow_status": "PASS"
+      },
+      "actual": {
+        "legacy_rows": 1,
+        "settlement_groups": 0,
+        "review_docs": 0,
+        "allocation_edges": 0,
+        "pipeline": "legacy",
+        "shadow_status": "PASS"
+      },
+      "status": "PASS",
+      "details": ""
+    },
+    {
+      "batch_id": "golden:Aluned 502601306.pdf",
+      "batch_type": "no-credit",
+      "expected": {
+        "legacy_rows": 1,
+        "settlement_groups": 0,
+        "review_docs": 0,
+        "pipeline": "legacy",
+        "shadow_status": "PASS"
+      },
+      "actual": {
+        "legacy_rows": 1,
+        "settlement_groups": 0,
+        "review_docs": 0,
+        "allocation_edges": 0,
+        "pipeline": "legacy",
+        "shadow_status": "PASS"
+      },
+      "status": "PASS",
+      "details": ""
+    },
+    {
+      "batch_id": "golden:Ankofit Handelsonderneming Duister B.V. _ 401121.pdf",
+      "batch_type": "no-credit",
+      "expected": {
+        "legacy_rows": 1,
+        "settlement_groups": 0,
+        "review_docs": 0,
+        "pipeline": "legacy",
+        "shadow_status": "PASS"
+      },
+      "actual": {
+        "legacy_rows": 1,
+        "settlement_groups": 0,
+        "review_docs": 0,
+        "allocation_edges": 0,
+        "pipeline": "legacy",
+        "shadow_status": "PASS"
+      },
+      "status": "PASS",
+      "details": ""
+    },
+    {
+      "batch_id": "golden:Arbo&verzuim Factuur-20260075.pdf",
+      "batch_type": "no-credit",
+      "expected": {
+        "legacy_rows": 1,
+        "settlement_groups": 0,
+        "review_docs": 0,
+        "pipeline": "legacy",
+        "shadow_status": "PASS"
+      },
+      "actual": {
+        "legacy_rows": 1,
+        "settlement_groups": 0,
+        "review_docs": 0,
+        "allocation_edges": 0,
+        "pipeline": "legacy",
+        "shadow_status": "PASS"
+      },
+      "status": "PASS",
+      "details": ""
+    },
+    {
+      "batch_id": "golden:Atlantic Factuur van Groupe Atlantic Nederland  - Fact. 26403880.pdf",
+      "batch_type": "no-credit",
+      "expected": {
+        "legacy_rows": 1,
+        "settlement_groups": 0,
+        "review_docs": 0,
+        "pipeline": "legacy",
+        "shadow_status": "PASS"
+      },
+      "actual": {
+        "legacy_rows": 1,
+        "settlement_groups": 0,
+        "review_docs": 0,
+        "allocation_edges": 0,
+        "pipeline": "legacy",
+        "shadow_status": "PASS"
+      },
+      "status": "PASS",
+      "details": ""
+    },
+    {
+      "batch_id": "golden:B&M Factuur 76793.pdf",
+      "batch_type": "no-credit",
+      "expected": {
+        "legacy_rows": 1,
+        "settlement_groups": 0,
+        "review_docs": 0,
+        "pipeline": "legacy",
+        "shadow_status": "PASS"
+      },
+      "actual": {
+        "legacy_rows": 1,
+        "settlement_groups": 0,
+        "review_docs": 0,
+        "allocation_edges": 0,
+        "pipeline": "legacy",
+        "shadow_status": "PASS"
+      },
+      "status": "PASS",
+      "details": ""
+    },
+    {
+      "batch_id": "golden:BJ autotechniek 26069 duister wouter.pdf",
+      "batch_type": "no-credit",
+      "expected": {
+        "legacy_rows": 1,
+        "settlement_groups": 0,
+        "review_docs": 0,
+        "pipeline": "legacy",
+        "shadow_status": "PASS"
+      },
+      "actual": {
+        "legacy_rows": 1,
+        "settlement_groups": 0,
+        "review_docs": 0,
+        "allocation_edges": 0,
+        "pipeline": "legacy",
+        "shadow_status": "PASS"
+      },
+      "status": "PASS",
+      "details": ""
+    },
+    {
+      "batch_id": "golden:Bauder 24065173.pdf",
+      "batch_type": "no-credit",
+      "expected": {
+        "legacy_rows": 1,
+        "settlement_groups": 0,
+        "review_docs": 0,
+        "pipeline": "legacy",
+        "shadow_status": "PASS"
+      },
+      "actual": {
+        "legacy_rows": 1,
+        "settlement_groups": 0,
+        "review_docs": 0,
+        "allocation_edges": 0,
+        "pipeline": "legacy",
+        "shadow_status": "PASS"
+      },
+      "status": "PASS",
+      "details": ""
+    },
+    {
+      "batch_id": "golden:Bauder 24065433.pdf",
+      "batch_type": "no-credit",
+      "expected": {
+        "legacy_rows": 1,
+        "settlement_groups": 0,
+        "review_docs": 0,
+        "pipeline": "legacy",
+        "shadow_status": "PASS"
+      },
+      "actual": {
+        "legacy_rows": 1,
+        "settlement_groups": 0,
+        "review_docs": 0,
+        "allocation_edges": 0,
+        "pipeline": "legacy",
+        "shadow_status": "PASS"
+      },
+      "status": "PASS",
+      "details": ""
+    },
+    {
+      "batch_id": "golden:Besli Factuur 30322950.pdf",
+      "batch_type": "no-credit",
+      "expected": {
+        "legacy_rows": 1,
+        "settlement_groups": 0,
+        "review_docs": 0,
+        "pipeline": "legacy",
+        "shadow_status": "PASS"
+      },
+      "actual": {
+        "legacy_rows": 1,
+        "settlement_groups": 0,
+        "review_docs": 0,
+        "allocation_edges": 0,
+        "pipeline": "legacy",
+        "shadow_status": "PASS"
+      },
+      "status": "PASS",
+      "details": ""
+    },
+    {
+      "batch_id": "golden:Besli Factuur 30323154.pdf",
+      "batch_type": "no-credit",
+      "expected": {
+        "legacy_rows": 1,
+        "settlement_groups": 0,
+        "review_docs": 0,
+        "pipeline": "legacy",
+        "shadow_status": "PASS"
+      },
+      "actual": {
+        "legacy_rows": 1,
+        "settlement_groups": 0,
+        "review_docs": 0,
+        "allocation_edges": 0,
+        "pipeline": "legacy",
+        "shadow_status": "PASS"
+      },
+      "status": "PASS",
+      "details": ""
+    },
+    {
+      "batch_id": "golden:Bitasco VerkoopFactuur SI26-007024.pdf",
+      "batch_type": "no-credit",
+      "expected": {
+        "legacy_rows": 1,
+        "settlement_groups": 0,
+        "review_docs": 0,
+        "pipeline": "legacy",
+        "shadow_status": "PASS"
+      },
+      "actual": {
+        "legacy_rows": 1,
+        "settlement_groups": 0,
+        "review_docs": 0,
+        "allocation_edges": 0,
+        "pipeline": "legacy",
+        "shadow_status": "PASS"
+      },
+      "status": "PASS",
+      "details": ""
+    },
+    {
+      "batch_id": "golden:Bonfix Factuur Handelsonderneming Duister _ 2610903.pdf",
+      "batch_type": "no-credit",
+      "expected": {
+        "legacy_rows": 1,
+        "settlement_groups": 0,
+        "review_docs": 0,
+        "pipeline": "legacy",
+        "shadow_status": "PASS"
+      },
+      "actual": {
+        "legacy_rows": 1,
+        "settlement_groups": 0,
+        "review_docs": 0,
+        "allocation_edges": 0,
+        "pipeline": "legacy",
+        "shadow_status": "PASS"
+      },
+      "status": "PASS",
+      "details": ""
+    },
+    {
+      "batch_id": "golden:Bosta Factuur NL01D00074953_2.pdf",
+      "batch_type": "no-credit",
+      "expected": {
+        "legacy_rows": 1,
+        "settlement_groups": 0,
+        "review_docs": 0,
+        "pipeline": "legacy",
+        "shadow_status": "PASS"
+      },
+      "actual": {
+        "legacy_rows": 1,
+        "settlement_groups": 0,
+        "review_docs": 0,
+        "allocation_edges": 0,
+        "pipeline": "legacy",
+        "shadow_status": "PASS"
+      },
+      "status": "PASS",
+      "details": ""
+    },
+    {
+      "batch_id": "golden:Bram T.E. Solutions 2025092.pdf",
+      "batch_type": "no-credit",
+      "expected": {
+        "legacy_rows": 1,
+        "settlement_groups": 0,
+        "review_docs": 0,
+        "pipeline": "legacy",
+        "shadow_status": "PASS"
+      },
+      "actual": {
+        "legacy_rows": 1,
+        "settlement_groups": 0,
+        "review_docs": 0,
+        "allocation_edges": 0,
+        "pipeline": "legacy",
+        "shadow_status": "PASS"
+      },
+      "status": "PASS",
+      "details": ""
+    },
+    {
+      "batch_id": "golden:Brouwers zink 382005.pdf",
+      "batch_type": "no-credit",
+      "expected": {
+        "legacy_rows": 1,
+        "settlement_groups": 0,
+        "review_docs": 0,
+        "pipeline": "legacy",
+        "shadow_status": "PASS"
+      },
+      "actual": {
+        "legacy_rows": 1,
+        "settlement_groups": 0,
+        "review_docs": 0,
+        "allocation_edges": 0,
+        "pipeline": "legacy",
+        "shadow_status": "PASS"
+      },
+      "status": "PASS",
+      "details": ""
+    },
+    {
+      "batch_id": "golden:Brozus Factuur_218531.pdf",
+      "batch_type": "no-credit",
+      "expected": {
+        "legacy_rows": 1,
+        "settlement_groups": 0,
+        "review_docs": 0,
+        "pipeline": "legacy",
+        "shadow_status": "PASS"
+      },
+      "actual": {
+        "legacy_rows": 1,
+        "settlement_groups": 0,
+        "review_docs": 0,
+        "allocation_edges": 0,
+        "pipeline": "legacy",
+        "shadow_status": "PASS"
+      },
+      "status": "PASS",
+      "details": ""
+    },
+    {
+      "batch_id": "golden:Bruil Factuur265334.pdf",
+      "batch_type": "no-credit",
+      "expected": {
+        "legacy_rows": 1,
+        "settlement_groups": 0,
+        "review_docs": 0,
+        "pipeline": "legacy",
+        "shadow_status": "PASS"
+      },
+      "actual": {
+        "legacy_rows": 1,
+        "settlement_groups": 0,
+        "review_docs": 0,
+        "allocation_edges": 0,
+        "pipeline": "legacy",
+        "shadow_status": "PASS"
+      },
+      "status": "PASS",
+      "details": ""
+    },
+    {
+      "batch_id": "wasco_batch",
+      "batch_type": "credit",
+      "expected": {
+        "settlement_groups": 1,
+        "pipeline": "settlement",
+        "shadow_status": "PASS",
+        "final_amount_due": "40.00",
+        "allocation_statuses": [
+          "matched",
+          "matched"
+        ]
+      },
+      "actual": {
+        "settlement_groups": 1,
+        "pipeline": "settlement",
+        "shadow_status": "PASS",
+        "final_amount_due": "40.00",
+        "allocation_statuses": [
+          "matched",
+          "matched"
+        ]
+      },
+      "status": "PASS",
+      "details": ""
+    },
+    {
+      "batch_id": "vte_batch",
+      "batch_type": "credit",
+      "expected": {
+        "settlement_groups": 3,
+        "pipeline": "settlement",
+        "shadow_status": "PASS"
+      },
+      "actual": {
+        "settlement_groups": 3,
+        "pipeline": "settlement",
+        "shadow_status": "PASS"
+      },
+      "status": "PASS",
+      "details": ""
+    }
+  ]
+}

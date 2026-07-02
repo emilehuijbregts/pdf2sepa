@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "batches": {
+    "f9eda9e22e902279204d3d8c17a07d09de14719aa1df02378dc4c77d2f0327dc": {
+      "INV/2026/00364|Qblades INV_2026_00364.pdf": {
+        "status": "included",
+        "reason_code": "user_approved",
+        "reason_detail": "context_menu_approve",
+        "editable": false,
+        "requires_rerun": false,
+        "reason_code_version": 1,
+        "input_field_fingerprint": "3f52ed2e1d791c9a16182fdd5ba6768977e4840bd31241eb6dc347182e48e049",
+        "causal_inputs": [
+          "user_approve"
+        ]
+      }
+    },
+    "b40f305d1d0fd0d93813d4c94c0e494f64269e9a09cca92b562245e5f8633762": {
+      "2026001645|S for Software (IAprog B.V.) Factuur 2026001645.pdf": {
+        "status": "included",
+        "reason_code": "user_approved",
+        "reason_detail": "context_menu_approve",
+        "editable": false,
+        "requires_rerun": false,
+        "reason_code_version": 1,
+        "input_field_fingerprint": "f569acea7685f37c0ea371e1f249ed052f1da36c17b9a55b69de40c47fc19d28",
+        "causal_inputs": [
+          "user_approve"
+        ]
+      }
+    }
+  }
+}

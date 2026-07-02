@@ -170,10 +170,18 @@ _CREDIT_INVOICE_HINT_RE = re.compile(
     r"(?i)\b(?:creditnota|credit\s*note|verkoopcredit|creditfactuur|creditnota)\b"
 )
 _CREDIT_NOTE_NUMBER_RE = re.compile(
-    r"(?i)\b(?:creditnota|verkoopcreditnota|credit\s*note)\s+(VCR[\dA-Z+]+)"
+    r"(?i)\b(?:creditnota|verkoopcreditnota|credit\s*note)\s+"
+    r"((?:VCR|CN|CREN|CR|HA)\s*[\dA-Z+./\-]+)"
+)
+_CREDIT_DOCUMENT_NUMBER_RE = re.compile(
+    r"(?i)\b(?:nummer|number|nr\.?)\s+(CN[\dA-Z]+)"
+)
+_PARENT_INVOICE_LINE_RE = re.compile(
+    r"(?i)\b(?:betr\.?:?\s*)?(?:onze\s+)?factuur\s+([A-Z0-9][\w./+\-]{2,})"
 )
 _PARENT_INVOICE_REF_CTX_RE = re.compile(
-    r"(?i)\b(?:fact\.?\s*nr\.?|vereffening\s+met\s+factuurnr)\b"
+    r"(?i)\b(?:fact\.?\s*nr\.?|vereffening\s+met\s+factuurnr|"
+    r"betr\.?:?\s*(?:onze\s+)?factuur|onze\s+factuur)\b"
 )
 _ORDER_VS_INVOICE_PENALTY = 60
 _LABEL_SOURCE_PREFIXES = (
@@ -605,7 +613,11 @@ def _field_type_match_score(cand: IdentFieldCandidate, *, field_id: str) -> int:
         return 15
     if conflict == "reference_number":
         return 25
-    if _CREDIT_INVOICE_HINT_RE.search(hay) or value.startswith("VCR"):
+    if cand.source == "credit_note_title" or cand.source == "credit_document_number":
+        return 98
+    if _CREDIT_INVOICE_HINT_RE.search(hay) or re.match(
+        r"(?i)^(?:VCR|CN|CREN|CR|HA|C\d)", value
+    ):
         return 95
     if _has_explicit_invoice_label(cand):
         return 90
@@ -1652,15 +1664,21 @@ def _looks_like_order_token(value: str) -> bool:
 
 
 def _collect_credit_note_invoice_candidates(text: str) -> list[IdentFieldCandidate]:
-    """Creditnota-titel ``Creditnota VCR2600003+`` als factuurnummer-kandidaat."""
+    """Creditnota-titel ``Creditnota VCR2600003+`` / ``Creditnota HA 13532695`` als factuurnummer."""
     body = text or ""
     if not _CREDIT_INVOICE_HINT_RE.search(body):
         return []
     cands: list[IdentFieldCandidate] = []
+    seen: set[str] = set()
     for m in _CREDIT_NOTE_NUMBER_RE.finditer(body):
-        val = re.sub(r"\++$", "", str(m.group(1) or "").strip())
+        val = re.sub(r"\s+", "", str(m.group(1) or "").strip())
+        val = re.sub(r"\++$", "", val)
         if not val or not _invoice_candidate_ok(val):
             continue
+        key = val.upper()
+        if key in seen:
+            continue
+        seen.add(key)
         cands.append(
             IdentFieldCandidate(
                 value=val,
@@ -1670,8 +1688,30 @@ def _collect_credit_note_invoice_candidates(text: str) -> list[IdentFieldCandida
                 label="Creditnota",
                 meta=_candidate_explain_meta(
                     extraction_method="regex",
-                    label_reason="credit note title VCR number",
+                    label_reason="credit note title number",
                     score_breakdown={"base": 92},
+                ),
+            )
+        )
+    for m in _CREDIT_DOCUMENT_NUMBER_RE.finditer(body):
+        val = re.sub(r"\++$", "", str(m.group(1) or "").strip())
+        if not val or not _invoice_candidate_ok(val):
+            continue
+        key = val.upper()
+        if key in seen:
+            continue
+        seen.add(key)
+        cands.append(
+            IdentFieldCandidate(
+                value=val,
+                source="credit_document_number",
+                confidence=94,
+                context=_line_context_at(body, m.start()),
+                label="Nummer",
+                meta=_candidate_explain_meta(
+                    extraction_method="regex",
+                    label_reason="credit document number CN prefix",
+                    score_breakdown={"base": 94},
                 ),
             )
         )
@@ -1682,21 +1722,44 @@ def _filter_parent_invoice_refs_on_credit(
     cands: list[IdentFieldCandidate],
     text: str,
 ) -> list[IdentFieldCandidate]:
-    """Op creditnota's: parent factuur-referenties (Fact.nr. VF…) uit de pool."""
+    """Op creditnota's: parent factuur-referenties (Fact.nr. VF…, Betr.: Onze factuur …) uit de pool."""
     body = text or ""
     if not _CREDIT_INVOICE_HINT_RE.search(body):
         return cands
-    has_vcr = any(str(c.value or "").upper().startswith("VCR") for c in cands)
-    if not has_vcr:
-        return cands
+    has_credit_own_number = any(
+        str(c.source or "") in {"credit_note_title", "credit_document_number"}
+        or re.match(r"(?i)^(?:VCR|CN|CREN|CR|HA|C\d)", str(c.value or ""))
+        for c in cands
+    )
+    parent_refs: set[str] = set()
+    for line in body.splitlines():
+        if not _PARENT_INVOICE_REF_CTX_RE.search(line) and not _PARENT_INVOICE_LINE_RE.search(
+            line
+        ):
+            continue
+        for m in _PARENT_INVOICE_LINE_RE.finditer(line):
+            parent_refs.add(str(m.group(1) or "").strip().upper())
+        for cand in cands:
+            hay = f"{cand.label or ''} {cand.context or ''}"
+            if _PARENT_INVOICE_REF_CTX_RE.search(hay):
+                parent_refs.add(str(cand.value or "").strip().upper())
+
     out: list[IdentFieldCandidate] = []
     for cand in cands:
         hay = f"{cand.label or ''} {cand.context or ''}"
-        if _PARENT_INVOICE_REF_CTX_RE.search(hay):
-            continue
         val = str(cand.value or "").strip().upper()
+        if _PARENT_INVOICE_REF_CTX_RE.search(hay) or _PARENT_INVOICE_LINE_RE.search(hay):
+            if has_credit_own_number:
+                continue
+        if val in parent_refs and has_credit_own_number:
+            if str(cand.source or "") not in {
+                "credit_note_title",
+                "credit_document_number",
+            }:
+                continue
         if val.startswith("VF") and _PARENT_INVOICE_REF_CTX_RE.search(hay):
-            continue
+            if has_credit_own_number:
+                continue
         out.append(cand)
     return out
 
@@ -1786,10 +1849,12 @@ def _line_looks_like_postcode_row(line: str) -> bool:
 
 
 def _truncate_at_next_field_label(segment: str) -> str:
-    """Stop token scan at the next invoice/customer label on the same PDF line."""
+    """Stop token scan at the next invoice/customer/order label on the same PDF line."""
     m = re.search(
         r"(?i)\b(?:factuurnummer|factuurnr|faktuurnummer|faktuur\s*nr|factuur\s*nr|"
-        r"fact\.?\s*nr|invoice|klantnummer|klant\s*nr|debiteur|deb\.?\s*nr|debnr)\b",
+        r"fact\.?\s*nr|invoice|klantnummer|klant\s*nr|debiteur|deb\.?\s*nr|debnr|"
+        r"uw\s+referentie|onze\s+referentie|jullie\s+referentie|your\s+referentie|"
+        r"ordernummer|order\s*nr)\b",
         segment,
     )
     if m and m.start() > 0:
@@ -2852,12 +2917,28 @@ def _compose_k_digits(digits: str) -> str | None:
     return "K" + d
 
 
+def _value_after_referentie_label(value: str, line: str) -> bool:
+    """``Debiteurnr: 010525 Uw referentie: 20260729`` — laatste waarde is geen klantnummer."""
+    v = str(value or "").strip()
+    ln = str(line or "")
+    if not v:
+        return False
+    return bool(
+        re.search(
+            rf"(?i)\b(?:uw|onze|jullie|your)\s+referentie\s*:?\s*{re.escape(v)}\b",
+            ln,
+        )
+    )
+
+
 def _is_order_or_reference_token(value: str, *, line: str = "") -> bool:
     """Alleen orderrefs op expliciete referentieregels — niet op klantnummer-regels."""
     v = str(value or "").strip()
     ln = str(line or "")
     if not v or not _ORDER_REF_TOKEN_RE.fullmatch(v):
         return False
+    if _value_after_referentie_label(v, ln):
+        return True
     if _CUSTOMER_FIELD_LABEL_RE.search(ln):
         return False
     return bool(_REFERENTIE_ONLY_LINE_RE.search(ln))
@@ -3683,7 +3764,13 @@ def collect_ident_field_candidates(
                     ):
                         continue
                 label_span = collapse_stutter_chars(line[m.start() : m.end()].strip()) or line[m.start() : m.end()].strip()
-                vals = _tokens_after_label(line, m.end(), join_spaced_digits=join_digits)
+                if field_kind == "customer_number":
+                    after_segment = _truncate_at_next_field_label((line or "")[m.end() :])
+                    vals = _tokens_after_label(
+                        after_segment, 0, join_spaced_digits=join_digits
+                    )
+                else:
+                    vals = _tokens_after_label(line, m.end(), join_spaced_digits=join_digits)
                 for j in (0, 1, 2):
                     if j > 0:
                         if _line_looks_like_combined_label_value_row(line or ""):
@@ -4039,6 +4126,11 @@ def extract_customer_number_result(
         cands = [c for c in cands if str(c.source or "") != "collapsed_k_token"]
     cands = _filter_unlabeled_customer_fallbacks(cands)
     cands = _filter_internal_vat_blacklist(cands, blacklist, field_id="customer_number")
+    cands = [
+        c
+        for c in cands
+        if not _value_after_referentie_label(str(c.value or ""), str(c.context or ""))
+    ]
     cands = [
         c
         for c in cands

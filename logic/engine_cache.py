@@ -1,0 +1,64 @@
+"""Cache for settlement engine results keyed by invoice + override fingerprints."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any, Callable
+
+from logic.credit_override_store import OverrideSession, override_session_fingerprint
+from logic.engine_result import EngineResult
+from logic.payment_decisions import stable_hash
+
+
+def invoice_batch_fingerprint(invoices: list[dict[str, Any]]) -> str:
+    parts: list[str] = []
+    for inv in sorted(invoices, key=lambda x: str(x.get("source_file") or x.get("invoice_number") or "")):
+        parts.append(
+            stable_hash(
+                {
+                    "source_file": str(inv.get("source_file") or ""),
+                    "invoice_number": str(inv.get("invoice_number") or ""),
+                    "amount": str(inv.get("amount") or ""),
+                    "type": str(inv.get("type") or ""),
+                    "match_status": str(inv.get("match_status") or ""),
+                }
+            )
+        )
+    return stable_hash(parts)
+
+
+@dataclass
+class EngineCacheEntry:
+    invoice_fingerprint: str
+    override_fingerprint: str
+    result: EngineResult
+
+
+class SettlementEngineCache:
+    def __init__(self) -> None:
+        self._entry: EngineCacheEntry | None = None
+
+    def invalidate(self, reason: str = "") -> None:
+        self._entry = None
+
+    def get_or_compute(
+        self,
+        invoices: list[dict[str, Any]],
+        override_session: OverrideSession | None,
+        compute_fn: Callable[[], EngineResult],
+    ) -> EngineResult:
+        inv_fp = invoice_batch_fingerprint(invoices)
+        ov_fp = override_session_fingerprint(override_session)
+        if (
+            self._entry is not None
+            and self._entry.invoice_fingerprint == inv_fp
+            and self._entry.override_fingerprint == ov_fp
+        ):
+            return self._entry.result
+        result = compute_fn()
+        self._entry = EngineCacheEntry(
+            invoice_fingerprint=inv_fp,
+            override_fingerprint=ov_fp,
+            result=result,
+        )
+        return result

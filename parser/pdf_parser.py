@@ -250,6 +250,18 @@ def apply_customer_number_profile_override(target: dict[str, Any], profile: dict
     """
     if not customer_number_profile_mode_active(profile):
         return False
+    cr = target.get("customer_number_result")
+    if isinstance(cr, dict) and cr.get("user_overridden"):
+        from ui.field_review import CUSTOMER_ABSENT_PICK_SOURCE
+
+        src = str(cr.get("source") or "").strip()
+        if src == CUSTOMER_ABSENT_PICK_SOURCE:
+            return False
+        locked_val = cr.get("selected_value")
+        if locked_val is None:
+            locked_val = cr.get("value")
+        if str(locked_val or "").strip():
+            return False
     snap = build_absent_customer_number_snapshot()
     target["customer_number_result"] = snap
     target.pop("customer_number", None)
@@ -1404,6 +1416,31 @@ def _extract_labeled_field(
 
     return None
 
+def _text_allows_negative_payable_amount(text: str) -> bool:
+    from logic.credit_classifier import classify_credit_document
+
+    return classify_credit_document(text or "").is_credit
+
+
+def _payable_amount_candidate_value(
+    v: Decimal | None,
+    *,
+    text: str,
+    line: str = "",
+) -> Decimal | None:
+    """Return a positive payable magnitude, allowing negative totals on credit documents."""
+    if v is None or v == 0:
+        return None
+    if v > 0:
+        return v
+    if v < 0 and (
+        _text_allows_negative_payable_amount(text)
+        or _TOTAL_LINE_HINT_RE.search(line or "")
+    ):
+        return abs(v)
+    return None
+
+
 def _extract_amounts_from_total_lines(text: str) -> list[Decimal]:
     """Collect fallback amount candidates from total/payable lines."""
     candidates: list[Decimal] = []
@@ -1415,7 +1452,8 @@ def _extract_amounts_from_total_lines(text: str) -> list[Decimal]:
             continue
         for tok in _iter_amount_tokens_excluding_percent(line):
             v = normalize_amount_decimal(tok)
-            if v is not None and v > 0 and v not in seen:
+            v = _payable_amount_candidate_value(v, text=text, line=line)
+            if v is not None and v not in seen:
                 seen.add(v)
                 candidates.append(v)
     return candidates
@@ -1712,14 +1750,15 @@ _TOTAL_LABEL_PRIORITY: tuple[tuple[int, str, re.Pattern], ...] = (
             r")\b"
         ),
     ),
-    # Tabellen met “btw & … incl.” (Pearlpaint-achtige layout).
+    # Tabellen met “btw & … incl.” (Pearlpaint-achtige layout; ook afgekort ``Bedrag incl. BTW``).
     (
         78,
         "total_label_btw_inclusive",
         re.compile(
             r"(?i)\b(?:"
             r"btw\s*&\s*bedrag\s*inclusief\s*(?:btw|vat)|"
-            r"bedrag\s*inclusief\s*(?:btw|vat)"
+            r"bedrag\s*inclusief\s*(?:btw|vat)|"
+            r"bedrag\s*incl(?:usi(?:ef|eve)|\.|\s|\.|\.)*\s*(?:btw|vat)"
             r")\b"
         ),
     ),
@@ -2048,12 +2087,14 @@ def _extract_amount_candidates(text: str) -> list[AmountCandidate]:
 
     for i, line in enumerate(lines):
         ln = line or ""
+        # OCR-stutter (Pearlpaint): match labels on collapsed line, extract amounts from raw line.
+        ln_match = collapse_stutter_chars(ln)
         # Explicit freight-cost totals are never invoice totals.
-        if re.search(r"(?i)\b(?:totaal\s+vrachtkosten|vrachtkosten\s+totaal)\b", ln):
+        if re.search(r"(?i)\b(?:totaal\s+vrachtkosten|vrachtkosten\s+totaal)\b", ln_match):
             continue
 
         # ``% Bedrag TOTALE FACTUUR`` + ``1.063,88 EUR 1.287,29`` op de volgende regel.
-        if _TOTALE_FACTUUR_HDR_RE.search(ln) and i + 1 < len(lines):
+        if _TOTALE_FACTUUR_HDR_RE.search(ln_match) and i + 1 < len(lines):
             nxt = lines[i + 1] or ""
             if _iter_amount_tokens_excluding_percent(nxt):
                 ctx_hdr = re.sub(r"\s+", " ", ln).strip()[:160]
@@ -2071,15 +2112,23 @@ def _extract_amount_candidates(text: str) -> list[AmountCandidate]:
         # VAT summary tables: header line mentions BTW/totaal, values line contains multiple € amounts.
         # Must run regardless of other "totaal" matches on the page.
         for summary_rx in (_VAT_SUMMARY_HDR_RE, _PAYABLE_SUMMARY_HDR_RE, _FACTUURBEDRAG_SUMMARY_HDR_RE):
-            if summary_rx.search(ln) and i + 1 < len(lines):
+            if summary_rx.search(ln_match) and i + 1 < len(lines):
                 nxt = lines[i + 1] or ""
                 toks = _iter_amount_tokens_excluding_percent(nxt)
                 # Only treat as VAT-summary when the values row has multiple money columns.
                 if len(toks) >= 2:
-                    decs = [normalize_amount_decimal(t) for t in toks]
-                    decs = [d for d in decs if d is not None and d > 0]
+                    decs_raw = [normalize_amount_decimal(t) for t in toks]
+                    decs = [
+                        d
+                        for d in (
+                            _payable_amount_candidate_value(x, text=t, line=ln)
+                            for x in decs_raw
+                        )
+                        if d is not None
+                    ]
                     if decs:
-                        v_last = normalize_amount_decimal(toks[-1])
+                        v_last_raw = normalize_amount_decimal(toks[-1])
+                        v_last = _payable_amount_candidate_value(v_last_raw, text=t, line=ln)
                         v_max = max(decs)
                         # In VAT summaries the last column is typically the payable total; require it equals max.
                         if v_last is not None and v_last == v_max:
@@ -2096,11 +2145,11 @@ def _extract_amount_candidates(text: str) -> list[AmountCandidate]:
                             )
                 break
         # Physical line ``i`` (never pair-merged) — ``total_label_sum`` incl/excl must not see payment text from ``i+1``.
-        line_i_norm = re.sub(r"\s+", " ", ln).strip()[:160]
+        line_i_norm = re.sub(r"\s+", " ", ln_match).strip()[:160]
         matched_prio: int | None = None
         matched_source: str | None = None
         for p, src_tag, rx in _TOTAL_LABEL_PRIORITY:
-            if rx.search(ln):
+            if rx.search(ln_match):
                 matched_prio = p
                 matched_source = src_tag
                 break
@@ -2108,27 +2157,44 @@ def _extract_amount_candidates(text: str) -> list[AmountCandidate]:
             # "Totaal: € 201,85" / "Totaal EUR 2,65" / "Totaal: 1.198,87 EUR" are usually payable totals.
             if (
                 (
-                    re.search(rf"(?i)\btotaal\b\s*:?\s*(?:eur|€)\s*{_AMOUNT_TOKEN}\b", ln)
-                    or re.search(rf"(?i)\btotaal\b\s*:\s*{_AMOUNT_TOKEN}\s*(?:eur|€)\b", ln)
+                    re.search(
+                        rf"(?i)\btotaal\b\s*:?\s*(?:eur|€)\s*-?\s*{_AMOUNT_TOKEN}\b",
+                        ln_match,
+                    )
+                    or re.search(
+                        rf"(?i)\btotaal\b\s*:\s*-?\s*{_AMOUNT_TOKEN}\s*(?:eur|€)\b",
+                        ln_match,
+                    )
                 )
-                and re.search(r"(?i)\b(?:netto|bruto|btw|vat|basis|grondslag)\b", ln) is None
+                and re.search(r"(?i)\b(?:netto|bruto|btw|vat|basis|grondslag)\b", ln_match) is None
             ):
                 matched_prio = 85
                 matched_source = "total_label_sum"
-        if re.search(r"(?i)\border(?:bedrag)?\b", ln) and re.search(
-            r"(?i)[a-z]\d+[a-z]|\d+[a-z]+\d", ln
+            # BTW-breakdown rows (``BTW totaal 21% …``) are not invoice totals.
+            elif (
+                re.search(r"(?i)\bbtw\s+totaal\b", ln_match)
+                and not re.search(
+                    rf"(?i)\btotaal\b\s*(?:eur|€)\s*-?\s*{_AMOUNT_TOKEN}",
+                    ln_match,
+                )
+            ):
+                matched_prio = None
+                matched_source = None
+        if re.search(r"(?i)\border(?:bedrag)?\b", ln_match) and re.search(
+            r"(?i)[a-z]\d+[a-z]|\d+[a-z]+\d", ln_match
         ):
             # Corrupt OCR in order-total lines (e.g. ``tot3a6a7l,00``) — skip as amount source.
             continue
         # Table header: amount may be on the next line under "Totaal incl. BTW".
         # Must run even when generic "totaal" patterns are excluded as table noise.
-        if _TABLE_TOTAL_INCL_HDR_RE.search(ln) and i + 1 < len(lines):
+        if _TABLE_TOTAL_INCL_HDR_RE.search(ln_match) and i + 1 < len(lines):
             nxt = lines[i + 1] or ""
             toks = _iter_amount_tokens_excluding_percent(nxt)
             if toks:
                 pick_tok = toks[-1]
                 v = normalize_amount_decimal(pick_tok)
-                if v is not None and v > 0:
+                v = _payable_amount_candidate_value(v, text=t, line=ln)
+                if v is not None:
                     nxt_ctx = re.sub(r"\s+", " ", nxt).strip()[:160]
                     ctx = re.sub(r"\s+", " ", ln).strip()[:160]
                     candidates.append(
@@ -2171,10 +2237,10 @@ def _extract_amount_candidates(text: str) -> list[AmountCandidate]:
                 matched_source = "total_label_sum"
                 ln = pair_norm
 
-        if matched_prio < 80 and matched_source != "total_label_excl" and _TOTAL_LINE_EXCLUDE_RE.search(ln):
+        if matched_prio < 80 and matched_source != "total_label_excl" and _TOTAL_LINE_EXCLUDE_RE.search(ln_match):
             continue
 
-        ctx = re.sub(r"\s+", " ", ln).strip()[:160]
+        ctx = re.sub(r"\s+", " ", ln_match).strip()[:160]
 
         def _classify_line_for_source(classification_line: str) -> str:
             return line_i_norm if matched_source == "total_label_sum" else classification_line
@@ -2235,7 +2301,8 @@ def _extract_amount_candidates(text: str) -> list[AmountCandidate]:
             if len(toks) < 2:
                 continue
             v = normalize_amount_decimal(toks[-1])
-            if v is not None and v > 0:
+            v = _payable_amount_candidate_value(v, text=t, line=val_line)
+            if v is not None:
                 ctx = re.sub(r"\s+", " ", hdr).strip()[:120]
                 nxt_ctx = re.sub(r"\s+", " ", val_line).strip()[:120]
                 full_ctx = f"{ctx} >> {nxt_ctx}"
@@ -2304,7 +2371,8 @@ def _extract_amount_candidates(text: str) -> list[AmountCandidate]:
     amount_matches = re.findall(_AMOUNT_TOKEN, t)
     for a in reversed(amount_matches):
         v = normalize_amount_decimal(a)
-        if v is not None and v > 0:
+        v = _payable_amount_candidate_value(v, text=t)
+        if v is not None:
             candidates.append(
                 AmountCandidate(
                     value=v,
@@ -3789,12 +3857,17 @@ def extract_invoice_data(
 
     # Type
     try:
-        # Matcht: `type`
-        if re.search(r"\b(creditnota|credit note|credit|CREN)\b", primary_text, flags=re.IGNORECASE):
-            doc_type = "credit_note"
-        else:
-            doc_type = "invoice"
-        logger.debug("Type: %s", doc_type)
+        from logic.credit_classifier import classify_credit_document
+
+        detection = classify_credit_document(
+            primary_text,
+            metadata={
+                "amount": amount,
+                "invoice_number": invoice_number,
+            },
+        )
+        doc_type = "credit_note" if detection.is_credit else "invoice"
+        logger.debug("Type: %s (confidence=%s)", doc_type, detection.confidence)
     except Exception:
         doc_type = "invoice"
         logger.debug("Type: %s", doc_type, exc_info=True)

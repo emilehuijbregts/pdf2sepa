@@ -50,6 +50,7 @@ from logic.invoice_folder_loader import (  # noqa: E402
 )
 from logic.paths import read_user_data_root  # noqa: E402
 from logic.payment_engine import calculate_payments  # noqa: E402
+from ui.settlement_table import engine_result_views  # noqa: E402
 from logic.settings import load_settings, merge_debtor_with_defaults  # noqa: E402
 from parser.supplier_db import SupplierDB  # noqa: E402
 from parser.supplier_matcher import match_suppliers  # noqa: E402
@@ -243,7 +244,9 @@ def main() -> int:
     db = SupplierDB(path=str(user_data_dir / "suppliers.json"))
     matched = match_suppliers(invoices, db)
     strip_raw_text_from_invoices(matched)
-    payments, errors = calculate_payments(matched, session_date=session_d)
+    payments, errors = engine_result_views(
+        calculate_payments(matched, session_date=session_d)
+    )
 
     inv_by_pdf = _build_invoice_index_by_pdf_name(matched)
     pay_by_pdf = _build_payment_index_by_pdf_name(payments)

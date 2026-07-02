@@ -1,0 +1,13 @@
+{
+  "source_file": "Rensa 017650_26359002.pdf",
+  "invoice_number": "26359002",
+  "supplier_name": "Technisch Handelsbureau Rensa B.V.",
+  "iban": "NL77RABO0384373100",
+  "amount": "308.42",
+  "amount_status": "confirmed",
+  "customer_code": "017650",
+  "description": "017650 / 26359002",
+  "discount_percentage": "0.00",
+  "invoice_date": "2026-05-13",
+  "payment_terms_days": 30
+}

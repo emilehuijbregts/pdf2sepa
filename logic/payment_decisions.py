@@ -27,6 +27,8 @@ REASON_MISSING_AMOUNT = "missing_amount"
 REASON_EXPORT_ALLOWED = "included_validated"
 REASON_RUNTIME_MISMATCH = "ui_engine_state_mismatch"
 REASON_MISSING_DECISION_IN_STORE = "missing_decision_in_store"
+REASON_CREDIT_REFUND_REQUIRED = "credit_refund_required"
+REASON_CREDIT_SETTLEMENT_MANUAL_REVIEW = "credit_settlement_manual_review"
 
 REASON_CODE_VERSION = 1
 
@@ -158,6 +160,11 @@ def decision_reason_text_nl(reason_code: str) -> str:
         REASON_MISSING_AMOUNT: "Bedrag ontbreekt of is ongeldig.",
         REASON_RUNTIME_MISMATCH: "UI en engine-state zijn niet consistent.",
         REASON_MISSING_DECISION_IN_STORE: "Geen engine decision beschikbaar (nog niet berekend).",
+        REASON_CREDIT_REFUND_REQUIRED: "Credit overschrijdt factuurbedrag; terugbetaling vereist.",
+        REASON_CREDIT_SETTLEMENT_MANUAL_REVIEW: "Credit-verrekening vereist handmatige controle.",
+        "credit_match_needs_review": "Credit-match vereist handmatige controle.",
+        "credit_note_only": "Alleen creditnota(s), geen factuur om te verrekenen.",
+        "zero_amount": "Volledig verrekend; geen betaling.",
     }
     return reason_map.get(reason_code, reason_code)
 

@@ -1,0 +1,13 @@
+{
+  "source_file": "Samedia R1128903.pdf",
+  "invoice_number": "R1128903",
+  "supplier_name": "SAMEDIA",
+  "iban": "DE87512108005895011200",
+  "amount": "384.50",
+  "amount_status": "confirmed",
+  "customer_code": "58181",
+  "description": "58181 / R1128903",
+  "discount_percentage": "0.00",
+  "invoice_date": "2026-04-22",
+  "payment_terms_days": 30
+}

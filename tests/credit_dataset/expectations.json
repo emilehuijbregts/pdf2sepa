@@ -1,0 +1,147 @@
+{
+  "DTC 500127_26000078.pdf": {
+    "is_credit": false,
+    "type": "invoice",
+    "invoice_number": "26000078",
+    "referenced_invoice_numbers": [],
+    "amount": 1875.16,
+    "amount_status": "confirmed",
+    "_note": "negative control: gewone DTC-factuur naast credit 26004431"
+  },
+  "DTC elektro 500127_26004431.pdf": {
+    "is_credit": true,
+    "type": "credit_note",
+    "invoice_number": "26004431",
+    "referenced_invoice_numbers": [],
+    "amount": 181.5,
+    "amount_status": "confirmed"
+  },
+  "OEG FactuurHA13451308.pdf": {
+    "is_credit": false,
+    "type": "invoice",
+    "invoice_number": "HA13451308",
+    "referenced_invoice_numbers": [],
+    "amount": 502.45,
+    "amount_status": "confirmed",
+    "_note": "negative control: OEG-factuur naast creditnota HO13532695"
+  },
+  "Oeg CreditnotaHO13532695.pdf": {
+    "is_credit": true,
+    "type": "credit_note",
+    "invoice_number": "HA13532695",
+    "referenced_invoice_numbers": [],
+    "amount": 162.05,
+    "amount_status": "confirmed"
+  },
+  "Pearl paint 2610I000151.pdf": {
+    "is_credit": false,
+    "type": "invoice",
+    "invoice_number": "2610I000151",
+    "referenced_invoice_numbers": [],
+    "amount": 1185.12,
+    "amount_status": "confirmed",
+    "_note": "negative control: Pearlpaint-factuur naast credit 2610C000173"
+  },
+  "Pearlpaint 2610C000173.pdf": {
+    "is_credit": true,
+    "type": "credit_note",
+    "invoice_number": "2610C000173",
+    "referenced_invoice_numbers": [],
+    "amount": 128.89,
+    "amount_status": "confirmed"
+  },
+  "Roba INV-0396393.PDF": {
+    "is_credit": false,
+    "type": "invoice",
+    "invoice_number": "INV-0396393",
+    "referenced_invoice_numbers": [],
+    "amount": 2010.29,
+    "amount_status": "confirmed",
+    "_note": "negative control: originele factuur bij credit CN00009082"
+  },
+  "Roba metals Creditnota_CN00009082.PDF": {
+    "is_credit": true,
+    "type": "credit_note",
+    "invoice_number": "CN00009082",
+    "referenced_invoice_numbers": ["INV-0396393"],
+    "amount": 14.08,
+    "amount_status": "confirmed"
+  },
+  "Sealeco 202630925.pdf": {
+    "is_credit": false,
+    "type": "invoice",
+    "invoice_number": "202630925",
+    "referenced_invoice_numbers": [],
+    "amount": 990.43,
+    "amount_status": "confirmed",
+    "_note": "negative control: Sealeco-factuur naast credit 202632383"
+  },
+  "Sealeco 202632383.pdf": {
+    "is_credit": true,
+    "type": "credit_note",
+    "invoice_number": "202632383",
+    "referenced_invoice_numbers": [],
+    "amount": 320.18,
+    "amount_status": "confirmed"
+  },
+  "VTE Verkoopcreditnota VCR2600064+.pdf": {
+    "is_credit": true,
+    "type": "credit_note",
+    "invoice_number": "VCR2600064",
+    "referenced_invoice_numbers": ["VF2601543"],
+    "amount": 408.57,
+    "amount_status": "confirmed"
+  },
+  "VTE Verkoopfactuur VF2600048+.pdf": {
+    "is_credit": false,
+    "type": "invoice",
+    "invoice_number": "VF2600048",
+    "referenced_invoice_numbers": [],
+    "amount": 245.15,
+    "amount_status": "confirmed",
+    "_note": "negative control: VTE-factuur in credit-map"
+  },
+  "VTE Verkoopfactuur VF2601788+.pdf": {
+    "is_credit": false,
+    "type": "invoice",
+    "invoice_number": "VF2601788",
+    "referenced_invoice_numbers": [],
+    "amount": 135.35,
+    "amount_status": "confirmed",
+    "_note": "negative control: VTE-factuur in credit-map"
+  },
+  "Wasco 8714252002430_5660148.pdf": {
+    "is_credit": false,
+    "type": "invoice",
+    "invoice_number": "5660148",
+    "referenced_invoice_numbers": [],
+    "amount": 65.51,
+    "amount_status": "confirmed",
+    "_note": "negative control: Wasco-factuur naast credit 6230076"
+  },
+  "Wasco 8714252002430_6230076.pdf": {
+    "is_credit": true,
+    "type": "credit_note",
+    "invoice_number": "6230076",
+    "referenced_invoice_numbers": [],
+    "amount": 66.67,
+    "amount_status": "confirmed"
+  },
+  "Wasco 8714252002430_6305463.pdf": {
+    "is_credit": false,
+    "type": "invoice",
+    "invoice_number": "6305463",
+    "referenced_invoice_numbers": [],
+    "amount": 41.16,
+    "amount_status": "confirmed",
+    "_note": "negative control: Wasco-factuur in credit-map"
+  },
+  "vte Verkoopcreditnota VCR2600003+.pdf": {
+    "is_credit": true,
+    "type": "credit_note",
+    "invoice_number": "VCR2600003",
+    "referenced_invoice_numbers": ["VF2600115"],
+    "amount": 33.0,
+    "amount_status": "confirmed"
+  }
+}

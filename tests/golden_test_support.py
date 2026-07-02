@@ -23,6 +23,7 @@ from logic.golden_dataset import (
 from logic.invoice_folder_loader import load_invoices_from_folder, strip_raw_text_from_invoices
 from logic.paths import read_user_data_root
 from logic.payment_engine import calculate_payments
+from ui.settlement_table import engine_result_views
 from logic.settings import load_settings, merge_debtor_with_defaults
 from parser.field_adapters import field_result_from_legacy_dict
 from parser.field_model import FieldId
@@ -265,7 +266,9 @@ def load_pipeline_with_payments(*, use_cache: bool = True) -> PipelineOutput:
         return PipelineOutput(invoices_by_pdf={}, payments_by_pdf={})
 
     matched = list(by_pdf.values())
-    payments, _errors = calculate_payments(matched, session_date=date.today())
+    payments, _errors = engine_result_views(
+        calculate_payments(matched, session_date=date.today())
+    )
     out = PipelineOutput(
         invoices_by_pdf=by_pdf,
         payments_by_pdf=_payments_by_pdf(payments),

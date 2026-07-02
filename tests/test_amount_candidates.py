@@ -25,6 +25,7 @@ from parser.pdf_parser import (
     normalize_amount_decimal,
 )
 from logic.payment_engine import calculate_payments
+from ui.settlement_table import engine_result_views
 
 
 # ---------------------------------------------------------------------------
@@ -671,7 +672,7 @@ class TestEngineAmbiguousBlocked:
                 "amount_status": "ambiguous",
             },
         )
-        payments, errors = calculate_payments([inv])
+        payments, errors = engine_result_views(calculate_payments([inv]))
         assert len(payments) == 0
         reasons = [e["reason"] for e in errors]
         assert "amount_ambiguous" in reasons
@@ -690,7 +691,7 @@ class TestEngineAmbiguousBlocked:
                 "amount_status": "ambiguous",
             },
         )
-        payments, errors = calculate_payments([inv])
+        payments, errors = engine_result_views(calculate_payments([inv]))
         assert len(payments) == 0
         assert any(e["reason"] == "amount_uncertain" for e in errors)
         assert not any(e["reason"] == "amount_ambiguous" for e in errors)
@@ -717,7 +718,7 @@ class TestEngineAmbiguousBlocked:
                 "amount_status": "ambiguous",
             },
         )
-        payments, errors = calculate_payments([inv])
+        payments, errors = engine_result_views(calculate_payments([inv]))
         assert len(payments) == 0
         assert any(e["reason"] == "amount_uncertain" for e in errors)
         assert not any(e["reason"] == "amount_ambiguous" for e in errors)
@@ -740,7 +741,7 @@ class TestEngineFailedBlocked:
                 "amount_status": "failed",
             },
         )
-        payments, errors = calculate_payments([inv])
+        payments, errors = engine_result_views(calculate_payments([inv]))
         assert len(payments) == 0
         reasons = [e["reason"] for e in errors]
         assert "amount_failed" in reasons
@@ -749,7 +750,7 @@ class TestEngineLowConfidenceWarning:
     def test_legacy_low_confidence_warns(self):
         inv = _base_invoice(amount_confidence="low")
         inv.pop("amount_result", None)
-        payments, errors = calculate_payments([inv])
+        payments, errors = engine_result_views(calculate_payments([inv]))
         assert len(payments) == 1
         assert not errors
         assert "amount_low_confidence" in (payments[0].get("warning") or "")
@@ -767,7 +768,7 @@ class TestEngineLowConfidenceWarning:
                 "amount_status": "confirmed",
             },
         )
-        payments, errors = calculate_payments([inv])
+        payments, errors = engine_result_views(calculate_payments([inv]))
         assert len(payments) == 1
         warn = payments[0].get("warning") or ""
         assert "amount_low_confidence" not in warn
@@ -780,14 +781,14 @@ class TestEngineLegacyFallback:
     def test_legacy_low_confidence_warns(self):
         inv = _base_invoice(amount_confidence="low")
         inv.pop("amount_result", None)
-        payments, _ = calculate_payments([inv])
+        payments, _ = engine_result_views(calculate_payments([inv]))
         assert len(payments) == 1
         assert "amount_low_confidence" in (payments[0].get("warning") or "")
 
     def test_legacy_missing_amount_blocks(self):
         inv = _base_invoice(amount=None)
         inv.pop("amount_result", None)
-        payments, errors = calculate_payments([inv])
+        payments, errors = engine_result_views(calculate_payments([inv]))
         assert len(payments) == 0
         assert any(e["reason"] == "missing_amount" for e in errors)
 
@@ -819,4 +820,25 @@ class TestBatch8AmountSnippets:
         )
         r = _select_amount(_extract_amount_candidates(text))
         assert r.value == Decimal("8.81")
+        assert r.status == "confirmed"
+
+
+class TestCreditNoteAmountSelection:
+    def test_pearlpaint_stutter_bedrag(self):
+        text = (
+            "CCCCRRRREEEEDDDDIIIITTTTNNNNOOOOTTTTAAAA 2610C000173\n"
+            "BBBBeeeeddddrrrraaaagggg iiiinnnnccccllll.... BBBBTTTTWWWW -128,89\n"
+        )
+        r = _select_amount(_extract_amount_candidates(text))
+        assert r.value == Decimal("128.89")
+        assert r.status == "confirmed"
+
+    def test_sealeco_totaal_eur_over_btw_totaal(self):
+        text = (
+            "Subtotaal -264,61\n"
+            "BTW totaal 21% -55,57\n"
+            "Totaal EUR -320,18\n"
+        )
+        r = _select_amount(_extract_amount_candidates(text))
+        assert r.value == Decimal("320.18")
         assert r.status == "confirmed"

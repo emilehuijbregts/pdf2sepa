@@ -1,0 +1,13 @@
+{
+  "source_file": "Werova 1621391.pdf",
+  "invoice_number": "1621391",
+  "supplier_name": "WEROVA Kunststoffen B.V.",
+  "iban": "NL93RABO0133581543",
+  "amount": "994.14",
+  "amount_status": "confirmed",
+  "customer_code": "010525",
+  "description": "010525 / 1621391",
+  "discount_percentage": "0.00",
+  "invoice_date": "2026-05-01",
+  "payment_terms_days": 14
+}

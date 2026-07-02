@@ -1,0 +1,13 @@
+{
+  "source_file": "Rems Rechnung-2617127.pdf",
+  "invoice_number": "2617127",
+  "supplier_name": "REMS",
+  "iban": "DE86600501010405684227",
+  "amount": "233.00",
+  "amount_status": "confirmed",
+  "customer_code": "046769",
+  "description": "046769 / 2617127",
+  "discount_percentage": "0.00",
+  "invoice_date": "2026-04-02",
+  "payment_terms_days": 30
+}

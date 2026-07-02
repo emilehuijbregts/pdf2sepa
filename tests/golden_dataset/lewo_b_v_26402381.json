@@ -3,11 +3,11 @@
   "invoice_number": "26402381",
   "supplier_name": "Lewo B.V.",
   "iban": "NL45RABO0372422888",
-  "amount": "110.64",
+  "amount": "109.73",
   "amount_status": "confirmed",
   "customer_code": "700269",
   "description": "700269 / 26402381",
-  "discount_percentage": "0.00",
+  "discount_percentage": "1.00",
   "invoice_date": "2026-03-25",
   "payment_terms_days": 0
 }

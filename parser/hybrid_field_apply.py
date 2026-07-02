@@ -98,13 +98,81 @@ def _amount_decimal(val: Any) -> Decimal | None:
         return None
 
 
+def _supplier_customer_number_none_mode(supplier: dict, db: SupplierDB) -> bool:
+    """Supplier-level NONE lock (independent of ``use_profile``)."""
+    name = str(supplier.get("name") or "").strip()
+    if name:
+        mode = db.get_customer_number_mode(name)
+        if mode == CUSTOMER_NUMBER_MODE_NONE:
+            return True
+    ep = supplier.get("extraction_profile")
+    if isinstance(ep, dict):
+        return customer_number_mode_from_profile(ep) == CUSTOMER_NUMBER_MODE_NONE
+    return False
+
+
+def _customer_number_user_locked_with_value(invoice: dict, invoice_copy: dict) -> bool:
+    """Per-document user lock with an explicit klantnummer (not USER_ABSENT)."""
+    from ui.field_review import CUSTOMER_ABSENT_PICK_SOURCE
+
+    merged = _generic_result_dict(invoice, invoice_copy, "customer_number")
+    if not merged.get("user_overridden"):
+        return False
+    if str(merged.get("source") or "").strip() == CUSTOMER_ABSENT_PICK_SOURCE:
+        return False
+    val = merged.get("selected_value")
+    if val is None:
+        val = merged.get("value")
+    return bool(str(val or "").strip())
+
+
+def _customer_number_user_absent_pick_dict(
+    invoice: dict, invoice_copy: dict
+) -> dict[str, Any] | None:
+    """User chose «geen klantnummer» on this document."""
+    from ui.field_review import CUSTOMER_ABSENT_PICK_SOURCE
+
+    ic = invoice_copy.get("customer_number_result")
+    if isinstance(ic, dict) and ic.get("user_overridden"):
+        if str(ic.get("source") or "").strip() == CUSTOMER_ABSENT_PICK_SOURCE:
+            return dict(ic)
+    merged = _generic_result_dict(invoice, invoice_copy, "customer_number")
+    if merged.get("user_overridden") and str(merged.get("source") or "").strip() == CUSTOMER_ABSENT_PICK_SOURCE:
+        return merged
+    return None
+
+
 def _generic_result_dict(invoice: dict, invoice_copy: dict, field_id: FieldId) -> dict[str, Any]:
     key = _RESULT_KEY[field_id]
     raw = invoice.get(key)
     if not isinstance(raw, dict):
         raw = {}
-    merged = dict(raw)
     ic = invoice_copy.get(key)
+    if isinstance(ic, dict) and ic.get("user_overridden"):
+        from ui.field_review import CUSTOMER_ABSENT_PICK_SOURCE
+
+        if field_id == "customer_number" and str(ic.get("source") or "").strip() == CUSTOMER_ABSENT_PICK_SOURCE:
+            return dict(ic)
+        merged = dict(raw)
+        for merge_key in (
+            "value",
+            "selected_value",
+            "source",
+            "status",
+            "confidence",
+            "user_overridden",
+            "previous_value",
+            "user_selected",
+            "override_reason",
+            "absence_state",
+            "candidates",
+            "decision_trace",
+            "resolver_finalized",
+        ):
+            if merge_key in ic:
+                merged[merge_key] = ic[merge_key]
+        return merged
+    merged = dict(raw)
     if isinstance(ic, dict):
         for flag in ("user_overridden", "previous_value", "user_selected", "override_reason"):
             if flag in ic:
@@ -233,19 +301,23 @@ def apply_hybrid_field_extraction(
     amount_tentative = str(amount_status or "").strip().lower() == "tentative"
 
     for field_id in _HYBRID_FIELD_IDS:
-        if (
-            field_id == "customer_number"
-            and profile
-            and customer_number_mode_from_profile(profile) == CUSTOMER_NUMBER_MODE_NONE
-        ):
-            from parser.pdf_parser import build_absent_customer_number_snapshot
+        if field_id == "customer_number":
+            absent_pick = _customer_number_user_absent_pick_dict(invoice, invoice_copy)
+            if absent_pick is not None:
+                apply_resolved_field_result(invoice_copy, field_id, absent_pick)
+                continue
+            if (
+                _supplier_customer_number_none_mode(supplier, db)
+                and not _customer_number_user_locked_with_value(invoice, invoice_copy)
+            ):
+                from parser.pdf_parser import build_absent_customer_number_snapshot
 
-            apply_resolved_field_result(
-                invoice_copy,
-                field_id,
-                build_absent_customer_number_snapshot(),
-            )
-            continue
+                apply_resolved_field_result(
+                    invoice_copy,
+                    field_id,
+                    build_absent_customer_number_snapshot(),
+                )
+                continue
 
         generic_dict = _generic_result_dict(invoice, invoice_copy, field_id)
         generic_fr = field_result_from_legacy_dict(generic_dict, field_id=field_id)

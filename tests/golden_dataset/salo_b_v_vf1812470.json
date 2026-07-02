@@ -1,0 +1,13 @@
+{
+  "source_file": "Salo VF1812470.pdf",
+  "invoice_number": "VF1812470",
+  "supplier_name": "SALO B.V.",
+  "iban": "NL64ABNA0589033654",
+  "amount": "433.17",
+  "amount_status": "confirmed",
+  "customer_code": "3503",
+  "description": "3503 / VF1812470",
+  "discount_percentage": "0.00",
+  "invoice_date": "2026-05-26",
+  "payment_terms_days": 14
+}

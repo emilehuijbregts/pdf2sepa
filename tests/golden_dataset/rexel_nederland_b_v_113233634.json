@@ -1,0 +1,13 @@
+{
+  "source_file": "Rexel 113233634_0.pdf",
+  "invoice_number": "113233634",
+  "supplier_name": "Rexel Nederland B.V.",
+  "iban": "NL96INGB0666763100",
+  "amount": "221.04",
+  "amount_status": "confirmed",
+  "customer_code": "52111087",
+  "description": "52111087 / 113233634",
+  "discount_percentage": "0.00",
+  "invoice_date": "2026-04-30",
+  "payment_terms_days": 30
+}

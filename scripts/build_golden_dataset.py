@@ -29,7 +29,10 @@ from logic.invoice_folder_loader import (  # noqa: E402
     strip_raw_text_from_invoices,
 )
 from logic.paths import read_user_data_root  # noqa: E402
+from logic.credit_enrichment import enrich_credit_documents
+from logic.golden_dataset import build_payment_index_from_engine
 from logic.payment_engine import calculate_payments  # noqa: E402
+from ui.settlement_table import review_documents_as_error_buckets
 from logic.settings import load_settings, merge_debtor_with_defaults  # noqa: E402
 from parser.supplier_db import SupplierDB  # noqa: E402
 from parser.supplier_matcher import match_suppliers  # noqa: E402
@@ -201,15 +204,16 @@ def main() -> int:
     )
     db = SupplierDB(path=str(user_data_dir / "suppliers.json"))
     matched = match_suppliers(invoices, db)
+    matched = enrich_credit_documents(matched)
     strip_raw_text_from_invoices(matched)
-    payments, errors = calculate_payments(matched, session_date=session_d)
-
-    payment_index = _build_payment_index(payments)
+    engine_result = calculate_payments(matched, session_date=session_d)
+    payment_index = build_payment_index_from_engine(engine_result)
+    errors = review_documents_as_error_buckets(engine_result.review_documents)
 
     logger.info(
         "Pipeline: %d factuurdict(s) uit map, %d betalingsregel(s), %d error-bucket(s).",
         len(matched),
-        len(payments),
+        len(engine_result.settlement_groups),
         len(errors),
     )
 

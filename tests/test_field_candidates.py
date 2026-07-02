@@ -1150,6 +1150,16 @@ class TestBatch8LayoutSnippets:
         r = extract_invoice_number_result(text)
         assert r.value == "1620543"
 
+    def test_werova_debiteurnr_not_uw_referentie_date(self):
+        """Werova: ``Uw referentie`` kan een datumcode zijn op dezelfde regel als Debiteurnr."""
+        text = (
+            "Factuur nr: 1621391 Ordernummer: 182672\n"
+            "Debiteurnr: 010525 Uw referentie: 20260729\n"
+        )
+        r = extract_customer_number_result(text)
+        assert r.value == "010525"
+        assert "20260729" not in [c.value for c in r.candidates]
+
     def test_dsg_combined_factuurnr_line_not_header_table(self):
         text = (
             "Factuurnr 025261476 Ordernummer 0020135829 Verkoper\n"

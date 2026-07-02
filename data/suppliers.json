@@ -626,12 +626,15 @@
       "customer_codes": [
         "D3269"
       ],
-      "default_payment_term_days": 0,
+      "default_payment_term_days": 30,
       "vat_rate": 21,
       "vat_numbers": [
-        "NL813771213B01"
+        "NL813771213B01",
+        "NL006134488B01"
       ],
-      "kvk_numbers": [],
+      "kvk_numbers": [
+        "16043357"
+      ],
       "email_domains": [
         "korverholland.com"
       ]
@@ -639,14 +642,14 @@
     {
       "name": "Frige elektro groothandel",
       "iban": "NL20RABO0337693749",
-      "discount": 0.0,
+      "discount": 2.0,
       "aliases": [
         "Frige elektro groothandel"
       ],
       "customer_codes": [
         "11537"
       ],
-      "default_payment_term_days": 0,
+      "default_payment_term_days": 8,
       "vat_rate": 21,
       "vat_numbers": [
         "NL862990452B01"
@@ -655,7 +658,8 @@
         "83790101"
       ],
       "email_domains": [
-        "frige.nl"
+        "frige.nl",
+        "frige.nl.op"
       ]
     },
     {
@@ -710,30 +714,36 @@
       "customer_codes": [
         "52972"
       ],
-      "default_payment_term_days": 0,
+      "default_payment_term_days": 30,
       "vat_rate": 21,
-      "vat_numbers": [],
+      "vat_numbers": [
+        "NL148005664B01"
+      ],
       "kvk_numbers": [
         "05027284"
       ],
-      "email_domains": []
+      "email_domains": [
+        "dyka.nl"
+      ]
     },
     {
       "name": "Lewo B.V.",
       "iban": "NL45RABO0372422888",
-      "discount": 0.0,
+      "discount": 1.0,
       "aliases": [
         "Lewo B.V."
       ],
       "customer_codes": [
         "700269"
       ],
-      "default_payment_term_days": 0,
+      "default_payment_term_days": 10,
       "vat_rate": 21,
       "vat_numbers": [
         "NL005678791B01"
       ],
-      "kvk_numbers": [],
+      "kvk_numbers": [
+        "31023317"
+      ],
       "email_domains": [
         "ihs-group.com"
       ]
@@ -1139,17 +1149,21 @@
     {
       "name": "VTE Smarter Solutions B.V.",
       "iban": "NL38INGB0675408105",
-      "discount": 0.0,
+      "discount": 2.0,
       "aliases": [
         "VTE Smarter Solutions B.V."
       ],
-      "customer_codes": [],
-      "default_payment_term_days": 0,
+      "customer_codes": [
+        "000167"
+      ],
+      "default_payment_term_days": 8,
       "vat_rate": 21,
       "vat_numbers": [
         "NL809101178B01"
       ],
-      "kvk_numbers": [],
+      "kvk_numbers": [
+        "09114244"
+      ],
       "email_domains": [
         "vte-smartersolutions.com"
       ]
@@ -1726,11 +1740,11 @@
         "venttrade.com"
       ],
       "extraction_profile": {
-        "learned_from": "Venttrade Factuur_1100_220_10020159.pdf",
+        "learned_from": "Venttrade Factuur_1100_220_10022887.pdf",
         "amount": {
           "label": "Totaal",
           "strategy": "same_line_last_amount",
-          "confirmed_value": "605.00",
+          "confirmed_value": "799.13",
           "confidence": 100
         }
       }
@@ -2752,9 +2766,9 @@
       "email_domains": []
     },
     {
-      "name": "Unatherm GmbH",
+      "name": "Unatherm",
       "iban": "DE34550305000300112859",
-      "discount": 0.0,
+      "discount": 2.0,
       "aliases": [
         "Unatherm GmbH",
         "UNATHERM",
@@ -2764,7 +2778,7 @@
         "53516"
       ],
       "default_payment_term_days": 30,
-      "vat_rate": 21,
+      "vat_rate": 0,
       "vat_numbers": [
         "DE273112570"
       ],

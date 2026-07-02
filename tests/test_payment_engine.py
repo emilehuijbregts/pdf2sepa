@@ -7,6 +7,15 @@ from decimal import Decimal
 import pytest
 
 from logic.payment_engine import calculate_payments, clean_iban, is_plausible_iban
+from logic.settlement_export import exportable_groups
+from ui.settlement_table import engine_result_views, payment_stub_from_group, review_documents_as_error_buckets
+
+
+def _engine(invoices, **kwargs):
+    """Run engine; return (EngineResult, payment stubs, error buckets)."""
+    result = calculate_payments(invoices, **kwargs)
+    payments, errors = engine_result_views(result)
+    return result, payments, errors
 
 
 def _base_invoice(**overrides):
@@ -31,7 +40,7 @@ def _base_invoice(**overrides):
 
 class TestNormalPayment:
     def test_simple_invoice(self):
-        payments, errors = calculate_payments([_base_invoice()])
+        result, payments, errors = _engine([_base_invoice()])
         assert len(payments) == 1
         assert payments[0]["amount"] == Decimal("121.00")
         assert payments[0]["amount_display"] == "121,00"
@@ -62,7 +71,7 @@ class TestNormalPayment:
                 "amount_status": "tentative",
             },
         )
-        payments, errors = calculate_payments([inv])
+        result, payments, errors = _engine([inv])
         assert len(errors) == 0
         assert len(payments) == 1
         assert payments[0]["amount"] == Decimal("184.56")
@@ -70,20 +79,20 @@ class TestNormalPayment:
         assert payments[0]["decision"]["status"] == "needs_review"
 
     def test_invoice_with_discount(self):
-        payments, _ = calculate_payments([_base_invoice(discount=10)])
+        result, payments, _ = _engine([_base_invoice(discount=10)])
         assert payments[0]["amount"] == Decimal("111.00")
         assert payments[0]["amount_display"] == "111,00"
 
     def test_discount_with_supplier_vat_rate_zero(self):
         inv = _base_invoice(amount=100.0, discount=10, supplier_vat_rate=0)
-        payments, _ = calculate_payments([inv])
+        result, payments, _ = _engine([inv])
         assert payments[0]["amount"] == Decimal("90.00")
         assert payments[0]["decision_trace"]["vat_source"] == "calculated_0"
 
     def test_two_invoices_same_supplier(self):
         inv_a = _base_invoice(invoice_number="INV-A", amount=100.0, amount_excl_vat=82.64)
         inv_b = _base_invoice(invoice_number="INV-B", amount=50.0, amount_excl_vat=41.32)
-        payments, errors = calculate_payments([inv_a, inv_b])
+        result, payments, errors = _engine([inv_a, inv_b])
         assert len(payments) == 2
         assert len(errors) == 0
 
@@ -92,23 +101,48 @@ class TestCreditNotes:
     def test_credit_applied(self):
         inv = _base_invoice(amount=200.0, amount_excl_vat=165.29, invoice_number="INV-2")
         credit = _base_invoice(amount=50.0, type="credit_note", invoice_number="CR-1")
-        payments, errors = calculate_payments([inv, credit])
+        result, payments, errors = _engine([inv, credit])
         assert len(payments) == 1
         assert payments[0]["amount"] == Decimal("150.00")
         assert payments[0]["amount_display"] == "150,00"
         assert payments[0]["credit_notes_applied"] == ["CR-1"]
 
-    def test_credit_overflow_blocked(self):
+    def test_settlement_breakdown_in_trace(self):
+        inv = _base_invoice(amount=200.0, amount_excl_vat=165.29, invoice_number="INV-2")
+        credit = _base_invoice(amount=50.0, type="credit_note", invoice_number="CR-1")
+        result, payments, errors = _engine([inv, credit])
+        assert not errors
+        settlement = payments[0].get("settlement")
+        assert isinstance(settlement, dict)
+        assert settlement["status"] == "ok"
+        assert settlement["final_amount_due"] == "150.00"
+        trace_settlement = payments[0]["decision_trace"]["reconciliation_snapshot"]["settlement"]
+        assert trace_settlement["status"] == "ok"
+
+    def test_multi_invoice_single_credit_subset(self):
+        inv_a = _base_invoice(invoice_number="INV-A", amount=100.0, amount_excl_vat=82.64)
+        inv_b = _base_invoice(invoice_number="INV-B", amount=50.0, amount_excl_vat=41.32)
+        credit = _base_invoice(amount=150.0, type="credit_note", invoice_number="CR-M")
+        result, payments, errors = _engine([inv_a, inv_b, credit])
+        assert len(result.settlement_groups) == 1
+        g = result.settlement_groups[0]
+        assert g["settlement_status"] == "zero_amount"
+        assert g["exportable"] is False
+        assert len(exportable_groups(result).groups) == 0
+
+    def test_credit_overflow_refund_required(self):
         inv = _base_invoice(amount=100.0, invoice_number="INV-3")
         credit = _base_invoice(amount=200.0, type="credit_note", invoice_number="CR-2")
-        payments, errors = calculate_payments([inv, credit])
-        assert len(payments) == 0
+        result, payments, errors = _engine([inv, credit])
+        assert len(exportable_groups(result).groups) == 0
+        assert len(result.settlement_groups) == 1
+        assert result.settlement_groups[0]["settlement_status"] == "refund_required"
         reasons = [e["reason"] for e in errors]
-        assert "credit_exceeds_available_invoices" in reasons
+        assert "credit_refund_required" in reasons
 
     def test_credit_only_error(self):
         credit = _base_invoice(amount=50.0, type="credit_note", invoice_number="CR-3")
-        payments, errors = calculate_payments([credit])
+        result, payments, errors = _engine([credit])
         assert len(payments) == 0
         assert any(e["reason"] == "credit_note_only" for e in errors)
 
@@ -117,7 +151,7 @@ class TestDiscountWarnings:
     def test_discount_without_parsed_excl_uses_supplier_vat_rate(self):
         """Zonder geparsete excl: korting op exclusief berekend via supplier_vat_rate (default 21%)."""
         inv = _base_invoice(discount=2.0, amount_excl_vat=None)
-        payments, _ = calculate_payments([inv])
+        result, payments, _ = _engine([inv])
         assert payments[0]["amount"] == Decimal("119.00")
         assert "no_excl_vat_amount_discount_skipped" not in (payments[0].get("warning") or "")
 
@@ -125,13 +159,17 @@ class TestDiscountWarnings:
 class TestIbanValidation:
     def test_missing_iban_error(self):
         inv = _base_invoice(iban="")
-        payments, errors = calculate_payments([inv])
+        result, payments, errors = _engine([inv])
+        assert result.pipeline == "legacy"
+        assert len(result.settlement_groups) == 0
         assert len(payments) == 0
         assert any(e["reason"] == "missing_iban" for e in errors)
 
     def test_invalid_iban_error(self):
         inv = _base_invoice(iban="GEEN_IBAN")
-        payments, errors = calculate_payments([inv])
+        result, payments, errors = _engine([inv])
+        assert result.pipeline == "legacy"
+        assert len(result.settlement_groups) == 0
         assert len(payments) == 0
         assert any(e["reason"] in ("missing_iban", "invalid_iban") for e in errors)
 
@@ -141,13 +179,13 @@ class TestIbanValidation:
             _base_invoice(supplier_name="BE BVBA", iban="BE68539007547034", invoice_number="BE-1"),
             _base_invoice(supplier_name="FR SARL", iban="FR7630006000011234567890189", invoice_number="FR-1"),
         ]
-        payments, errors = calculate_payments(invoices)
+        result, payments, errors = _engine(invoices)
         assert len(payments) == 3
         assert not any(e["reason"] == "invalid_iban" for e in errors)
 
     def test_iban_mismatch_warning(self):
         inv = _base_invoice(iban_mismatch=True)
-        payments, _ = calculate_payments([inv])
+        result, payments, _ = _engine([inv])
         assert "iban_mismatch_supplier" in (payments[0].get("warning") or "")
 
     def test_supplier_term_not_applied_when_untrusted(self):
@@ -155,7 +193,7 @@ class TestIbanValidation:
             supplier_term_trusted=False,
             supplier_payment_term_days_raw=30,
         )
-        payments, _ = calculate_payments([inv])
+        result, payments, _ = _engine([inv])
         assert "supplier_term_not_applied" in (payments[0].get("warning") or "")
         assert payments[0]["supplier_payment_term_days_effective"] == 0
 
@@ -163,7 +201,7 @@ class TestIbanValidation:
 class TestErrorCases:
     def test_missing_amount(self):
         inv = _base_invoice(amount=None)
-        payments, errors = calculate_payments([inv])
+        result, payments, errors = _engine([inv])
         assert len(payments) == 0
         assert any(e["reason"] == "missing_amount" for e in errors)
 
@@ -178,13 +216,13 @@ class TestErrorCases:
                 "status": "failed",
             },
         )
-        payments, errors = calculate_payments([inv])
+        result, payments, errors = _engine([inv])
         assert len(payments) == 0
         assert any(e["reason"] == "amount_failed" for e in errors)
 
     def test_unmatched_supplier(self):
         inv = _base_invoice(match_status="unmatched")
-        payments, errors = calculate_payments([inv])
+        result, payments, errors = _engine([inv])
         assert len(payments) == 0
         assert any(e["reason"] == "unmatched_supplier" for e in errors)
         err_inv = errors[0]["invoices"][0]
@@ -192,25 +230,25 @@ class TestErrorCases:
 
     def test_no_supplier_hint(self):
         inv = _base_invoice(match_status="no_hint")
-        payments, errors = calculate_payments([inv])
+        result, payments, errors = _engine([inv])
         assert len(payments) == 0
         assert any(e["reason"] == "no_supplier_hint" for e in errors)
 
     def test_needs_review_rejected(self):
         inv = _base_invoice(match_status="needs_review")
-        payments, errors = calculate_payments([inv])
+        result, payments, errors = _engine([inv])
         assert len(payments) == 0
         assert any(e["reason"] == "needs_review" for e in errors)
 
     def test_reviewed_accepted(self):
         inv = _base_invoice(match_status="reviewed")
-        payments, errors = calculate_payments([inv])
+        result, payments, errors = _engine([inv])
         assert len(payments) == 1
 
     def test_matched_still_accepted(self):
         """Backward compatibility: 'matched' still works."""
         inv = _base_invoice(match_status="matched")
-        payments, _ = calculate_payments([inv])
+        result, payments, _ = _engine([inv])
         assert len(payments) == 1
 
     def test_load_failed_no_text(self):
@@ -219,7 +257,7 @@ class TestErrorCases:
             "match_status": "load_failed",
             "load_error": "no_text",
         }
-        payments, errors = calculate_payments([inv])
+        result, payments, errors = _engine([inv])
         assert len(payments) == 0
         assert any(e["reason"] == "pdf_no_text" for e in errors)
 
@@ -229,7 +267,7 @@ class TestErrorCases:
             "match_status": "load_failed",
             "load_error": "read_failed",
         }
-        payments, errors = calculate_payments([inv])
+        result, payments, errors = _engine([inv])
         assert len(payments) == 0
         assert any(e["reason"] == "pdf_read_failed" for e in errors)
 
@@ -238,14 +276,16 @@ class TestErrorCases:
             "supplier_name": "z.pdf",
             "match_status": "load_failed",
         }
-        payments, errors = calculate_payments([inv])
+        result, payments, errors = _engine([inv])
         assert len(payments) == 0
         assert any(e["reason"] == "pdf_read_failed" for e in errors)
 
     def test_zero_amount_after_discount(self):
         # 121% van exclusief (100) = 121 → restbedrag na korting 0
         inv = _base_invoice(amount=121.0, discount=121.0)
-        payments, errors = calculate_payments([inv])
+        result, payments, errors = _engine([inv])
+        assert result.pipeline == "legacy"
+        assert len(result.settlement_groups) == 0
         assert len(payments) == 0
         assert any(e["reason"] == "zero_amount" for e in errors)
 
@@ -259,7 +299,7 @@ class TestErrorCases:
                 "status": "confirmed",
             }
         )
-        payments, errors = calculate_payments([inv])
+        result, payments, errors = _engine([inv])
         assert len(payments) == 0
         assert any(e["reason"] == "amount_invalid_format" for e in errors)
 
@@ -277,7 +317,7 @@ class TestErrorCases:
                 "candidates": [{"value": "200.00", "source": "manual", "confidence": 100}],
             },
         )
-        payments, errors = calculate_payments([inv])
+        result, payments, errors = _engine([inv])
         assert not errors
         assert len(payments) == 1
         assert payments[0]["amount"] == Decimal("200.00")
@@ -317,7 +357,7 @@ class TestIsPlausibleIban:
 
 class TestDecisionTrace:
     def test_trace_present_on_normal_payment(self):
-        payments, errors = calculate_payments([_base_invoice()])
+        result, payments, errors = _engine([_base_invoice()])
         assert not errors
         trace = payments[0].get("decision_trace")
         assert isinstance(trace, dict)
@@ -348,7 +388,7 @@ class TestDecisionTrace:
             type="credit_note",
             invoice_number="CR-T1",
         )
-        payments, errors = calculate_payments([inv, credit])
+        result, payments, errors = _engine([inv, credit])
         assert not errors
         payment = payments[0]
         assert payment["amount"] == Decimal("137.60")
@@ -362,7 +402,7 @@ class TestDecisionTrace:
         assert trace.get("vat_source") == "calculated_21"
 
     def test_decision_contains_causal_backreference(self):
-        payments, errors = calculate_payments([_base_invoice()])
+        result, payments, errors = _engine([_base_invoice()])
         assert not errors
         decision = payments[0]["decision"]
         assert decision["input_field_fingerprint"]
@@ -381,7 +421,7 @@ class TestDecisionTrace:
                 "candidates": [{"value": "121.00"}, {"value": "120.00"}],
             },
         )
-        payments, errors = calculate_payments([inv])
+        result, payments, errors = _engine([inv])
         assert not errors
         payment = payments[0]
         assert payment["amount"] == Decimal("116.00")

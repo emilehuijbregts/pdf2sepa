@@ -1,0 +1,13 @@
+{
+  "source_file": "Korver Uitgaande factuur 1131590.pdf",
+  "invoice_number": "VF-1131590",
+  "supplier_name": "Korver Holland B.V.",
+  "iban": "NL94INGB0793999782",
+  "amount": "60.40",
+  "amount_status": "confirmed",
+  "customer_code": "D3269",
+  "description": "D3269 / VF-1131590",
+  "discount_percentage": "0.00",
+  "invoice_date": "2026-06-18",
+  "payment_terms_days": 30
+}

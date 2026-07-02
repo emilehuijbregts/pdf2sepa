@@ -1,0 +1,13 @@
+{
+  "source_file": "VTE Verkoopfactuur VF2601788+.pdf",
+  "invoice_number": "VF2601788",
+  "supplier_name": "VTE Smarter Solutions B.V.",
+  "iban": "NL38INGB0675408105",
+  "amount": "133.11",
+  "amount_status": "confirmed",
+  "customer_code": "000167",
+  "description": "000167 / VF2601788",
+  "discount_percentage": "2.00",
+  "invoice_date": "2026-05-21",
+  "payment_terms_days": 8
+}

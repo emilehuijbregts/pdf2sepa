@@ -1,0 +1,13 @@
+{
+  "source_file": "Unatherm Rechnung 2025-10235.pdf",
+  "invoice_number": "668 2025-10235",
+  "supplier_name": "Unatherm",
+  "iban": "DE34550305000300112859",
+  "amount": "27261.64",
+  "amount_status": "confirmed",
+  "customer_code": "53516",
+  "description": "53516 / 668 2025-10235",
+  "discount_percentage": "2.00",
+  "invoice_date": "2025-12-18",
+  "payment_terms_days": 30
+}

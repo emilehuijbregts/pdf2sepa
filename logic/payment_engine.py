@@ -11,12 +11,16 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from typing import Literal
 
+from logic.engine_result import EngineResult
+from logic.batch_trace import log_batch_stage, log_batch_summary
 from logic.payment_decisions import (
     DECISION_EXCLUDED,
     DECISION_INCLUDED,
     DECISION_NEEDS_REVIEW,
     REASON_AMBIGUOUS,
+    REASON_CREDIT_REFUND_REQUIRED,
     REASON_EXPORT_ALLOWED,
     REASON_INVALID_IBAN,
     REASON_LOW_CONFIDENCE,
@@ -26,6 +30,24 @@ from logic.payment_decisions import (
     REASON_UNCERTAIN,
     build_decision,
     canonicalize_payments,
+)
+from logic.payment_engine_assembly import InvoiceDraft, build_groups_from_drafts
+from logic.settlement_payments import sort_settlement_groups
+from logic.credit_matching import (
+    CreditMatchResult,
+    build_engine_credit_allocations,
+    build_engine_credit_links,
+    match_credits_in_batch,
+)
+from logic.credit_override_apply import apply_credit_overrides
+from logic.credit_override_store import OverrideSession
+from logic.credit_settlement import (
+    SETTLEMENT_MANUAL_REVIEW,
+    SETTLEMENT_REFUND_REQUIRED,
+    compute_settlement_groups,
+    document_id,
+    settlement_for_invoice,
+    settlement_group_to_dict,
 )
 from logic.payment_amounts import (
     format_eur_xml,
@@ -44,6 +66,8 @@ TRACE_REASON_AMOUNT_SELECTED_SINGLE_CANDIDATE = "amount_selected_single_candidat
 TRACE_REASON_AMOUNT_SELECTED_LABEL_PRIORITY = "amount_selected_label_priority"
 TRACE_REASON_AMOUNT_BLOCKED_AMBIGUOUS_UPSTREAM = "amount_blocked_ambiguous_upstream"
 TRACE_REASON_CREDIT_NOTE_MATCHED = "credit_note_matched"
+TRACE_REASON_CREDIT_MATCH_REVIEW = "credit_match_needs_review"
+TRACE_REASON_CREDIT_REFUND_REQUIRED = "credit_refund_required"
 TRACE_REASON_DISCOUNT_APPLIED_TRUSTED_SUPPLIER = "discount_applied_trusted_supplier"
 TRACE_REASON_VAT_INFERRED_FROM_RATE = "vat_inferred_from_rate"
 TRACE_REASON_AMOUNT_SELECTED_AMOUNT_RESULT = "amount_selected_amount_result"
@@ -186,6 +210,38 @@ def _trace_compact_amount_result(inv: dict) -> dict:
     }
 
 
+def _serialize_credit_match_result(result: CreditMatchResult) -> dict:
+    return {
+        "match_method": result.match_method,
+        "confidence": result.confidence,
+        "warnings": list(result.warnings),
+        "remaining_credit": str(result.remaining_credit.quantize(_MONEY_QUANT)),
+        "credit_invoice_number": str(result.credit_invoice.get("invoice_number") or ""),
+        "allocation": [
+            {
+                "invoice_id": a.invoice_id,
+                "invoice_number": a.invoice_number,
+                "amount_applied": str(a.amount_applied.quantize(_MONEY_QUANT)),
+            }
+            for a in result.allocation
+        ],
+    }
+
+
+def _credit_match_details_for_credits(
+    creds: list[dict],
+    match_results: list[CreditMatchResult],
+) -> list[dict]:
+    out: list[dict] = []
+    for c in creds:
+        raw = c.get("raw") or c
+        for result in match_results:
+            if result.credit_invoice is raw:
+                out.append(_serialize_credit_match_result(result))
+                break
+    return out
+
+
 def _build_payment_decision_trace(
     *,
     inv_raw: dict,
@@ -202,10 +258,16 @@ def _build_payment_decision_trace(
     credit_total_excl: Decimal | None,
     vat_source: str | None = None,
     supplier_vat_rate_used: int | None = None,
+    credit_match_details: list[dict] | None = None,
+    settlement_snapshot: dict | None = None,
 ) -> dict:
     reason_codes: list[str] = [_trace_amount_decision_reason(inv_raw)]
     if creds:
         reason_codes.append(TRACE_REASON_CREDIT_NOTE_MATCHED)
+    if credit_match_details and any(
+        d.get("match_method") == "manual_review" or d.get("warnings") for d in credit_match_details
+    ):
+        reason_codes.append(TRACE_REASON_CREDIT_MATCH_REVIEW)
     if discount_pct > Decimal("0.00") and discount_amount > Decimal("0.00"):
         reason_codes.append(TRACE_REASON_DISCOUNT_APPLIED_TRUSTED_SUPPLIER)
     if vat_inference_used:
@@ -251,11 +313,13 @@ def _build_payment_decision_trace(
         },
         "vat_inference_used": bool(vat_inference_used),
         "vat_source": vat_source,
+        "credit_match_details": credit_match_details or [],
         "engine_status_flags": list(dict.fromkeys(warn_parts)),
         "reconciliation_snapshot": {
             "supplier_vat_rate_used": str(supplier_vat_rate_used)
             if supplier_vat_rate_used is not None
             else None,
+            "settlement": settlement_snapshot,
             "invoice_input": {
                 "supplier_name": str(inv_raw.get("supplier_name") or ""),
                 "invoice_number": str(inv_raw.get("invoice_number") or ""),
@@ -384,19 +448,62 @@ def calculate_payments(
     invoices: list[dict],
     *,
     session_date: date | None = None,
-) -> tuple[list[dict], list[dict]]:
-    """
-    Returns:
-        (payments, errors) waarbij ``payments`` succesvolle betaalregels zijn en
-        ``errors`` documenten of groepen die niet verwerkt konden worden.
+    override_session: OverrideSession | None = None,
+    force_pipeline: Literal["legacy", "settlement"] | None = None,
+) -> EngineResult:
+    """Bereken settlement groups (SSOT) + keyed legacy display projection.
 
     Args:
         session_date: Kalenderdatum voor ``execution_date`` bij modus direct;
             default ``date.today()`` indien None.
+        force_pipeline: Overschrijft fork (shadow/tests only).
     """
+    from logic.batch_trace import assert_legacy_output_isolation
+    from logic.settlement_call_guard import (
+        allocation_edges_from_result,
+        assert_zero_settlement_calls,
+        settlement_call_guard,
+    )
+
+    with settlement_call_guard():
+        return _calculate_payments_inner(
+            invoices,
+            session_date=session_date,
+            override_session=override_session,
+            force_pipeline=force_pipeline,
+            assert_legacy_output_isolation=assert_legacy_output_isolation,
+            assert_zero_settlement_calls=assert_zero_settlement_calls,
+            allocation_edges_from_result=allocation_edges_from_result,
+        )
+
+
+def _calculate_payments_inner(
+    invoices: list[dict],
+    *,
+    session_date: date | None,
+    override_session: OverrideSession | None,
+    force_pipeline: Literal["legacy", "settlement"] | None,
+    assert_legacy_output_isolation,
+    assert_zero_settlement_calls,
+    allocation_edges_from_result,
+) -> EngineResult:
     err = _ErrorBuckets()
-    payments: list[dict] = []
+    settlement_groups: list[dict] = []
+    legacy_payments: list[dict] = []
+    review_documents: list[dict] = []
     sess = session_date if session_date is not None else date.today()
+    batch_needs_settlement = batch_requires_settlement(invoices)
+    if force_pipeline == "settlement":
+        use_settlement = True
+    elif force_pipeline == "legacy":
+        use_settlement = False
+    else:
+        use_settlement = batch_needs_settlement
+    log_batch_stage(
+        "input",
+        input_invoices=len(invoices),
+        pipeline="settlement" if use_settlement else "legacy",
+    )
 
     _ACCEPTED_STATUSES = {"matched", "new", "confirmed", "reviewed"}
 
@@ -510,11 +617,85 @@ def calculate_payments(
         gkey = str(sn).strip().lower()
         groups.setdefault(gkey, []).append(inv)
 
-    for _gkey, group_invs in sorted(groups.items(), key=lambda x: x[0]):
-        _process_supplier_group(group_invs, err, payments, sess)
+    log_batch_stage(
+        "accepted",
+        accepted=len(accepted),
+        supplier_groups=len(groups),
+        pipeline="settlement" if use_settlement else "legacy",
+    )
 
-    pay_sorted = canonicalize_payments(payments)
-    return pay_sorted, err.to_list()
+    if use_settlement:
+        for _gkey, group_invs in sorted(groups.items(), key=lambda x: x[0]):
+            _process_supplier_group_settlement(
+                group_invs, err, settlement_groups, sess, override_session
+            )
+        log_batch_stage(
+            "settlement_built",
+            settlement_groups=len(settlement_groups),
+            pipeline="settlement",
+        )
+    else:
+        from logic.payment_engine_legacy import process_supplier_group_legacy
+
+        for _gkey, group_invs in sorted(groups.items(), key=lambda x: x[0]):
+            process_supplier_group_legacy(group_invs, err, legacy_payments, sess)
+        legacy_payments = canonicalize_payments(legacy_payments)
+        log_batch_stage(
+            "legacy_built",
+            legacy_payments=len(legacy_payments),
+            pipeline="legacy",
+        )
+
+    for bucket in err.to_list():
+        for inv in bucket.get("invoices") or []:
+            if isinstance(inv, dict):
+                inv_copy = dict(inv)
+                inv_copy["_review_reason"] = bucket.get("reason")
+                review_documents.append(inv_copy)
+
+    if use_settlement:
+        groups_sorted = sort_settlement_groups(settlement_groups)
+        result = EngineResult(
+            settlement_groups=groups_sorted,
+            review_documents=review_documents,
+            pipeline="settlement",
+        )
+    else:
+        result = EngineResult(
+            settlement_groups=[],
+            review_documents=review_documents,
+            legacy_payments=legacy_payments,
+            pipeline="legacy",
+        )
+        if force_pipeline is None and not batch_needs_settlement:
+            assert_zero_settlement_calls(context="legacy_production")
+            assert allocation_edges_from_result(result.settlement_groups) == 0
+            assert_legacy_output_isolation(result)
+    log_batch_summary(
+        input_invoices=len(invoices),
+        settlement_groups=len(result.settlement_groups),
+        review_documents=len(result.review_documents),
+        pipeline=result.pipeline,
+        extra=f"legacy_payments={len(result.legacy_payments or [])}",
+    )
+    return result
+
+
+def calculate_payments_with_overrides(
+    invoices: list[dict],
+    *,
+    override_session: OverrideSession | None = None,
+    session_date: date | None = None,
+    force_pipeline: Literal["legacy", "settlement"] | None = None,
+) -> EngineResult:
+    """Run payment engine with optional credit override session."""
+    return calculate_payments(
+        invoices,
+        session_date=session_date,
+        override_session=override_session,
+        force_pipeline=force_pipeline,
+    )
+
 
 class _ErrorBuckets:
     """Fouten gegroepeerd op (reason, supplier_name)."""
@@ -542,6 +723,11 @@ def _doc_type(d: dict) -> str:
     return "invoice"
 
 
+def batch_requires_settlement(invoices: list[dict]) -> bool:
+    """True when the batch contains at least one credit note document."""
+    return any(_doc_type(inv) == "credit_note" for inv in invoices)
+
+
 def _ambiguous_amount_bucket_reason(amt_result: dict) -> str:
     """``ambiguous`` from parser: either multiple parsed amounts or an unclear single hit."""
     cands = amt_result.get("candidates")
@@ -551,12 +737,87 @@ def _ambiguous_amount_bucket_reason(amt_result: dict) -> str:
     return "amount_uncertain"
 
 
-def _process_supplier_group(
+def _apply_settlement_outcomes(
+    settlement,
+    *,
+    valid_invoices: list[dict],
+    credits: list[dict],
+    group_supplier: str | None,
+    err: _ErrorBuckets,
+) -> set[str]:
+    """Emit errors for refund/manual-review settlement groups; return blocked invoice doc ids."""
+    raw_by_doc: dict[str, dict] = {}
+    for norm in valid_invoices:
+        raw_by_doc[document_id(norm)] = norm["raw"]
+    for norm in credits:
+        raw_by_doc[document_id(norm)] = norm["raw"]
+
+    refund_doc_ids: set[str] = set()
+    manual_review_credit_doc_ids: set[str] = set()
+    refund_detail_by_doc: dict[str, str] = {}
+
+    for group in settlement.groups:
+        group_doc_ids = {line.document_id for line in group.invoices} | {
+            line.document_id for line in group.credits
+        }
+        if group.status == SETTLEMENT_REFUND_REQUIRED:
+            refund_doc_ids |= group_doc_ids
+            detail = f"refund_amount={group.refund_amount}"
+            for doc_id in group_doc_ids:
+                refund_detail_by_doc[doc_id] = detail
+        elif group.status == SETTLEMENT_MANUAL_REVIEW:
+            for line in group.credits:
+                manual_review_credit_doc_ids.add(line.document_id)
+
+    if refund_doc_ids:
+        refund_raws = [raw_by_doc[d] for d in sorted(refund_doc_ids) if d in raw_by_doc]
+        err.add(
+            REASON_CREDIT_REFUND_REQUIRED,
+            group_supplier,
+            [
+                _invoice_with_decision(
+                    raw,
+                    status=DECISION_NEEDS_REVIEW,
+                    reason_code=REASON_CREDIT_REFUND_REQUIRED,
+                    reason_detail=refund_detail_by_doc.get(document_id({"raw": raw})),
+                    requires_rerun=True,
+                )
+                for raw in refund_raws
+            ],
+        )
+
+    for doc_id in sorted(manual_review_credit_doc_ids):
+        if doc_id in refund_doc_ids:
+            continue
+        raw = raw_by_doc.get(doc_id)
+        if raw is None:
+            continue
+        err.add(
+            "credit_match_needs_review",
+            group_supplier,
+            [
+                _invoice_with_decision(
+                    raw,
+                    status=DECISION_NEEDS_REVIEW,
+                    reason_code="credit_match_needs_review",
+                    requires_rerun=True,
+                )
+            ],
+        )
+
+    return refund_doc_ids
+
+
+def _process_supplier_group_settlement(
     group_invs: list[dict],
     err: _ErrorBuckets,
-    payments: list[dict],
+    settlement_groups_out: list[dict],
     session: date,
+    override_session: OverrideSession | None = None,
 ) -> None:
+    from logic.settlement_call_guard import record_settlement_call
+
+    record_settlement_call("settlement_pipeline")
     group_supplier = group_invs[0].get("supplier_name")
     display_name = str(group_supplier) if group_supplier is not None else ""
 
@@ -646,86 +907,29 @@ def _process_supplier_group(
         return
 
     linked: dict[int, list[dict]] = {}
-    for credit in credits:
-        try:
-            _assert_decimal(credit["amount_dec"], field="credit.amount_dec")
-        except TypeError:
-            err.add(
-                "internal_money_type_error",
-                group_supplier,
-                [
-                    _invoice_with_decision(
-                        credit["raw"],
-                        status=DECISION_EXCLUDED,
-                        reason_code="internal_money_type_error",
-                    )
-                ],
-            )
-            return
-        kandidaten = [
-            inv for inv in valid_invoices if inv["amount_dec"] >= credit["amount_dec"]
-        ]
-        if not kandidaten:
-            err.add(
-                "credit_exceeds_available_invoices",
-                group_supplier,
-                [
-                    _invoice_with_decision(
-                        credit["raw"],
-                        status=DECISION_EXCLUDED,
-                        reason_code="credit_exceeds_available_invoices",
-                    ),
-                    *[
-                        _invoice_with_decision(
-                            inv["raw"],
-                            status=DECISION_EXCLUDED,
-                            reason_code="credit_exceeds_available_invoices",
-                        )
-                        for inv in valid_invoices
-                    ],
-                ],
-            )
-            return
-        best = min(
-            kandidaten,
-            key=lambda inv: (inv["amount_dec"], str(inv["raw"].get("invoice_number", ""))),
-        )
-        linked.setdefault(id(best), []).append(credit)
+    match_results = match_credits_in_batch(group_invs)
+    match_results, override_events = apply_credit_overrides(
+        match_results,
+        override_session,
+        batch_invoices=group_invs,
+    )
+    settlement = compute_settlement_groups(
+        match_results,
+        valid_invoices,
+        credits,
+        supplier_name=display_name,
+    )
+    refund_doc_ids = _apply_settlement_outcomes(
+        settlement,
+        valid_invoices=valid_invoices,
+        credits=credits,
+        group_supplier=group_supplier,
+        err=err,
+    )
+    linked = build_engine_credit_links(match_results, credits, valid_invoices)
+    credit_allocations = build_engine_credit_allocations(match_results, credits, valid_invoices)
 
-    for inv in valid_invoices:
-        try:
-            _assert_decimal(inv["amount_dec"], field="invoice.amount_dec")
-        except TypeError:
-            err.add(
-                "internal_money_type_error",
-                group_supplier,
-                [
-                    _invoice_with_decision(
-                        inv["raw"],
-                        status=DECISION_EXCLUDED,
-                        reason_code="internal_money_type_error",
-                    )
-                ],
-            )
-            return
-        creds = linked.get(id(inv), [])
-        if not creds:
-            continue
-        total_c = sum((c["amount_dec"] for c in creds), start=Decimal("0.00"))
-        if total_c > inv["amount_dec"]:
-            err.add(
-                "credit_exceeds_invoice_total",
-                group_supplier,
-                [
-                    _invoice_with_decision(
-                        raw_inv,
-                        status=DECISION_EXCLUDED,
-                        reason_code="credit_exceeds_invoice_total",
-                    )
-                    for raw_inv in group_invs
-                ],
-            )
-            return
+    invoice_drafts: dict[str, InvoiceDraft] = {}
 
     pct_100 = Decimal("100.00")
 
@@ -735,6 +939,11 @@ def _process_supplier_group(
     ):
         inv_raw = inv["raw"]
         creds = linked.get(id(inv), [])
+        alloc_pairs = credit_allocations.get(id(inv), [])
+        credit_applied_total = sum(
+            (amt for _, amt in alloc_pairs),
+            start=Decimal("0.00"),
+        ).quantize(_MONEY_QUANT)
         try:
             discount = _assert_decimal(inv["discount_dec"], field="invoice.discount_dec")
         except TypeError:
@@ -773,7 +982,7 @@ def _process_supplier_group(
         discount_skipped_reason: str | None = None
         vat_inference_used = False
         discount_base_excl: Decimal | None = None
-        credit_total_incl = sum((c["amount_dec"] for c in creds), start=Decimal("0.00"))
+        credit_total_incl = credit_applied_total
         credit_total_excl: Decimal | None = None
         korting = Decimal("0.00")
         vat_source: str | None = None
@@ -794,10 +1003,7 @@ def _process_supplier_group(
                     vat_source = "calculated_other"
             te_betalen_dec = (amt_dec - korting).quantize(_MONEY_QUANT)
         else:
-            saldo_incl = inv["amount_dec"] - sum(
-                (c["amount_dec"] for c in creds), start=Decimal("0.00")
-            )
-            saldo_incl = saldo_incl.quantize(_MONEY_QUANT)
+            saldo_incl = (inv["amount_dec"] - credit_applied_total).quantize(_MONEY_QUANT)
             amount_before_discount = saldo_incl
             if discount > Decimal("0"):
                 excl_base = incl_amount_to_excl_for_discount(amount_before_discount, vat_rate)
@@ -806,8 +1012,8 @@ def _process_supplier_group(
                 discount_base_excl = excl_base
                 credit_total_excl = sum(
                     (
-                        incl_amount_to_excl_for_discount(c["amount_dec"], vat_rate)
-                        for c in creds
+                        incl_amount_to_excl_for_discount(amt, vat_rate)
+                        for _, amt in alloc_pairs
                     ),
                     start=Decimal("0.00"),
                 ).quantize(_MONEY_QUANT)
@@ -818,6 +1024,15 @@ def _process_supplier_group(
                 else:
                     vat_source = "calculated_other"
             te_betalen_dec = (saldo_incl - korting).quantize(_MONEY_QUANT)
+
+        inv_credit_match_details = _credit_match_details_for_credits(creds, match_results)
+        if inv_credit_match_details and any(
+            d.get("match_method") == "manual_review"
+            or d.get("warnings")
+            or Decimal(str(d.get("remaining_credit") or "0")) > Decimal("0")
+            for d in inv_credit_match_details
+        ):
+            warn_parts.append("credit_match_needs_review")
 
         warning: str | None = "|".join(warn_parts) if warn_parts else None
         if warning:
@@ -838,61 +1053,9 @@ def _process_supplier_group(
         sup_out = inv_raw.get("supplier_name")
         sup_for_err = sup_out if sup_out is not None else group_supplier
 
-        if te_betalen_dec <= Decimal("0.00"):
-            if te_betalen_dec == Decimal("0.00"):
-                err.add(
-                    "zero_amount",
-                    sup_for_err,
-                    [
-                        _invoice_with_decision(
-                            inv_raw,
-                            status=DECISION_EXCLUDED,
-                            reason_code="zero_amount",
-                        )
-                    ],
-                )
-            else:
-                err.add(
-                    "negative_amount",
-                    sup_for_err,
-                    [
-                        _invoice_with_decision(
-                            inv_raw,
-                            status=DECISION_EXCLUDED,
-                            reason_code="negative_amount",
-                        )
-                    ],
-                )
-            continue
-
         iban_raw = (inv_raw.get("iban") or "").strip()
-        if not iban_raw:
-            err.add(
-                "missing_iban",
-                sup_for_err,
-                [
-                    _invoice_with_decision(
-                        inv_raw,
-                        status=DECISION_EXCLUDED,
-                        reason_code=REASON_MISSING_IBAN,
-                    )
-                ],
-            )
-            continue
-        iban = _clean_iban(iban_raw)
-        if not iban or not _is_plausible_iban(iban):
-            err.add(
-                "invalid_iban",
-                sup_for_err,
-                [
-                    _invoice_with_decision(
-                        inv_raw,
-                        status=DECISION_EXCLUDED,
-                        reason_code=REASON_INVALID_IBAN,
-                    )
-                ],
-            )
-            continue
+        iban_clean = _clean_iban(iban_raw) if iban_raw else ""
+        iban_valid = bool(iban_clean and _is_plausible_iban(iban_clean))
 
         credit_notes_applied = [
             str(c["raw"]["invoice_number"])
@@ -910,10 +1073,15 @@ def _process_supplier_group(
         if inv_date_out is not None:
             inv_date_out = str(inv_date_out).strip() or None
 
-        amount_display = format_eur_xml(te_betalen_dec).replace(".", ",")
         decision_status = DECISION_INCLUDED
         decision_reason = REASON_EXPORT_ALLOWED
-        if inv_amt_status in ("tentative", "low_confidence"):
+        if te_betalen_dec <= Decimal("0.00"):
+            decision_status = DECISION_EXCLUDED
+            decision_reason = "zero_amount"
+        elif not iban_valid:
+            decision_status = DECISION_EXCLUDED
+            decision_reason = REASON_MISSING_IBAN if not iban_raw else REASON_INVALID_IBAN
+        elif inv_amt_status in ("tentative", "low_confidence"):
             decision_status = DECISION_NEEDS_REVIEW
             decision_reason = REASON_LOW_CONFIDENCE
         elif inv_amt_status == "ambiguous":
@@ -922,12 +1090,17 @@ def _process_supplier_group(
         elif inv_amt_status == "failed":
             decision_status = DECISION_EXCLUDED
             decision_reason = REASON_MISSING_AMOUNT
+        elif "credit_match_needs_review" in warn_parts:
+            decision_status = DECISION_NEEDS_REVIEW
+            decision_reason = TRACE_REASON_CREDIT_MATCH_REVIEW
         decision_payload = _decision_from_reason(
             status=decision_status,
             reason_code=decision_reason,
             inv=inv_raw,
             requires_rerun=decision_status == DECISION_NEEDS_REVIEW,
         )
+        inv_group = settlement_for_invoice(inv, settlement)
+        settlement_dict = settlement_group_to_dict(inv_group) if inv_group is not None else None
         decision_trace = _build_payment_decision_trace(
             inv_raw=inv_raw,
             creds=creds,
@@ -943,37 +1116,40 @@ def _process_supplier_group(
             credit_total_excl=credit_total_excl,
             vat_source=vat_source,
             supplier_vat_rate_used=vat_rate if discount > Decimal("0") else None,
+            credit_match_details=inv_credit_match_details,
+            settlement_snapshot=settlement_dict,
         )
-        payments.append(
-            {
-                "supplier_name": str(sup_out) if sup_out is not None else display_name,
-                "iban": iban,
-                "amount": te_betalen_dec,
-                "amount_display": amount_display,
-                "description": inv_raw.get("description") if inv_raw.get("description") is not None else "",
-                "invoice_number": str(inv_raw["invoice_number"])
-                if inv_raw.get("invoice_number") is not None
-                else "",
-                # Enrich payments with deterministic origin for downstream tools/tests.
-                # Absolute path (if present) is copied from invoice loader; consumers can
-                # reduce to filename as needed.
-                "_source_file": str(inv_raw.get("source_file") or "").strip() or None,
-                "credit_notes_applied": credit_notes_applied,
-                "warning": warning,
-                "iban_mismatch": bool(inv_raw.get("iban_mismatch")),
-                "status": "ok" if decision_status == DECISION_INCLUDED else decision_status,
-                "invoice_date": inv_date_out,
-                "invoice_date_source": src
-                if src in ("parsed", "manual", "missing")
-                else "missing",
-                "supplier_term_trusted": trusted,
-                "supplier_payment_term_days_raw": raw_term,
-                "supplier_payment_term_days_effective": effective_term,
-                "date_mode": "direct",
-                "execution_date": session.isoformat(),
-                "decision_trace": decision_trace,
-                "decision": decision_payload,
-                "decision_batch_id": None,
-                "engine_version": ENGINE_VERSION,
-            }
+        doc_id = document_id(inv)
+        invoice_drafts[doc_id] = InvoiceDraft(
+            doc_id=doc_id,
+            inv_raw=inv_raw,
+            te_betalen_dec=te_betalen_dec,
+            decision=decision_payload,
+            decision_trace=decision_trace,
+            credit_notes_applied=credit_notes_applied,
+            warning=warning,
+            iban=iban_clean,
+            iban_valid=iban_valid,
+            trusted=trusted,
+            raw_term=raw_term,
+            effective_term=effective_term,
+            inv_date_out=inv_date_out,
+            invoice_date_source=src if src in ("parsed", "manual", "missing") else "missing",
         )
+
+    raw_by_id: dict[str, dict] = {}
+    for norm in valid_invoices:
+        raw_by_id[document_id(norm)] = norm["raw"]
+    for norm in credits:
+        raw_by_id[document_id(norm)] = norm["raw"]
+
+    built = build_groups_from_drafts(
+        settlement.groups,
+        invoice_drafts,
+        raw_by_id,
+        refund_doc_ids=refund_doc_ids,
+        execution_date=session.isoformat(),
+        engine_version=ENGINE_VERSION,
+        override_history=override_events,
+    )
+    settlement_groups_out.extend(built)

@@ -273,7 +273,7 @@ class TestPolarisCoreMatches:
         assert result["db_core_matches"] == ["IBAN"]
         assert result.get("amount") == pytest.approx(4947.17)
         ar = result.get("amount_result") or {}
-        assert ar.get("status") == "tentative"
+        assert ar.get("status") == "confirmed"
         assert result.get("supplier_db_traits_not_on_invoice") == ["KvK", "e-mail"]
 
     def test_polaris_iban_plus_kvk_confirmed(self, tmp_path):
@@ -797,8 +797,8 @@ class TestProfilePipeline:
         assert float(result["amount_result"]["value"]) == pytest.approx(224.50, abs=0.01)
         assert "amount" in result["profile_fields"]
 
-    def test_needs_review_with_iban_applies_profile_tentative(self, db_with_suppliers):
-        """IBAN-match + profiel: bedrag uit profiel, status tentative (export nog review)."""
+    def test_needs_review_with_iban_applies_profile_confirmed_when_validated(self, db_with_suppliers):
+        """IBAN-match + gevalideerd profiel: bedrag confirmed (Phase B7; match blijft needs_review)."""
         db_with_suppliers.save_extraction_profile(
             "SALO B.V.",
             PROFILE_LAST_AMOUNT,
@@ -822,7 +822,7 @@ class TestProfilePipeline:
         assert result["extraction_source"] == "profile"
         assert "amount" in result["profile_fields"]
         assert result["amount_result"]["source"] == "profile"
-        assert result["amount_result"]["status"] == "tentative"
+        assert result["amount_result"]["status"] == "confirmed"
 
     def test_confirmed_no_profile_is_generic(self, db_with_suppliers):
         inv = {

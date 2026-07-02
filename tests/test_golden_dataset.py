@@ -20,6 +20,7 @@ from logic.golden_dataset import (
 from logic.invoice_folder_loader import load_invoices_from_folder, strip_raw_text_from_invoices
 from logic.paths import read_user_data_root
 from logic.payment_engine import calculate_payments
+from ui.settlement_table import engine_result_views
 from logic.settings import load_settings, merge_debtor_with_defaults
 from parser.supplier_db import SupplierDB
 from parser.supplier_matcher import match_suppliers
@@ -81,7 +82,9 @@ def pipeline_output() -> _PipelineOutput:
     db = SupplierDB(path=str(user_data_dir / "suppliers.json"))
     matched = match_suppliers(invoices, db)
     strip_raw_text_from_invoices(matched)
-    payments, _errors = calculate_payments(matched, session_date=date.today())
+    payments, _errors = engine_result_views(
+        calculate_payments(matched, session_date=date.today())
+    )
 
     invoices_by_pdf: dict[str, dict] = {}
     for inv in matched:

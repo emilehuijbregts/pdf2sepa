@@ -55,6 +55,56 @@ def normalize_iban(value: Any) -> str:
     return clean_iban(str(value or ""))
 
 
+def decision_status_from_group(group: dict[str, Any]) -> str:
+    dec = group.get("decision")
+    if isinstance(dec, dict):
+        return normalize_text(dec.get("status"))
+    return ""
+
+
+def amount_status_from_group(group: dict[str, Any]) -> str:
+    dt = group.get("decision_trace")
+    if not isinstance(dt, dict):
+        return ""
+    snap = dt.get("reconciliation_snapshot")
+    if not isinstance(snap, dict):
+        return ""
+    par = snap.get("parsed_amount_result")
+    if not isinstance(par, dict):
+        return ""
+    return normalize_text(par.get("status"))
+
+
+def match_status_from_group(group: dict[str, Any]) -> str:
+    dt = group.get("decision_trace")
+    if not isinstance(dt, dict):
+        return ""
+    return normalize_text(dt.get("supplier_match_status"))
+
+
+def build_payment_index_from_engine(result: Any) -> dict[tuple[str, str], dict[str, Any]]:
+    """Map (supplier_lower, invoice_number) → group stub for golden tooling."""
+    from ui.settlement_table import payment_stub_from_group
+
+    index: dict[tuple[str, str], dict[str, Any]] = {}
+    for group in result.settlement_groups:
+        stub = payment_stub_from_group(group)
+        sup = str(group.get("supplier_name") or "").strip().lower()
+        primary = str(group.get("invoice_number") or "").strip()
+        if sup and primary:
+            index[(sup, primary)] = stub
+        for member in group.get("member_documents") or []:
+            if not isinstance(member, dict):
+                continue
+            raw = member.get("raw") or {}
+            if str(raw.get("type") or "") == "credit_note":
+                continue
+            inv_no = str(raw.get("invoice_number") or "").strip()
+            if sup and inv_no:
+                index.setdefault((sup, inv_no), stub)
+    return index
+
+
 def amount_status_from_payment(payment: dict) -> str:
     """Extract parsed amount status from payment decision_trace snapshot (engine trace)."""
     dt = payment.get("decision_trace")

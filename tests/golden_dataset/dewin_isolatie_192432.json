@@ -1,0 +1,13 @@
+{
+  "source_file": "Dewin Uitgaande factuur_192432_20250711_094014.pdf",
+  "invoice_number": "192432",
+  "supplier_name": "Dewin Isolatie",
+  "iban": "NL15ABNA0591821249",
+  "amount": "1296.35",
+  "amount_status": "confirmed",
+  "customer_code": "",
+  "description": "",
+  "discount_percentage": "0.00",
+  "invoice_date": "2025-07-11",
+  "payment_terms_days": 30
+}
