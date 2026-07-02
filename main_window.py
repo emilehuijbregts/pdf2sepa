@@ -180,6 +180,11 @@ from ui.credit_override_dialog import CreditOverrideDialog
 from ui.settlement_badges import settlement_badge_nl
 from ui.settlement_expand import (
     SettlementRowKind,
+    _ROW_SETTLEMENT_DOC_ID_ROLE,
+    _ROW_SETTLEMENT_DOC_TYPE_ROLE,
+    _ROW_SETTLEMENT_ROW_KIND_ROLE,
+    _ROW_SETTLEMENT_SOURCE_PDF_ROLE,
+    _ROW_SETTLEMENT_SUPPLIER_ROLE,
     apply_child_row_items,
     breakdown_child_rows,
     header_supplier_label,
@@ -1275,12 +1280,18 @@ class MainWindow(QMainWindow):
         kind = settlement_row_kind(it)
         if kind != SettlementRowKind.CREDIT_CHILD:
             return None
-        inv_no = str(it.text()).strip() if it else ""
+        # Prefer document_id stored in UserRole — avoids raw text parsing and survives
+        # both the full-row renderer (supplier name in text) and old minimal renderer.
+        stored_doc_id = str(it.data(_ROW_SETTLEMENT_DOC_ID_ROLE) or "").strip() if it else ""
         for inv in self._matched_invoices:
             if str(inv.get("type") or "") != "credit_note":
                 continue
-            if str(inv.get("invoice_number") or "").strip() == inv_no:
-                return inv
+            if stored_doc_id:
+                if document_id({"raw": inv}) == stored_doc_id:
+                    return inv
+                # Fallback: stored_doc_id may be the invoice_number itself (old renderer)
+                if str(inv.get("invoice_number") or "").strip() == stored_doc_id:
+                    return inv
         return None
 
     def _on_detach_credit_override(self, credit: dict[str, Any]) -> None:
@@ -1322,46 +1333,159 @@ class MainWindow(QMainWindow):
         self._rerun_settlement_engine()
 
     def _on_link_credit_to_invoice_row(self, invoice_row: int) -> None:
+        """Open reassign dialog for a credit from this group, triggered via an invoice child row.
+
+        If only one credit exists in the group, open the dialog directly.
+        If multiple credits exist, show a selection menu so the user picks the
+        right credit rather than always defaulting to the first one.
+        """
         group = self._settlement_group_for_row(invoice_row)
         if group is None:
             return
         vm = vm_from_group(group)
-        if not vm.credits:
-            return
         credit_lines = [c for c in vm.credits if c.invoice_number and c.invoice_number not in ("Credits", "")]
         if not credit_lines:
             return
-        credit_no = credit_lines[0].invoice_number
-        credit = next(
-            (
-                inv
-                for inv in self._matched_invoices
-                if str(inv.get("type") or "") == "credit_note"
-                and str(inv.get("invoice_number") or "") == credit_no
-            ),
-            None,
-        )
-        if credit is None:
+
+        def _find_credit(inv_no: str) -> dict[str, Any] | None:
+            return next(
+                (
+                    inv
+                    for inv in self._matched_invoices
+                    if str(inv.get("type") or "") == "credit_note"
+                    and str(inv.get("invoice_number") or "") == inv_no
+                ),
+                None,
+            )
+
+        if len(credit_lines) == 1:
+            credit = _find_credit(credit_lines[0].invoice_number)
+            if credit is not None:
+                self._on_reassign_credit_override(credit)
             return
-        self._on_reassign_credit_override(credit)
+
+        # Multiple credits — let user pick which one to reassign.
+        from PySide6.QtWidgets import QMenu
+        pick_menu = QMenu("Kies credit", self)
+        for cl in credit_lines:
+            amt = cl.amount_applied or cl.gross_amount
+            label = f"{cl.invoice_number}  ({amt})" if amt else cl.invoice_number
+            action = pick_menu.addAction(label)
+            action.setData(cl.invoice_number)
+        chosen = pick_menu.exec(self._table.viewport().mapToGlobal(
+            self._table.visualRect(self._table.model().index(invoice_row, int(PaymentColumn.SUPPLIER))).center()
+        ))
+        if chosen is None:
+            return
+        credit = _find_credit(str(chosen.data() or ""))
+        if credit is not None:
+            self._on_reassign_credit_override(credit)
 
     def _append_settlement_breakdown_rows(self, group: dict[str, Any]) -> None:
         gid = str(group.get("group_id") or "")
         if gid not in self._expanded_settlement_groups:
             return
         vm = vm_from_group(group)
-        for spec in breakdown_child_rows(vm, expanded=True):
+        for spec in breakdown_child_rows(vm, expanded=True, group=group):
             r = self._table.rowCount()
             self._table.insertRow(r)
-            apply_child_row_items(self._table, r, spec, int(PaymentColumn.SETTLEMENT), gid)
+            self._apply_settlement_child_row_full(r, spec, gid)
+
+    def _apply_settlement_child_row_full(self, row: int, spec: dict[str, Any], gid: str) -> None:
+        """Render a settlement child row with all payment columns populated (read-only).
+
+        Each item carries full UserRole metadata so future contextmenu actions can
+        identify the document without extra table scans.  Credits keep their orange
+        foreground.  WARNING_CHILD rows render only the supplier column.
+        """
+        from PySide6.QtGui import QBrush, QColor
+
+        kind = spec["kind"]
+        is_credit = kind == SettlementRowKind.CREDIT_CHILD
+        orange = QBrush(QColor("#b54708"))
+        settlement_col = int(PaymentColumn.SETTLEMENT)
+
+        def _ro(text: str) -> QTableWidgetItem:
+            return self._item_readonly(str(text or ""))
+
+        # ── Settlement sentinel (group_id linkage, required for every child) ──
+        sett_it = _ro("")
+        sett_it.setData(_ROW_SETTLEMENT_ROW_KIND_ROLE, int(kind))
+        sett_it.setData(_ROW_SETTLEMENT_GROUP_ID_ROLE, gid)
+        self._table.setItem(row, settlement_col, sett_it)
+
+        if kind == SettlementRowKind.WARNING_CHILD:
+            sup_it = _ro(f"  \u26a0 {spec.get('label', '')}")
+            sup_it.setData(_ROW_SETTLEMENT_ROW_KIND_ROLE, int(kind))
+            sup_it.setData(_ROW_SETTLEMENT_SUPPLIER_ROLE, str(spec.get("supplier_name") or ""))
+            sup_it.setForeground(orange)
+            self._table.setItem(row, int(PaymentColumn.SUPPLIER), sup_it)
+            return
+
+        raw = spec.get("raw_invoice") or {}
+        doc_id = str(spec.get("document_id") or "")
+        doc_type = "credit_note" if is_credit else "invoice"
+
+        # ── Supplier ──────────────────────────────────────────────────────────
+        sup_text = str(raw.get("supplier_name") or spec.get("supplier_name") or "")
+        sup_it = _ro(sup_text)
+        sup_it.setData(_ROW_SETTLEMENT_ROW_KIND_ROLE, int(kind))
+        sup_it.setData(_ROW_SETTLEMENT_DOC_TYPE_ROLE, doc_type)
+        sup_it.setData(_ROW_SETTLEMENT_SUPPLIER_ROLE, sup_text)
+        sup_it.setData(_ROW_SETTLEMENT_GROUP_ID_ROLE, gid)
+        if doc_id:
+            sup_it.setData(_ROW_SETTLEMENT_DOC_ID_ROLE, doc_id)
+        if raw.get("source_file"):
+            sup_it.setData(_ROW_SETTLEMENT_SOURCE_PDF_ROLE, str(raw["source_file"]))
+        if is_credit:
+            sup_it.setForeground(orange)
+        self._table.setItem(row, int(PaymentColumn.SUPPLIER), sup_it)
+
+        # ── IBAN ──────────────────────────────────────────────────────────────
+        iban_disp = str(raw.get("iban") or "")
+        self._table.setItem(row, int(PaymentColumn.IBAN), _ro(iban_disp))
+
+        # ── Amount ────────────────────────────────────────────────────────────
+        amount_str = str(spec.get("amount") or "")
+        amt_it = _ro(amount_str)
+        amt_it.setData(_ROW_SETTLEMENT_ROW_KIND_ROLE, int(kind))
+        if is_credit:
+            amt_it.setForeground(orange)
+        self._table.setItem(row, int(PaymentColumn.AMOUNT), amt_it)
+
+        # ── Customer code ─────────────────────────────────────────────────────
+        cust = str(raw.get("customer_number") or "")
+        self._table.setItem(row, int(PaymentColumn.CUSTOMER_CODE), _ro(cust))
+
+        # ── Description ───────────────────────────────────────────────────────
+        desc = _remittance_display_from_inv(raw) if raw else ""
+        self._table.setItem(row, int(PaymentColumn.DESCRIPTION), _ro(desc))
+
+        # ── PDF ───────────────────────────────────────────────────────────────
+        src = str(raw.get("source_file") or "")
+        pdf_disp = Path(src).name if src else "—"
+        self._table.setItem(row, int(PaymentColumn.PDF), _ro(pdf_disp))
+
+        # ── Discount ──────────────────────────────────────────────────────────
+        disc = str(raw.get("discount") or "0")
+        self._table.setItem(row, int(PaymentColumn.DISCOUNT), _ro(disc))
+
+        # ── Invoice date ──────────────────────────────────────────────────────
+        inv_date = str(raw.get("invoice_date") or "")
+        inv_disp, inv_sort = self._table_date_display_and_sort(inv_date)
+        self._table.setItem(row, int(PaymentColumn.INVOICE_DATE), self._item_date_cell(inv_disp, inv_sort))
+
+        # ── Status ────────────────────────────────────────────────────────────
+        dec = raw.get("decision") if isinstance(raw.get("decision"), dict) else {}
+        raw_status = str((dec or {}).get("status") or DECISION_NEEDS_REVIEW)
+        self._table.setItem(row, int(PaymentColumn.STATUS), _ro(decision_status_label_nl(raw_status)))
 
     def _is_settlement_child_row(self, row: int) -> bool:
         kind = settlement_row_kind(self._table.item(row, PaymentColumn.SUPPLIER))
         return kind in (
             SettlementRowKind.INVOICE_CHILD,
             SettlementRowKind.CREDIT_CHILD,
-            SettlementRowKind.ALLOCATION_CHILD,
-            SettlementRowKind.GROUP_FOOTER,
+            SettlementRowKind.WARNING_CHILD,
         )
 
     def _on_table_selection_changed(self) -> None:
@@ -1958,6 +2082,10 @@ class MainWindow(QMainWindow):
         try:
             for r in range(self._table.rowCount()):
                 if self._is_row_blank(r):
+                    continue
+                if self._is_settlement_child_row(r):
+                    # Child rows stay neutral — their styling (orange credit text) is set
+                    # during breakdown render and must not be overwritten here.
                     continue
                 dec = self._decision_for_row(r)
                 st = dec.get("status")
@@ -4785,6 +4913,7 @@ class MainWindow(QMainWindow):
         if not self._sort_persist_connected:
             hdr.sortIndicatorChanged.connect(self._on_sort_indicator_changed)
             self._sort_persist_connected = True
+        self._sync_decision_store_from_table()
         self._apply_row_colors()
         self._apply_filter_to_table(self._filter_edit.text())
         self._refresh_export_batch_status_label()
@@ -4964,81 +5093,83 @@ class MainWindow(QMainWindow):
         if row < 0:
             return
         col = self._table.columnAt(pos.x())
+        is_child = self._is_settlement_child_row(row)
         dec0 = self._decision_for_row(row)
         status = dec0.get("status")
         reason0 = str(dec0.get("reason_code") or "")
         menu = QMenu(self)
-        if col == int(PaymentColumn.AMOUNT) and self._cell_text(row, PaymentColumn.AMOUNT).strip() == "?":
-            snap = self._amount_result_snapshot_for_row(row)
-            if picker_eligible(snap, field_id="amount"):
-                act_amt = menu.addAction("Kies bedrag…")
-                act_amt.triggered.connect(
-                    lambda checked=False, r=row: self._show_field_candidate_menu(r, "amount")
+        if not is_child:
+            if col == int(PaymentColumn.AMOUNT) and self._cell_text(row, PaymentColumn.AMOUNT).strip() == "?":
+                snap = self._amount_result_snapshot_for_row(row)
+                if picker_eligible(snap, field_id="amount"):
+                    act_amt = menu.addAction("Kies bedrag…")
+                    act_amt.triggered.connect(
+                        lambda checked=False, r=row: self._show_field_candidate_menu(r, "amount")
+                    )
+            if col == int(PaymentColumn.CUSTOMER_CODE) and self._field_picker_eligible(
+                row, "customer_number"
+            ):
+                act_cust = menu.addAction("Kies klantnummer…")
+                act_cust.triggered.connect(
+                    lambda checked=False, r=row: self._show_field_candidate_menu(
+                        r, "customer_number"
+                    )
                 )
-        if col == int(PaymentColumn.CUSTOMER_CODE) and self._field_picker_eligible(
-            row, "customer_number"
-        ):
-            act_cust = menu.addAction("Kies klantnummer…")
-            act_cust.triggered.connect(
-                lambda checked=False, r=row: self._show_field_candidate_menu(
-                    r, "customer_number"
+            if col == int(PaymentColumn.IBAN) and self._field_picker_eligible(row, "iban"):
+                act_iban = menu.addAction("Kies IBAN…")
+                act_iban.triggered.connect(
+                    lambda checked=False, r=row: self._show_field_candidate_menu(r, "iban")
                 )
-            )
-        if col == int(PaymentColumn.IBAN) and self._field_picker_eligible(row, "iban"):
-            act_iban = menu.addAction("Kies IBAN…")
-            act_iban.triggered.connect(
-                lambda checked=False, r=row: self._show_field_candidate_menu(r, "iban")
-            )
-        if col in (int(PaymentColumn.DESCRIPTION), int(PaymentColumn.SUPPLIER)) and self._field_picker_eligible(
-            row, "invoice_number"
-        ):
-            act_inv = menu.addAction("Kies factuur-/polisnummer…")
-            act_inv.triggered.connect(
-                lambda checked=False, r=row: self._show_field_candidate_menu(
-                    r, "invoice_number"
+            if col in (int(PaymentColumn.DESCRIPTION), int(PaymentColumn.SUPPLIER)) and self._field_picker_eligible(
+                row, "invoice_number"
+            ):
+                act_inv = menu.addAction("Kies factuur-/polisnummer…")
+                act_inv.triggered.connect(
+                    lambda checked=False, r=row: self._show_field_candidate_menu(
+                        r, "invoice_number"
+                    )
                 )
-            )
-        if status == DECISION_NEEDS_REVIEW:
-            action_confirm = menu.addAction("Bevestig factuur")
-            action_confirm.triggered.connect(lambda: self._confirm_review_rows([row]))
-            selected = self._selected_table_rows()
-            review_selected = [
-                r for r in selected
-                if self._decision_for_row(r).get("status") == DECISION_NEEDS_REVIEW
-            ]
-            if len(review_selected) > 1:
-                action_all = menu.addAction(f"Bevestig alle geselecteerde ({len(review_selected)})")
-                action_all.triggered.connect(lambda: self._confirm_review_rows(review_selected))
-        if self._row_can_profile_confirm(row):
-            action_profile = menu.addAction("Bevestig factuurgegevens…")
-            action_profile.triggered.connect(lambda: self._on_profile_confirm_row(row))
-        if status == DECISION_EXCLUDED and reason0 == REASON_USER_MARKED_ERROR:
-            action_restore = menu.addAction("Herstel naar OK")
-            action_restore.triggered.connect(lambda: self._restore_rows_from_error([row]))
-            selected = self._selected_table_rows()
-            fout_selected = [
-                r for r in selected
-                if (
-                    self._decision_for_row(r).get("status") == DECISION_EXCLUDED
-                    and str(self._decision_for_row(r).get("reason_code") or "") == REASON_USER_MARKED_ERROR
+            if status == DECISION_NEEDS_REVIEW:
+                action_confirm = menu.addAction("Bevestig factuur")
+                action_confirm.triggered.connect(lambda: self._confirm_review_rows([row]))
+                selected = self._selected_table_rows()
+                review_selected = [
+                    r for r in selected
+                    if self._decision_for_row(r).get("status") == DECISION_NEEDS_REVIEW
+                ]
+                if len(review_selected) > 1:
+                    action_all = menu.addAction(f"Bevestig alle geselecteerde ({len(review_selected)})")
+                    action_all.triggered.connect(lambda: self._confirm_review_rows(review_selected))
+            if self._row_can_profile_confirm(row):
+                action_profile = menu.addAction("Bevestig factuurgegevens…")
+                action_profile.triggered.connect(lambda: self._on_profile_confirm_row(row))
+            if status == DECISION_EXCLUDED and reason0 == REASON_USER_MARKED_ERROR:
+                action_restore = menu.addAction("Herstel naar OK")
+                action_restore.triggered.connect(lambda: self._restore_rows_from_error([row]))
+                selected = self._selected_table_rows()
+                fout_selected = [
+                    r for r in selected
+                    if (
+                        self._decision_for_row(r).get("status") == DECISION_EXCLUDED
+                        and str(self._decision_for_row(r).get("reason_code") or "") == REASON_USER_MARKED_ERROR
+                    )
+                ]
+                if len(fout_selected) > 1:
+                    action_all_restore = menu.addAction(f"Herstel alle geselecteerde ({len(fout_selected)})")
+                    action_all_restore.triggered.connect(lambda: self._restore_rows_from_error(fout_selected))
+            else:
+                action_fout = menu.addAction("Markeer als fout")
+                action_fout.triggered.connect(lambda: self._mark_rows_as_error([row]))
+            if not (status == DECISION_EXCLUDED and reason0 == REASON_USER_MARKED_ERROR):
+                menu.addAction("Betaal direct (sessiedatum)").triggered.connect(
+                    lambda: self._apply_pay_direct_rows(self._selected_table_rows() or [row])
                 )
-            ]
-            if len(fout_selected) > 1:
-                action_all_restore = menu.addAction(f"Herstel alle geselecteerde ({len(fout_selected)})")
-                action_all_restore.triggered.connect(lambda: self._restore_rows_from_error(fout_selected))
-        else:
-            action_fout = menu.addAction("Markeer als fout")
-            action_fout.triggered.connect(lambda: self._mark_rows_as_error([row]))
-        if not (status == DECISION_EXCLUDED and reason0 == REASON_USER_MARKED_ERROR):
-            menu.addAction("Betaal direct (sessiedatum)").triggered.connect(
-                lambda: self._apply_pay_direct_rows(self._selected_table_rows() or [row])
-            )
-            menu.addAction("Betaal op uiterste betaaldatum").triggered.connect(
-                lambda: self._apply_pay_due_rows(self._selected_table_rows() or [row])
-            )
-            menu.addAction("Korting toepassen op geselecteerde rij(en)").triggered.connect(
-                lambda: self._on_reapply_discounts(self._selected_table_rows() or [row])
-            )
+                menu.addAction("Betaal op uiterste betaaldatum").triggered.connect(
+                    lambda: self._apply_pay_due_rows(self._selected_table_rows() or [row])
+                )
+                menu.addAction("Korting toepassen op geselecteerde rij(en)").triggered.connect(
+                    lambda: self._on_reapply_discounts(self._selected_table_rows() or [row])
+                )
         credit = self._credit_for_row(row)
         if credit is not None:
             menu.addSeparator()
@@ -5968,6 +6099,24 @@ class MainWindow(QMainWindow):
         store.commit_run(run_id)
         self._pinned_run_id = run_id
         self._active_run_id = run_id
+
+    def _sync_decision_store_from_table(self) -> None:
+        """Sync fresh row decisions from table items into DecisionStore.
+
+        After any repopulate the new decisions live in _ROW_DECISION_ROLE on items
+        (set by _set_row_decision inside _append_table_row).  _apply_row_colors reads
+        via _decision_for_row → DecisionStore, so without this sync it would read stale
+        decisions and paint wrong colours.  Child rows are excluded — they have no
+        independent decision and their styling is managed separately.
+        """
+        decision_map: dict[str, dict[str, Any]] = {}
+        for r in range(self._table.rowCount()):
+            if self._is_row_blank(r) or self._is_settlement_child_row(r):
+                continue
+            rid = self._row_id(r)
+            decision_map[rid] = self._row_decision(r)
+        if decision_map:
+            self._commit_decision_map_patch(decision_map)
 
     def build_engine_input_from_row(self, row_id: str) -> EngineInputRow:
         for r in range(self._table.rowCount()):

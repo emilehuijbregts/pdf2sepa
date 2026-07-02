@@ -12,6 +12,11 @@ _QT_USER_ROLE = 256
 _ROW_SETTLEMENT_ROW_KIND_ROLE = _QT_USER_ROLE + 30
 _ROW_SETTLEMENT_DOC_ID_ROLE = _QT_USER_ROLE + 31
 _ROW_SETTLEMENT_GROUP_ID_ROLE = _QT_USER_ROLE + 20
+# Extended metadata roles — populated for every child row in breakdown rendering.
+# These are cheap to store now and make every future contextmenu action trivial.
+_ROW_SETTLEMENT_DOC_TYPE_ROLE = _QT_USER_ROLE + 32
+_ROW_SETTLEMENT_SUPPLIER_ROLE = _QT_USER_ROLE + 33
+_ROW_SETTLEMENT_SOURCE_PDF_ROLE = _QT_USER_ROLE + 34
 
 
 class SettlementRowKind(IntEnum):
@@ -20,6 +25,7 @@ class SettlementRowKind(IntEnum):
     CREDIT_CHILD = 3
     GROUP_FOOTER = 4
     ALLOCATION_CHILD = 5
+    WARNING_CHILD = 6
 
 
 def settlement_row_kind(item) -> SettlementRowKind | None:
@@ -38,8 +44,7 @@ def is_settlement_child_row(row: int, table) -> bool:
     return kind in (
         SettlementRowKind.INVOICE_CHILD,
         SettlementRowKind.CREDIT_CHILD,
-        SettlementRowKind.ALLOCATION_CHILD,
-        SettlementRowKind.GROUP_FOOTER,
+        SettlementRowKind.WARNING_CHILD,
     )
 
 
@@ -47,34 +52,102 @@ def expand_indicator(expanded: bool) -> str:
     return "▼" if expanded else "▶"
 
 
-def breakdown_child_rows(vm: SettlementGroupVM, *, expanded: bool) -> list[dict[str, Any]]:
-    """Child row specs for a settlement group (render-only from VM)."""
+def _settlement_warning_message(vm: SettlementGroupVM) -> str | None:
+    unallocated = next(
+        (a for a in vm.allocations if str(a.status or "").startswith("unallocated_")),
+        None,
+    )
+    if unallocated is not None:
+        credit_no = unallocated.credit_number
+        balance = unallocated.remaining_balance or unallocated.amount_applied
+        if credit_no and balance:
+            return f"Credit {credit_no} niet toegewezen ({balance})"
+        return "Credit niet toegewezen"
+    unresolved = next(
+        (
+            c
+            for c in vm.credits
+            if c.remaining_balance and c.remaining_balance not in ("0", "0.00", "0,00", "")
+        ),
+        None,
+    )
+    if unresolved is not None:
+        credit_no = unresolved.invoice_number
+        balance = unresolved.remaining_balance
+        if credit_no and balance:
+            return f"Credit {credit_no} niet volledig verrekend ({balance})"
+        return "Credit niet volledig verrekend"
+    return None
+
+
+def _build_doc_map(group: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """Map invoice_number → {document_id, raw, doc_type} from member_documents."""
+    doc_map: dict[str, dict[str, Any]] = {}
+    for doc in group.get("member_documents") or []:
+        raw = doc.get("raw") if isinstance(doc.get("raw"), dict) else doc
+        if not isinstance(raw, dict):
+            continue
+        inv_no = str(raw.get("invoice_number") or "").strip()
+        doc_id = str(doc.get("document_id") or "").strip()
+        doc_type = str(raw.get("type") or "invoice")
+        if inv_no:
+            doc_map[inv_no] = {"document_id": doc_id, "raw": raw, "doc_type": doc_type}
+        # Also index by doc_id for fallback lookups
+        if doc_id and doc_id not in doc_map:
+            doc_map[doc_id] = {"document_id": doc_id, "raw": raw, "doc_type": doc_type}
+    return doc_map
+
+
+def breakdown_child_rows(
+    vm: SettlementGroupVM,
+    *,
+    expanded: bool,
+    group: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    """Child row specs for a settlement group (render-only from VM).
+
+    When *group* (the raw SettlementGroupOutput dict) is supplied, each spec is
+    enriched with ``document_id`` and ``raw_invoice`` so that the full-row renderer
+    can populate all payment columns and store rich UserRole metadata.
+    """
     if not expanded:
         return []
+    doc_map = _build_doc_map(group) if group is not None else {}
+    supplier_name = str((group or {}).get("supplier_name") or vm.supplier_name)
+    group_id = str((group or {}).get("group_id") or vm.group_id)
     rows: list[dict[str, Any]] = []
-    rows.append({"kind": SettlementRowKind.INVOICE_CHILD, "label": "Facturen", "amount": "", "meta": {}})
     for inv in vm.invoices:
+        doc_info = doc_map.get(inv.invoice_number) or {}
         rows.append(
             {
                 "kind": SettlementRowKind.INVOICE_CHILD,
                 "label": inv.invoice_number,
                 "amount": inv.gross_amount,
+                "document_id": doc_info.get("document_id", ""),
+                "supplier_name": supplier_name,
+                "group_id": group_id,
+                "raw_invoice": doc_info.get("raw") or {},
                 "meta": {"doc_type": "invoice", "invoice_number": inv.invoice_number},
             }
         )
-    rows.append({"kind": SettlementRowKind.CREDIT_CHILD, "label": "Credits", "amount": "", "meta": {}})
     for cr in vm.credits:
-        amount = cr.amount_applied or cr.gross_amount
+        applied = str(cr.amount_applied or "").strip()
+        if applied in ("", "0", "0.00", "0,00"):
+            amount = cr.gross_amount
+        else:
+            amount = applied
         if amount and not str(amount).startswith("-"):
             amount = f"-{amount}"
-        suffix = ""
-        if cr.remaining_balance and cr.remaining_balance not in ("0", "0.00", "0,00"):
-            suffix = f" (remaining: {cr.remaining_balance})"
+        doc_info = doc_map.get(cr.invoice_number) or {}
         rows.append(
             {
                 "kind": SettlementRowKind.CREDIT_CHILD,
-                "label": f"{cr.invoice_number}{suffix}",
+                "label": cr.invoice_number,
                 "amount": amount,
+                "document_id": doc_info.get("document_id", ""),
+                "supplier_name": supplier_name,
+                "group_id": group_id,
+                "raw_invoice": doc_info.get("raw") or {},
                 "meta": {
                     "doc_type": "credit_note",
                     "invoice_number": cr.invoice_number,
@@ -82,41 +155,28 @@ def breakdown_child_rows(vm: SettlementGroupVM, *, expanded: bool) -> list[dict[
                 },
             }
         )
-    if vm.allocations:
-        rows.append({"kind": SettlementRowKind.ALLOCATION_CHILD, "label": "Toewijzing", "amount": "", "meta": {}})
-        for allocation in vm.allocations:
-            status = allocation.status
-            if status == "matched":
-                target = allocation.invoice_number or "?"
-                amount = allocation.amount_applied
-            else:
-                target = "UNMATCHED"
-                amount = allocation.remaining_balance or allocation.amount_applied
-            rows.append(
-                {
-                    "kind": SettlementRowKind.ALLOCATION_CHILD,
-                    "label": f"{allocation.credit_number} -> {target}",
-                    "amount": amount,
-                    "meta": {
-                        "doc_type": "allocation",
-                        "status": status,
-                        "credit_number": allocation.credit_number,
-                        "invoice_number": allocation.invoice_number,
-                    },
-                }
-            )
-    rows.append(
-        {
-            "kind": SettlementRowKind.GROUP_FOOTER,
-            "label": "Te betalen",
-            "amount": vm.final_amount_due,
-            "meta": {},
-        }
-    )
+    warning = _settlement_warning_message(vm)
+    if warning:
+        rows.append(
+            {
+                "kind": SettlementRowKind.WARNING_CHILD,
+                "label": warning,
+                "amount": "",
+                "document_id": "",
+                "supplier_name": supplier_name,
+                "group_id": group_id,
+                "raw_invoice": {},
+                "meta": {"doc_type": "warning"},
+            }
+        )
     return rows
 
 
 def apply_child_row_items(table, row: int, spec: dict[str, Any], settlement_col: int, group_id: str) -> None:
+    """Minimal 3-column fallback renderer.  Kept for backward compatibility;
+    the full-row renderer (_apply_settlement_child_row_full on MainWindow) is
+    preferred when called from _append_settlement_breakdown_rows.
+    """
     from PySide6.QtCore import Qt
     from PySide6.QtGui import QColor, QBrush
     from PySide6.QtWidgets import QTableWidgetItem
@@ -128,29 +188,25 @@ def apply_child_row_items(table, row: int, spec: dict[str, Any], settlement_col:
     read_only = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
 
     prefix = "  "
-    if kind == SettlementRowKind.GROUP_FOOTER:
-        prefix = "— "
-    elif kind in (
-        SettlementRowKind.INVOICE_CHILD,
-        SettlementRowKind.CREDIT_CHILD,
-        SettlementRowKind.ALLOCATION_CHILD,
-    ) and label in ("Facturen", "Credits", "Toewijzing"):
-        prefix = ""
+    if kind == SettlementRowKind.WARNING_CHILD:
+        prefix = "  ⚠ "
 
     sup_item = QTableWidgetItem(f"{prefix}{label}")
     sup_item.setFlags(read_only)
     sup_item.setData(_ROW_SETTLEMENT_ROW_KIND_ROLE, int(kind))
-    if meta.get("doc_type") == "credit_note":
-        doc_id = meta.get("document_id") or meta.get("invoice_number")
-        if doc_id:
-            sup_item.setData(_ROW_SETTLEMENT_DOC_ID_ROLE, str(doc_id))
-    if kind == SettlementRowKind.CREDIT_CHILD:
+    # Prefer explicit document_id from enriched spec; fall back to meta fields.
+    doc_id = str(spec.get("document_id") or meta.get("document_id") or meta.get("invoice_number") or "")
+    if doc_id and kind == SettlementRowKind.CREDIT_CHILD:
+        sup_item.setData(_ROW_SETTLEMENT_DOC_ID_ROLE, doc_id)
+    # Store extended metadata roles so contextmenus work without extra lookups.
+    doc_type = "credit_note" if kind == SettlementRowKind.CREDIT_CHILD else "invoice"
+    sup_item.setData(_ROW_SETTLEMENT_DOC_TYPE_ROLE, doc_type)
+    sup_item.setData(_ROW_SETTLEMENT_SUPPLIER_ROLE, str(spec.get("supplier_name") or ""))
+    raw = spec.get("raw_invoice") or {}
+    if raw.get("source_file"):
+        sup_item.setData(_ROW_SETTLEMENT_SOURCE_PDF_ROLE, str(raw["source_file"]))
+    if kind in (SettlementRowKind.CREDIT_CHILD, SettlementRowKind.WARNING_CHILD):
         sup_item.setForeground(QBrush(QColor("#b54708")))
-    elif kind == SettlementRowKind.ALLOCATION_CHILD:
-        if str(meta.get("status") or "").startswith("unallocated_"):
-            sup_item.setForeground(QBrush(QColor("#b54708")))
-        else:
-            sup_item.setForeground(QBrush(QColor("#667085")))
     table.setItem(row, 0, sup_item)
 
     amt_item = QTableWidgetItem(amount)
@@ -158,11 +214,6 @@ def apply_child_row_items(table, row: int, spec: dict[str, Any], settlement_col:
     amt_item.setData(_ROW_SETTLEMENT_ROW_KIND_ROLE, int(kind))
     if kind == SettlementRowKind.CREDIT_CHILD:
         amt_item.setForeground(QBrush(QColor("#b54708")))
-    elif kind == SettlementRowKind.ALLOCATION_CHILD:
-        if str(meta.get("status") or "").startswith("unallocated_"):
-            amt_item.setForeground(QBrush(QColor("#b54708")))
-        else:
-            amt_item.setForeground(QBrush(QColor("#667085")))
     table.setItem(row, 2, amt_item)
 
     sett_item = QTableWidgetItem("")
