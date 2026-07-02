@@ -108,6 +108,7 @@ from logic.payment_decisions import (
     decision_reason_text_nl,
     decision_status_label_nl,
     normalize_decision,
+    now_utc_iso,
     stable_hash,
 )
 from logic.payment_amounts import (
@@ -130,6 +131,8 @@ from logic.payment_dates import (
 from logic.credit_enrichment import enrich_credit_documents
 from logic.credit_settlement import document_id
 from logic.credit_override_apply import make_detach_override, make_reassign_override
+from logic.amount_override_apply import apply_amount_overrides
+from logic.amount_override_store import AmountOverride, AmountOverrideStore
 from logic.credit_override_store import CreditOverrideStore
 from logic.engine_cache import SettlementEngineCache
 from logic.engine_result import EngineResult
@@ -1174,6 +1177,7 @@ class MainWindow(QMainWindow):
         self._active_run_id: str | None = None
         self._approval_store = UserApprovalStore(self._user_data_dir / "user_approvals.json")
         self._override_store = CreditOverrideStore(self._user_data_dir / "credit_overrides.json")
+        self._amount_override_store = AmountOverrideStore(self._user_data_dir / "amount_overrides.json")
         self._engine_cache = SettlementEngineCache()
         self._matched_invoices: list[dict] = []
         self._expanded_settlement_groups: set[str] = set()
@@ -1215,11 +1219,14 @@ class MainWindow(QMainWindow):
 
     def _compute_engine_result(self, matched: list[dict]) -> EngineResult:
         override_session = self._override_store.load_session(self._batch_key())
+        amount_session = self._amount_override_store.load_session(self._batch_key())
+        # Apply amount overrides to a copy — original _matched_invoices is never mutated.
+        effective_matched = apply_amount_overrides(matched, amount_session)
         return self._engine_cache.get_or_compute(
-            matched,
+            effective_matched,
             override_session,
             lambda: calculate_payments_with_overrides(
-                matched,
+                effective_matched,
                 override_session=override_session,
                 session_date=self._session_date,
             ),
@@ -1330,6 +1337,82 @@ class MainWindow(QMainWindow):
     def _on_reset_credit_override(self, credit: dict[str, Any]) -> None:
         cid = document_id({"raw": credit})
         self._override_store.clear_credit(self._batch_key(), cid)
+        self._rerun_settlement_engine()
+
+    def _on_adjust_amount_override(self, row: int) -> None:
+        """Open a dialog for the user to enter a new gross amount for this document.
+
+        Works on both INVOICE_CHILD and CREDIT_CHILD rows.  Uses the raw_invoice
+        and document_id stored as UserRole metadata on the supplier item.
+        """
+        from PySide6.QtWidgets import QInputDialog, QMessageBox
+
+        sup_it = self._table.item(row, PaymentColumn.SUPPLIER)
+        if not sup_it:
+            return
+        doc_id = str(sup_it.data(_ROW_SETTLEMENT_DOC_ID_ROLE) or "").strip()
+        if not doc_id:
+            QMessageBox.warning(self, "Bedrag aanpassen", "Geen document-ID gevonden voor deze rij.")
+            return
+
+        # Find the matching invoice in _matched_invoices
+        matched_inv: dict[str, Any] | None = next(
+            (inv for inv in self._matched_invoices if document_id({"raw": inv}) == doc_id),
+            None,
+        )
+        if matched_inv is None:
+            QMessageBox.warning(self, "Bedrag aanpassen", f"Document '{doc_id}' niet gevonden in huidige batch.")
+            return
+
+        # Determine current amount (check for existing amount override first)
+        amount_session = self._amount_override_store.load_session(self._batch_key())
+        existing = None
+        if amount_session:
+            existing = next((o for o in amount_session.overrides if o.document_id == doc_id), None)
+        if existing is not None:
+            current = float(existing.new_amount)
+        else:
+            current = float(matched_inv.get("amount_dec") or 0)
+
+        inv_no = str(matched_inv.get("invoice_number") or doc_id)
+        new_val, ok = QInputDialog.getDouble(
+            self,
+            "Bedrag aanpassen",
+            f"Nieuw bruto bedrag voor {inv_no}:",
+            value=current,
+            min=0.0,
+            max=999_999_999.99,
+            decimals=2,
+        )
+        if not ok:
+            return
+
+        old_dec = Decimal(str(matched_inv.get("amount_dec") or 0)).quantize(Decimal("0.01"))
+        new_dec = Decimal(str(new_val)).quantize(Decimal("0.01"))
+        if new_dec == old_dec and existing is None:
+            return
+        if new_dec == Decimal(str(existing.old_amount if existing else old_dec)).quantize(Decimal("0.01")):
+            # User reverted to original — remove the override
+            self._amount_override_store.remove_override(self._batch_key(), doc_id)
+        else:
+            override = AmountOverride(
+                document_id=doc_id,
+                old_amount=old_dec,
+                new_amount=new_dec,
+                reason="user_adjusted",
+                created_at=now_utc_iso(),
+            )
+            self._amount_override_store.upsert_override(
+                self._batch_key(),
+                override,
+                history_event={
+                    "event": "user_adjusted_amount",
+                    "document_id": doc_id,
+                    "old_amount": str(old_dec),
+                    "new_amount": str(new_dec),
+                    "at": override.created_at,
+                },
+            )
         self._rerun_settlement_engine()
 
     def _on_link_credit_to_invoice_row(self, invoice_row: int) -> None:
@@ -5186,6 +5269,12 @@ class MainWindow(QMainWindow):
                 menu.addSeparator()
                 act_link = menu.addAction("Koppel credit…")
                 act_link.triggered.connect(lambda checked=False, r=row: self._on_link_credit_to_invoice_row(r))
+        if kind in (SettlementRowKind.INVOICE_CHILD, SettlementRowKind.CREDIT_CHILD):
+            sup_it = self._table.item(row, PaymentColumn.SUPPLIER)
+            if sup_it and sup_it.data(_ROW_SETTLEMENT_DOC_ID_ROLE):
+                menu.addSeparator()
+                act_amt = menu.addAction("Bedrag aanpassen…")
+                act_amt.triggered.connect(lambda checked=False, r=row: self._on_adjust_amount_override(r))
         if not menu.isEmpty():
             menu.exec(self._table.viewport().mapToGlobal(pos))
 
