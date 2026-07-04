@@ -591,6 +591,14 @@ def match_suppliers(invoices: list[dict], db: SupplierDB) -> list[dict]:
             extraction_profile = db.get_extraction_profile(supplier["name"])
             if isinstance(extraction_profile, dict):
                 invoice_copy["extraction_profile"] = extraction_profile
+            from parser.supplier_db import credit_profile_from_supplier_record, supplier_key_from_name
+
+            supplier_key = str(supplier.get("supplier_key") or supplier_key_from_name(supplier["name"])).strip()
+            if supplier_key:
+                invoice_copy["supplier_key"] = supplier_key
+            credit_profile = credit_profile_from_supplier_record(supplier)
+            if isinstance(credit_profile, dict):
+                invoice_copy["credit_profile"] = credit_profile
             from parser.pdf_parser import apply_customer_number_profile_override
 
             apply_customer_number_profile_override(invoice_copy, extraction_profile)

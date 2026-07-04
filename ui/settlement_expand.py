@@ -5,6 +5,7 @@ from __future__ import annotations
 from enum import IntEnum
 from typing import Any
 
+from logic.credit_settlement import document_id
 from ui.settlement_badges import settlement_badge_nl
 from ui.settlement_view import SettlementGroupVM, settlement_group_vm_from_engine
 
@@ -52,6 +53,15 @@ def expand_indicator(expanded: bool) -> str:
     return "▼" if expanded else "▶"
 
 
+def _format_money_nl(value: str) -> str:
+    try:
+        from logic.payment_amounts import amount_to_decimal, format_eur_xml
+
+        return format_eur_xml(amount_to_decimal(str(value).replace(",", "."))).replace(".", ",")
+    except Exception:
+        return str(value or "").replace(".", ",")
+
+
 def _settlement_warning_message(vm: SettlementGroupVM) -> str | None:
     unallocated = next(
         (a for a in vm.allocations if str(a.status or "").startswith("unallocated_")),
@@ -61,7 +71,7 @@ def _settlement_warning_message(vm: SettlementGroupVM) -> str | None:
         credit_no = unallocated.credit_number
         balance = unallocated.remaining_balance or unallocated.amount_applied
         if credit_no and balance:
-            return f"Credit {credit_no} niet toegewezen ({balance})"
+            return f"Credit {credit_no} niet toegewezen ({_format_money_nl(balance)})"
         return "Credit niet toegewezen"
     unresolved = next(
         (
@@ -75,9 +85,17 @@ def _settlement_warning_message(vm: SettlementGroupVM) -> str | None:
         credit_no = unresolved.invoice_number
         balance = unresolved.remaining_balance
         if credit_no and balance:
-            return f"Credit {credit_no} niet volledig verrekend ({balance})"
+            return f"Credit {credit_no} niet volledig verrekend ({_format_money_nl(balance)})"
         return "Credit niet volledig verrekend"
     return None
+
+
+def _canonical_doc_id(doc_info: dict[str, Any]) -> str:
+    """Stable document key for UI metadata — always matches AmountOverrideStore / engine."""
+    raw = doc_info.get("raw") if isinstance(doc_info.get("raw"), dict) else {}
+    if raw:
+        return document_id({"raw": raw})
+    return str(doc_info.get("document_id") or "").strip()
 
 
 def _build_doc_map(group: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -116,6 +134,46 @@ def breakdown_child_rows(
     supplier_name = str((group or {}).get("supplier_name") or vm.supplier_name)
     group_id = str((group or {}).get("group_id") or vm.group_id)
     rows: list[dict[str, Any]] = []
+    seen_credit_numbers: set[str] = set()
+
+    def _append_credit_row(
+        *,
+        credit_number: str,
+        gross_amount: str,
+        amount_applied: str,
+        remaining_balance: str,
+        detached: bool = False,
+    ) -> None:
+        credit_no = str(credit_number or "").strip()
+        if not credit_no or credit_no in seen_credit_numbers:
+            return
+        seen_credit_numbers.add(credit_no)
+        applied = str(amount_applied or "").strip()
+        if applied in ("", "0", "0.00", "0,00"):
+            amount = gross_amount
+        else:
+            amount = applied
+        if amount and not str(amount).startswith("-"):
+            amount = f"-{amount}"
+        doc_info = doc_map.get(credit_no) or {}
+        rows.append(
+            {
+                "kind": SettlementRowKind.CREDIT_CHILD,
+                "label": credit_no,
+                "amount": amount,
+                "document_id": _canonical_doc_id(doc_info),
+                "supplier_name": supplier_name,
+                "group_id": group_id,
+                "raw_invoice": doc_info.get("raw") or {},
+                "meta": {
+                    "doc_type": "credit_note",
+                    "invoice_number": credit_no,
+                    "remaining_balance": remaining_balance,
+                    "detached": detached,
+                },
+            }
+        )
+
     for inv in vm.invoices:
         doc_info = doc_map.get(inv.invoice_number) or {}
         rows.append(
@@ -123,7 +181,7 @@ def breakdown_child_rows(
                 "kind": SettlementRowKind.INVOICE_CHILD,
                 "label": inv.invoice_number,
                 "amount": inv.gross_amount,
-                "document_id": doc_info.get("document_id", ""),
+                "document_id": _canonical_doc_id(doc_info),
                 "supplier_name": supplier_name,
                 "group_id": group_id,
                 "raw_invoice": doc_info.get("raw") or {},
@@ -131,29 +189,23 @@ def breakdown_child_rows(
             }
         )
     for cr in vm.credits:
-        applied = str(cr.amount_applied or "").strip()
-        if applied in ("", "0", "0.00", "0,00"):
-            amount = cr.gross_amount
-        else:
-            amount = applied
-        if amount and not str(amount).startswith("-"):
-            amount = f"-{amount}"
-        doc_info = doc_map.get(cr.invoice_number) or {}
-        rows.append(
-            {
-                "kind": SettlementRowKind.CREDIT_CHILD,
-                "label": cr.invoice_number,
-                "amount": amount,
-                "document_id": doc_info.get("document_id", ""),
-                "supplier_name": supplier_name,
-                "group_id": group_id,
-                "raw_invoice": doc_info.get("raw") or {},
-                "meta": {
-                    "doc_type": "credit_note",
-                    "invoice_number": cr.invoice_number,
-                    "remaining_balance": cr.remaining_balance,
-                },
-            }
+        _append_credit_row(
+            credit_number=cr.invoice_number,
+            gross_amount=cr.gross_amount,
+            amount_applied=cr.amount_applied,
+            remaining_balance=cr.remaining_balance,
+            detached=False,
+        )
+    # Unallocated / detached credits from allocation graph (may not appear in linked_groups).
+    for alloc in vm.allocations:
+        if not str(alloc.status or "").startswith("unallocated_"):
+            continue
+        _append_credit_row(
+            credit_number=alloc.credit_number,
+            gross_amount=alloc.remaining_balance or alloc.amount_applied,
+            amount_applied=alloc.amount_applied,
+            remaining_balance=alloc.remaining_balance,
+            detached=True,
         )
     warning = _settlement_warning_message(vm)
     if warning:
@@ -232,7 +284,9 @@ def vm_from_group(group: dict[str, Any]) -> SettlementGroupVM:
 
 
 def badge_for_group(group: dict[str, Any]) -> str:
-    return settlement_badge_nl(str(group.get("settlement_status") or ""))
+    from ui.settlement_badges import settlement_badge_for_group
+
+    return settlement_badge_for_group(group)
 
 
 def mark_group_header_row(table, row: int, group_id: str) -> None:

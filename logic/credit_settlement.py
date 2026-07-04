@@ -331,7 +331,10 @@ def _build_settlement_group(
     credits_total = _quantize_money(
         sum((line.gross_amount for line in credit_lines), Decimal("0.00"))
     )
-    final_amount_due = _quantize_money(invoices_total - credits_total)
+    credits_applied_total = _quantize_money(
+        sum((line.amount_applied for line in credit_lines), Decimal("0.00"))
+    )
+    final_amount_due = _quantize_money(invoices_total - credits_applied_total)
 
     status, refund_amount = _resolve_group_status(
         final_amount_due=final_amount_due,

@@ -26,6 +26,10 @@ from parser.profile_extractor import validate_profile
 
 logger = logging.getLogger(__name__)
 
+CREDIT_PROFILE_FIELD_KEYS = frozenset({"amount", "credit_number"})
+CREDIT_PROFILE_META_KEYS = frozenset({"learned_from", "reference_patterns", "ocr_corrections"})
+CREDIT_PROFILE_ALLOWED_KEYS = CREDIT_PROFILE_FIELD_KEYS | CREDIT_PROFILE_META_KEYS
+
 CUSTOMER_NUMBER_MODE_NONE = "NONE"
 CUSTOMER_ABSENT_STATE = "NOT_PRESENT_SUPPLIER_LEVEL"
 _CUSTOMER_ABSENT_PICK_SOURCES = frozenset(
@@ -87,6 +91,31 @@ def customer_number_is_absent_or_none(inv: dict[str, Any] | None) -> bool:
         return True
     ep = inv.get("extraction_profile")
     return isinstance(ep, dict) and customer_number_mode_from_profile(ep) == CUSTOMER_NUMBER_MODE_NONE
+
+
+def supplier_key_from_name(name: str) -> str:
+    """Stable supplier identity key (canonical cleaned name)."""
+    try:
+        s = str(name or "").strip().lower()
+        if not s:
+            return ""
+        s = re.sub(r"^\s*\d+\s*/\s*\d+\s+", "", s)
+        s = re.sub(r"[^a-z\s]", " ", s)
+        s = re.sub(r"\s+", " ", s).strip()
+        s = re.sub(r"\bb\s+v\b", "bv", s)
+        s = re.sub(r"\bn\s+v\b", "nv", s)
+        s = re.sub(r"\s+", " ", s).strip()
+        return s
+    except Exception:
+        return ""
+
+
+def credit_profile_from_supplier_record(supplier: dict | None) -> dict | None:
+    """Return persisted credit_profile dict from a supplier record, if any."""
+    if not isinstance(supplier, dict):
+        return None
+    cp = supplier.get("credit_profile")
+    return dict(cp) if isinstance(cp, dict) else None
 
 
 def customer_number_authoritative_value(
@@ -1278,6 +1307,127 @@ class SupplierDB:
                 merged.pop("customer_number_mode", None)
 
             supplier["extraction_profile"] = merged
+            self.save()
+            return True
+        except Exception:
+            return False
+
+    def _find_supplier_by_key(self, supplier_key: str) -> dict | None:
+        """Lookup supplier by stable ``supplier_key`` (never OCR/display name)."""
+        try:
+            key = str(supplier_key or "").strip()
+            if not key:
+                return None
+            for s in self.suppliers:
+                stored = str(s.get("supplier_key") or "").strip()
+                if stored and stored == key:
+                    return s
+                if self._clean_name(s.get("name") or "") == key:
+                    return s
+            return None
+        except Exception:
+            return None
+
+    def get_credit_profile(self, supplier_key: str) -> dict | None:
+        """Return credit_profile for supplier identified by stable key."""
+        try:
+            supplier = self._find_supplier_by_key(supplier_key)
+            if supplier is None:
+                return None
+            return credit_profile_from_supplier_record(supplier)
+        except Exception:
+            return None
+
+    def save_credit_profile(
+        self,
+        supplier_key: str,
+        profile: dict,
+        *,
+        raw_text: str,
+        explicit_user_action: bool = False,
+    ) -> bool:
+        """
+        Persist credit_profile after validation against ``raw_text``.
+
+        Only allowed when ``explicit_user_action=True`` (diagnostics/manual save).
+        Never mutates ``extraction_profile``.
+        """
+        if not explicit_user_action:
+            logger.warning(
+                "credit_profile save blocked: explicit_user_action required (key=%r)",
+                supplier_key,
+            )
+            return False
+        try:
+            key = str(supplier_key or "").strip()
+            if not key or not isinstance(profile, dict):
+                return False
+            supplier = self._find_supplier_by_key(key)
+            if supplier is None:
+                return False
+
+            confirmed: dict[str, Any] = {}
+            amount_field = profile.get("amount")
+            if isinstance(amount_field, dict) and amount_field.get("confirmed_value") is not None:
+                try:
+                    confirmed["amount"] = Decimal(str(amount_field["confirmed_value"]))
+                except (InvalidOperation, ValueError):
+                    pass
+            credit_field = profile.get("credit_number")
+            if isinstance(credit_field, dict) and credit_field.get("confirmed_value") is not None:
+                cv = str(credit_field["confirmed_value"]).strip()
+                if cv:
+                    confirmed["credit_number"] = cv
+
+            validated: dict[str, Any] = {}
+            if "amount" in confirmed and isinstance(amount_field, dict):
+                if validate_profile(raw_text, {"amount": amount_field}, {"amount": confirmed["amount"]}):
+                    validated["amount"] = dict(amount_field)
+            if "credit_number" in confirmed and isinstance(credit_field, dict):
+                if validate_profile(
+                    raw_text,
+                    {"invoice_number": credit_field},
+                    {"invoice_number": confirmed["credit_number"]},
+                ):
+                    validated["credit_number"] = dict(credit_field)
+
+            ref_patterns = profile.get("reference_patterns")
+            if isinstance(ref_patterns, list):
+                cleaned_patterns = [str(p).strip() for p in ref_patterns if str(p or "").strip()]
+                if cleaned_patterns:
+                    validated["reference_patterns"] = cleaned_patterns
+
+            ocr_corrections = profile.get("ocr_corrections")
+            if isinstance(ocr_corrections, list):
+                cleaned_ocr: list[dict[str, str]] = []
+                for item in ocr_corrections:
+                    if not isinstance(item, dict):
+                        continue
+                    pat = str(item.get("pattern") or "").strip()
+                    repl = str(item.get("replacement") or "")
+                    if pat:
+                        cleaned_ocr.append({"pattern": pat, "replacement": repl})
+                if cleaned_ocr:
+                    validated["ocr_corrections"] = cleaned_ocr
+
+            if not validated:
+                logger.warning(
+                    "credit_profile validatie mislukt voor key=%r (geen velden)",
+                    supplier_key,
+                )
+                return False
+
+            existing_cp = supplier.get("credit_profile")
+            merged: dict[str, Any] = dict(existing_cp) if isinstance(existing_cp, dict) else {}
+            lf = profile.get("learned_from")
+            if lf:
+                merged["learned_from"] = lf
+            for field_key in CREDIT_PROFILE_FIELD_KEYS | frozenset({"reference_patterns", "ocr_corrections"}):
+                if field_key in validated:
+                    merged[field_key] = validated[field_key]
+
+            supplier["credit_profile"] = merged
+            supplier["supplier_key"] = key
             self.save()
             return True
         except Exception:

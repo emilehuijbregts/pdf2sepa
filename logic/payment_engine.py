@@ -27,6 +27,7 @@ from logic.payment_decisions import (
     REASON_MANUAL_PENDING,
     REASON_MISSING_AMOUNT,
     REASON_MISSING_IBAN,
+    REASON_UNALLOCATED_CREDIT_NOT_PAYABLE,
     REASON_UNCERTAIN,
     build_decision,
     canonicalize_payments,
@@ -754,6 +755,7 @@ def _apply_settlement_outcomes(
 
     refund_doc_ids: set[str] = set()
     manual_review_credit_doc_ids: set[str] = set()
+    credit_only_unallocated_doc_ids: set[str] = set()
     refund_detail_by_doc: dict[str, str] = {}
 
     for group in settlement.groups:
@@ -768,6 +770,9 @@ def _apply_settlement_outcomes(
         elif group.status == SETTLEMENT_MANUAL_REVIEW:
             for line in group.credits:
                 manual_review_credit_doc_ids.add(line.document_id)
+            if not group.invoices and group.credits:
+                for line in group.credits:
+                    credit_only_unallocated_doc_ids.add(line.document_id)
 
     if refund_doc_ids:
         refund_raws = [raw_by_doc[d] for d in sorted(refund_doc_ids) if d in raw_by_doc]
@@ -791,6 +796,21 @@ def _apply_settlement_outcomes(
             continue
         raw = raw_by_doc.get(doc_id)
         if raw is None:
+            continue
+        if doc_id in credit_only_unallocated_doc_ids:
+            err.add(
+                REASON_UNALLOCATED_CREDIT_NOT_PAYABLE,
+                group_supplier,
+                [
+                    _invoice_with_decision(
+                        raw,
+                        status=DECISION_EXCLUDED,
+                        reason_code=REASON_UNALLOCATED_CREDIT_NOT_PAYABLE,
+                        reason_detail="unallocated_credit",
+                        requires_rerun=False,
+                    )
+                ],
+            )
             continue
         err.add(
             "credit_match_needs_review",

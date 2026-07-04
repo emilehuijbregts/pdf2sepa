@@ -29,6 +29,7 @@ REASON_RUNTIME_MISMATCH = "ui_engine_state_mismatch"
 REASON_MISSING_DECISION_IN_STORE = "missing_decision_in_store"
 REASON_CREDIT_REFUND_REQUIRED = "credit_refund_required"
 REASON_CREDIT_SETTLEMENT_MANUAL_REVIEW = "credit_settlement_manual_review"
+REASON_UNALLOCATED_CREDIT_NOT_PAYABLE = "unallocated_credit_not_payable"
 
 REASON_CODE_VERSION = 1
 
@@ -163,6 +164,9 @@ def decision_reason_text_nl(reason_code: str) -> str:
         REASON_CREDIT_REFUND_REQUIRED: "Credit overschrijdt factuurbedrag; terugbetaling vereist.",
         REASON_CREDIT_SETTLEMENT_MANUAL_REVIEW: "Credit-verrekening vereist handmatige controle.",
         "credit_match_needs_review": "Credit-match vereist handmatige controle.",
+        REASON_UNALLOCATED_CREDIT_NOT_PAYABLE: (
+            "Wordt niet betaald vanwege onmogelijke verrekening."
+        ),
         "credit_note_only": "Alleen creditnota(s), geen factuur om te verrekenen.",
         "zero_amount": "Volledig verrekend; geen betaling.",
     }

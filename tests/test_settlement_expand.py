@@ -136,13 +136,13 @@ def test_breakdown_child_rows_metadata_enriched():
     rows = breakdown_child_rows(vm, expanded=True, group=group)
 
     inv_row = next(r for r in rows if r["kind"] == SettlementRowKind.INVOICE_CHILD)
-    assert inv_row["document_id"] == "doc-inv-1"
+    assert inv_row["document_id"] == "/invoices/inv1.pdf"
     assert inv_row["raw_invoice"].get("iban") == "NL91ABNA0417164300"
     assert inv_row["supplier_name"] == "Test BV"
     assert inv_row["group_id"] == "g1"
 
     cr_row = next(r for r in rows if r["kind"] == SettlementRowKind.CREDIT_CHILD)
-    assert cr_row["document_id"] == "doc-cr-1"
+    assert cr_row["document_id"] == "/invoices/cr1.pdf"
     assert cr_row["raw_invoice"].get("source_file") == "/invoices/cr1.pdf"
 
 

@@ -71,6 +71,11 @@ from logic.profile_learning import (
     profile_field_keys_missing,
     profile_learning_block_reason,
 )
+from logic.credit_profile_learning import (
+    confirm_credit_profile_fields,
+    credit_profile_learning_block_reason,
+    supplier_key_for_matched_invoice,
+)
 from ui.diagnostics_dialog import DiagnosticsDialog
 from ui.field_picker import (
     append_customer_absent_menu_action,
@@ -132,7 +137,7 @@ from logic.credit_enrichment import enrich_credit_documents
 from logic.credit_settlement import document_id
 from logic.credit_override_apply import make_detach_override, make_reassign_override
 from logic.amount_override_apply import apply_amount_overrides
-from logic.amount_override_store import AmountOverride, AmountOverrideStore
+from logic.amount_override_store import AmountOverride, AmountOverrideSession, amount_override_session_fingerprint
 from logic.credit_override_store import CreditOverrideStore
 from logic.engine_cache import SettlementEngineCache
 from logic.engine_result import EngineResult
@@ -180,7 +185,7 @@ from parser.supplier_db import (
 )
 from parser.supplier_matcher import match_suppliers, _db_core_matches
 from ui.credit_override_dialog import CreditOverrideDialog
-from ui.settlement_badges import settlement_badge_nl
+from ui.settlement_badges import settlement_badge_for_group, settlement_badge_nl, _is_credit_only_group
 from ui.settlement_expand import (
     SettlementRowKind,
     _ROW_SETTLEMENT_DOC_ID_ROLE,
@@ -422,6 +427,7 @@ _ERROR_REASON_NL: dict[str, str] = {
     "credit_exceeds_invoice_total": "Creditnota's overschrijden het factuurbedrag.",
     "credit_refund_required": "Credit overschrijdt factuurbedrag; terugbetaling vereist.",
     "credit_settlement_manual_review": "Credit-verrekening vereist handmatige controle.",
+    "unallocated_credit_not_payable": "Wordt niet betaald vanwege onmogelijke verrekening.",
     "zero_amount": "Te betalen bedrag is nul na korting/credit.",
     "negative_amount": "Te betalen bedrag is negatief.",
     "missing_iban": "IBAN ontbreekt in PDF of niet ingevuld.",
@@ -913,6 +919,30 @@ def _format_amount_nl(amount: object) -> str:
     except ValueError:
         return "?"
 
+
+def _format_settlement_child_amount(amount: object) -> str:
+    """NL-formatted amount for settlement child rows (engine may use '.' decimals)."""
+    raw = str(amount or "").strip()
+    if not raw:
+        return ""
+    try:
+        return _format_amount_nl(amount_to_decimal(raw.replace(",", ".")))
+    except ValueError:
+        return raw
+
+
+def _error_row_amount_str(inv: dict[str, Any]) -> str:
+    amt = inv.get("amount")
+    if amt is None:
+        return ""
+    try:
+        dec = amount_to_decimal(amt)
+    except ValueError:
+        return "?"
+    if str(inv.get("type") or "") == "credit_note" and dec > Decimal("0"):
+        dec = -dec
+    return _format_amount_nl(dec)
+
 def _term_status_label(trusted: bool | None, effective_days: int) -> str:
     if trusted is True:
         return f"Termijn: {effective_days} dagen (toegepast)"
@@ -1177,7 +1207,7 @@ class MainWindow(QMainWindow):
         self._active_run_id: str | None = None
         self._approval_store = UserApprovalStore(self._user_data_dir / "user_approvals.json")
         self._override_store = CreditOverrideStore(self._user_data_dir / "credit_overrides.json")
-        self._amount_override_store = AmountOverrideStore(self._user_data_dir / "amount_overrides.json")
+        self._session_amount_overrides: dict[str, AmountOverride] = {}
         self._engine_cache = SettlementEngineCache()
         self._matched_invoices: list[dict] = []
         self._expanded_settlement_groups: set[str] = set()
@@ -1187,6 +1217,7 @@ class MainWindow(QMainWindow):
         self._rows_requiring_reapproval_rows: set[int] = set()
         self._parsed_batch_cache = ParsedInvoiceBatchCache()
         self._engine_result: EngineResult | None = None
+        self._decision_table_fingerprint: str | None = None
         self._engine_rerun_timer = QTimer(self)
         self._engine_rerun_timer.setSingleShot(True)
         self._engine_rerun_timer.timeout.connect(self._commit_pending_engine_updates)
@@ -1217,9 +1248,50 @@ class MainWindow(QMainWindow):
             }
         )
 
+    def _session_amount_override_session(self) -> AmountOverrideSession | None:
+        if not self._session_amount_overrides:
+            return None
+        return AmountOverrideSession(
+            batch_key=self._batch_key(),
+            overrides=tuple(self._session_amount_overrides.values()),
+            history=(),
+        )
+
+    def _upsert_session_amount_override(self, override: AmountOverride) -> None:
+        self._session_amount_overrides[override.document_id] = override
+
+    def _remove_session_amount_override(self, document_id: str) -> None:
+        self._session_amount_overrides.pop(document_id, None)
+
+    def _clear_session_amount_overrides(self) -> None:
+        self._session_amount_overrides.clear()
+
+    def _document_ids_in_matched(self, matched: list[dict]) -> tuple[set[str], set[str]]:
+        all_ids: set[str] = set()
+        credit_ids: set[str] = set()
+        for inv in matched:
+            did = document_id({"raw": inv})
+            all_ids.add(did)
+            if str(inv.get("type") or "") == "credit_note":
+                credit_ids.add(did)
+        return all_ids, credit_ids
+
+    def _init_expand_state_for_engine(self, engine_result: EngineResult) -> None:
+        """Cold-start: keep settlement groups collapsed; user expands manually."""
+        _ = engine_result
+
+    def _count_payment_header_rows(self) -> int:
+        return sum(
+            1
+            for r in range(self._table.rowCount())
+            if not self._is_row_blank(r) and not self._is_settlement_child_row(r)
+        )
+
     def _compute_engine_result(self, matched: list[dict]) -> EngineResult:
-        override_session = self._override_store.load_session(self._batch_key())
-        amount_session = self._amount_override_store.load_session(self._batch_key())
+        batch_key = self._batch_key()
+        all_doc_ids, credit_doc_ids = self._document_ids_in_matched(matched)
+        override_session = self._override_store.load_applicable_session(batch_key, credit_doc_ids)
+        amount_session = self._session_amount_override_session()
         # Apply amount overrides to a copy — original _matched_invoices is never mutated.
         effective_matched = apply_amount_overrides(matched, amount_session)
         return self._engine_cache.get_or_compute(
@@ -1230,6 +1302,7 @@ class MainWindow(QMainWindow):
                 override_session=override_session,
                 session_date=self._session_date,
             ),
+            amount_override_fingerprint=amount_override_session_fingerprint(amount_session),
         )
 
     def _populate_from_engine_result(
@@ -1263,15 +1336,130 @@ class MainWindow(QMainWindow):
             run_shadow_validation(matched, engine_result)
         return n_err
 
-    def _rerun_settlement_engine(self) -> None:
+    def _rerun_settlement_engine(
+        self,
+        *,
+        focus_doc_ids: set[str] | None = None,
+    ) -> None:
         if not self._matched_invoices:
             return
+        prior_expanded = set(self._expanded_settlement_groups)
         self._engine_cache.invalidate("override_changed")
         self._engine_result = self._compute_engine_result(self._matched_invoices)
+        self._reconcile_expanded_groups(prior_expanded, focus_doc_ids=focus_doc_ids)
         n_err = self._populate_from_engine_result(self._engine_result, self._matched_invoices)
         self._refresh_export_batch_status_label()
         label = "Verrekening" if self._engine_result.uses_settlement else "Betalingen"
         self._set_status(f"{label} bijgewerkt ({n_err} review-rijen).")
+
+    def _reconcile_expanded_groups(
+        self,
+        prior_expanded: set[str],
+        *,
+        focus_doc_ids: set[str] | None = None,
+    ) -> None:
+        """Keep valid expand state across engine reruns; auto-expand groups for focus docs."""
+        if self._engine_result is None:
+            return
+        new_gids = {
+            str(g.get("group_id") or "")
+            for g in self._engine_result.settlement_groups
+            if str(g.get("group_id") or "").strip()
+        }
+        self._expanded_settlement_groups = prior_expanded & new_gids
+        if not focus_doc_ids:
+            return
+        for group in self._engine_result.settlement_groups:
+            gid = str(group.get("group_id") or "").strip()
+            if not gid:
+                continue
+            matched = False
+            for doc in group.get("member_documents") or []:
+                if not isinstance(doc, dict):
+                    continue
+                did = str(doc.get("document_id") or "").strip()
+                raw = doc.get("raw") if isinstance(doc.get("raw"), dict) else {}
+                if did in focus_doc_ids or document_id({"raw": raw}) in focus_doc_ids:
+                    matched = True
+                    break
+            if not matched:
+                for alloc in group.get("credit_allocation") or []:
+                    if not isinstance(alloc, dict):
+                        continue
+                    cid = str(alloc.get("credit_id") or "").strip()
+                    if cid in focus_doc_ids:
+                        matched = True
+                        break
+            if matched:
+                self._expanded_settlement_groups.add(gid)
+
+    def _invoice_for_document_id(self, doc_id: str) -> dict[str, Any] | None:
+        needle = str(doc_id or "").strip()
+        if not needle:
+            return None
+        needle_base = Path(needle).name
+        for inv in self._matched_invoices:
+            if document_id({"raw": inv}) == needle:
+                return inv
+            src = str(inv.get("source_file") or "").strip()
+            if src and (src == needle or Path(src).name == needle_base):
+                return inv
+            if str(inv.get("invoice_number") or "").strip() == needle:
+                return inv
+            if str(inv.get("source_file") or "").strip() == needle:
+                return inv
+        return None
+
+    def _document_id_for_table_row(self, row: int) -> str:
+        it = self._table.item(row, PaymentColumn.SUPPLIER)
+        if it is None:
+            return ""
+        stored = str(it.data(_ROW_SETTLEMENT_DOC_ID_ROLE) or "").strip()
+        if stored:
+            return stored
+        inv_no = str(it.data(_ROW_INVOICE_META_ROLE) or "").strip()
+        if inv_no:
+            for inv in self._matched_invoices:
+                if str(inv.get("invoice_number") or "").strip() == inv_no:
+                    return document_id({"raw": inv})
+        pdf = self._cell_text(row, PaymentColumn.PDF).strip()
+        if pdf and pdf != "—":
+            for inv in self._matched_invoices:
+                src = str(inv.get("source_file") or "")
+                if src and Path(src).name == Path(pdf).name:
+                    return document_id({"raw": inv})
+        return ""
+
+    def _credit_note_for_row(self, row: int) -> dict[str, Any] | None:
+        """Resolve credit note dict for child rows and detached/review credit rows."""
+        it = self._table.item(row, PaymentColumn.SUPPLIER)
+        if it is None:
+            return None
+        stored_doc_id = str(it.data(_ROW_SETTLEMENT_DOC_ID_ROLE) or "").strip()
+        if stored_doc_id:
+            found = self._invoice_for_document_id(stored_doc_id)
+            if found is not None and str(found.get("type") or "") == "credit_note":
+                return found
+        kind = settlement_row_kind(it)
+        if kind == SettlementRowKind.CREDIT_CHILD:
+            return self._credit_for_row(row)
+        doc_id = self._document_id_for_table_row(row)
+        if doc_id:
+            found = self._invoice_for_document_id(doc_id)
+            if found is not None and str(found.get("type") or "") == "credit_note":
+                return found
+        inv_no = str(it.data(_ROW_INVOICE_META_ROLE) or "").strip()
+        if inv_no:
+            supplier = self._cell_text(row, PaymentColumn.SUPPLIER).strip().lower()
+            for inv in self._matched_invoices:
+                if str(inv.get("type") or "") != "credit_note":
+                    continue
+                if str(inv.get("invoice_number") or "").strip() != inv_no:
+                    continue
+                if supplier and supplier not in str(inv.get("supplier_name") or "").lower():
+                    continue
+                return inv
+        return None
 
     def _invoices_for_supplier(self, supplier_name: str) -> list[dict]:
         key = str(supplier_name or "").strip().lower()
@@ -1287,18 +1475,11 @@ class MainWindow(QMainWindow):
         kind = settlement_row_kind(it)
         if kind != SettlementRowKind.CREDIT_CHILD:
             return None
-        # Prefer document_id stored in UserRole — avoids raw text parsing and survives
-        # both the full-row renderer (supplier name in text) and old minimal renderer.
         stored_doc_id = str(it.data(_ROW_SETTLEMENT_DOC_ID_ROLE) or "").strip() if it else ""
-        for inv in self._matched_invoices:
-            if str(inv.get("type") or "") != "credit_note":
-                continue
-            if stored_doc_id:
-                if document_id({"raw": inv}) == stored_doc_id:
-                    return inv
-                # Fallback: stored_doc_id may be the invoice_number itself (old renderer)
-                if str(inv.get("invoice_number") or "").strip() == stored_doc_id:
-                    return inv
+        if stored_doc_id:
+            found = self._invoice_for_document_id(stored_doc_id)
+            if found is not None and str(found.get("type") or "") == "credit_note":
+                return found
         return None
 
     def _on_detach_credit_override(self, credit: dict[str, Any]) -> None:
@@ -1308,7 +1489,7 @@ class MainWindow(QMainWindow):
             make_detach_override(cid),
             history_event={"event": "user_detached", "credit_document_id": cid},
         )
-        self._rerun_settlement_engine()
+        self._rerun_settlement_engine(focus_doc_ids={cid})
 
     def _on_reassign_credit_override(self, credit: dict[str, Any]) -> None:
         supplier = str(credit.get("supplier_name") or "")
@@ -1350,31 +1531,29 @@ class MainWindow(QMainWindow):
         sup_it = self._table.item(row, PaymentColumn.SUPPLIER)
         if not sup_it:
             return
-        doc_id = str(sup_it.data(_ROW_SETTLEMENT_DOC_ID_ROLE) or "").strip()
+        doc_id = self._document_id_for_table_row(row)
         if not doc_id:
             QMessageBox.warning(self, "Bedrag aanpassen", "Geen document-ID gevonden voor deze rij.")
             return
 
-        # Find the matching invoice in _matched_invoices
-        matched_inv: dict[str, Any] | None = next(
-            (inv for inv in self._matched_invoices if document_id({"raw": inv}) == doc_id),
-            None,
-        )
+        matched_inv = self._invoice_for_document_id(doc_id)
         if matched_inv is None:
             QMessageBox.warning(self, "Bedrag aanpassen", f"Document '{doc_id}' niet gevonden in huidige batch.")
             return
+        doc_id = document_id({"raw": matched_inv})
 
-        # Determine current amount (check for existing amount override first)
-        amount_session = self._amount_override_store.load_session(self._batch_key())
-        existing = None
-        if amount_session:
-            existing = next((o for o in amount_session.overrides if o.document_id == doc_id), None)
+        # Determine current amount (check for existing session amount override first)
+        existing = self._session_amount_overrides.get(doc_id)
         if existing is not None:
-            current = float(existing.new_amount)
+            current = float(existing.new_amount.copy_abs())
         else:
-            current = float(matched_inv.get("amount_dec") or 0)
+            raw_amt = matched_inv.get("amount_dec")
+            if raw_amt is None:
+                raw_amt = matched_inv.get("amount")
+            current = float(Decimal(str(raw_amt or 0)).copy_abs())
 
         inv_no = str(matched_inv.get("invoice_number") or doc_id)
+        is_credit = str(matched_inv.get("type") or "") == "credit_note"
         new_val, ok = QInputDialog.getDouble(
             self,
             "Bedrag aanpassen",
@@ -1387,32 +1566,24 @@ class MainWindow(QMainWindow):
         if not ok:
             return
 
-        old_dec = Decimal(str(matched_inv.get("amount_dec") or 0)).quantize(Decimal("0.01"))
-        new_dec = Decimal(str(new_val)).quantize(Decimal("0.01"))
-        if new_dec == old_dec and existing is None:
+        old_dec = Decimal(str(matched_inv.get("amount_dec") or matched_inv.get("amount") or 0)).copy_abs()
+        old_dec = old_dec.quantize(Decimal("0.01"))
+        new_dec = Decimal(str(new_val)).copy_abs().quantize(Decimal("0.01"))
+        if new_dec == old_dec:
+            if existing is not None:
+                self._remove_session_amount_override(doc_id)
+            self._rerun_settlement_engine()
             return
-        if new_dec == Decimal(str(existing.old_amount if existing else old_dec)).quantize(Decimal("0.01")):
-            # User reverted to original — remove the override
-            self._amount_override_store.remove_override(self._batch_key(), doc_id)
-        else:
-            override = AmountOverride(
-                document_id=doc_id,
-                old_amount=old_dec,
-                new_amount=new_dec,
-                reason="user_adjusted",
-                created_at=now_utc_iso(),
-            )
-            self._amount_override_store.upsert_override(
-                self._batch_key(),
-                override,
-                history_event={
-                    "event": "user_adjusted_amount",
-                    "document_id": doc_id,
-                    "old_amount": str(old_dec),
-                    "new_amount": str(new_dec),
-                    "at": override.created_at,
-                },
-            )
+        if existing is not None and new_dec == existing.new_amount.copy_abs().quantize(Decimal("0.01")):
+            return
+        override = AmountOverride(
+            document_id=doc_id,
+            old_amount=old_dec,
+            new_amount=new_dec,
+            reason="user_adjusted",
+            created_at=now_utc_iso(),
+        )
+        self._upsert_session_amount_override(override)
         self._rerun_settlement_engine()
 
     def _on_link_credit_to_invoice_row(self, invoice_row: int) -> None:
@@ -1507,10 +1678,18 @@ class MainWindow(QMainWindow):
 
         raw = spec.get("raw_invoice") or {}
         doc_id = str(spec.get("document_id") or "")
+        if not doc_id and raw:
+            doc_id = document_id({"raw": raw})
         doc_type = "credit_note" if is_credit else "invoice"
+        meta = spec.get("meta") or {}
+        detached = bool(meta.get("detached"))
 
         # ── Supplier ──────────────────────────────────────────────────────────
         sup_text = str(raw.get("supplier_name") or spec.get("supplier_name") or "")
+        if is_credit and detached:
+            inv_no = str(meta.get("invoice_number") or spec.get("label") or "").strip()
+            if inv_no:
+                sup_text = f"{sup_text}  ·  {inv_no} (losgekoppeld)"
         sup_it = _ro(sup_text)
         sup_it.setData(_ROW_SETTLEMENT_ROW_KIND_ROLE, int(kind))
         sup_it.setData(_ROW_SETTLEMENT_DOC_TYPE_ROLE, doc_type)
@@ -1529,8 +1708,8 @@ class MainWindow(QMainWindow):
         self._table.setItem(row, int(PaymentColumn.IBAN), _ro(iban_disp))
 
         # ── Amount ────────────────────────────────────────────────────────────
-        amount_str = str(spec.get("amount") or "")
-        amt_it = _ro(amount_str)
+        amount_str = _format_settlement_child_amount(spec.get("amount"))
+        amt_it = self._item_amount(amount_str)
         amt_it.setData(_ROW_SETTLEMENT_ROW_KIND_ROLE, int(kind))
         if is_credit:
             amt_it.setForeground(orange)
@@ -1570,6 +1749,59 @@ class MainWindow(QMainWindow):
             SettlementRowKind.CREDIT_CHILD,
             SettlementRowKind.WARNING_CHILD,
         )
+
+    def _settlement_review_hidden_doc_ids(self, engine_result: EngineResult) -> set[str]:
+        """Credits already shown inside a settlement group must not duplicate as review rows."""
+        hidden: set[str] = set()
+        for g in engine_result.settlement_groups:
+            if _is_credit_only_group(g):
+                continue
+            for doc in g.get("member_documents") or []:
+                if not isinstance(doc, dict):
+                    continue
+                raw = doc.get("raw") if isinstance(doc.get("raw"), dict) else {}
+                if str(raw.get("type") or "") != "credit_note":
+                    continue
+                did = str(doc.get("document_id") or "").strip()
+                if did:
+                    hidden.add(did)
+        return hidden
+
+    def _apply_child_row_amount_override(self, row: int, item: QTableWidgetItem) -> None:
+        """Persist gross amount override for a settlement child document (inline edit)."""
+        doc_id = self._document_id_for_table_row(row)
+        matched_inv = self._invoice_for_document_id(doc_id) if doc_id else None
+        if matched_inv is None:
+            self._reject_invalid_amount_cell_edit(item, row)
+            return
+        doc_id = document_id({"raw": matched_inv})
+        try:
+            new_dec = _parse_amount_str(item.text()).copy_abs().quantize(Decimal("0.01"))
+        except ValueError:
+            self._reject_invalid_amount_cell_edit(item, row)
+            return
+        if new_dec <= Decimal("0.00"):
+            self._reject_invalid_amount_cell_edit(item, row)
+            return
+        old_dec = Decimal(str(matched_inv.get("amount_dec") or matched_inv.get("amount") or 0)).copy_abs()
+        old_dec = old_dec.quantize(Decimal("0.01"))
+        existing = self._session_amount_overrides.get(doc_id)
+        if new_dec == old_dec:
+            if existing is not None:
+                self._remove_session_amount_override(doc_id)
+            self._rerun_settlement_engine()
+            return
+        if existing is not None and new_dec == existing.new_amount.copy_abs().quantize(Decimal("0.01")):
+            return
+        override = AmountOverride(
+            document_id=doc_id,
+            old_amount=old_dec,
+            new_amount=new_dec,
+            reason="user_adjusted",
+            created_at=now_utc_iso(),
+        )
+        self._upsert_session_amount_override(override)
+        self._rerun_settlement_engine()
 
     def _on_table_selection_changed(self) -> None:
         self._refresh_profile_button_state()
@@ -2132,6 +2364,30 @@ class MainWindow(QMainWindow):
     _COLOR_ERROR = QColor(255, 220, 220)
     _TEXT_COLOR_ON_TINT = QColor(0, 0, 0)
 
+    def _is_detached_credit_header_row(self, row: int) -> bool:
+        kind = settlement_row_kind(self._table.item(row, PaymentColumn.SUPPLIER))
+        if kind != SettlementRowKind.GROUP_HEADER:
+            return False
+        sett = self._table.item(row, PaymentColumn.SETTLEMENT)
+        if sett is None:
+            return False
+        raw = str(sett.data(_ROW_SETTLEMENT_STATUS_ROLE) or "").strip()
+        return raw == "detached"
+
+    def _neutralize_child_row_backgrounds(self) -> None:
+        """Child rows: neutral background, preserve foreground (orange credits)."""
+        from PySide6.QtGui import QBrush, QPalette
+        from PySide6.QtWidgets import QApplication
+
+        neutral = QBrush(QApplication.palette().color(QPalette.ColorRole.Base))
+        for r in range(self._table.rowCount()):
+            if not self._is_settlement_child_row(r):
+                continue
+            for c in range(self._table.columnCount()):
+                it = self._table.item(r, c)
+                if it:
+                    it.setBackground(neutral)
+
     def _apply_row_colors(self) -> None:
         # HARD INVARIANT: never grey; only included/needs_review/excluded.
         # #region agent log (debug mode)
@@ -2140,7 +2396,7 @@ class MainWindow(QMainWindow):
             for _r in range(self._table.rowCount()):
                 if self._is_row_blank(_r):
                     continue
-                _st = (self._decision_for_row(_r) or {}).get("status")
+                _st = (self._row_decision(_r) or {}).get("status")
                 if _st in counts:
                     counts[str(_st)] += 1
                 else:
@@ -2167,12 +2423,12 @@ class MainWindow(QMainWindow):
                 if self._is_row_blank(r):
                     continue
                 if self._is_settlement_child_row(r):
-                    # Child rows stay neutral — their styling (orange credit text) is set
-                    # during breakdown render and must not be overwritten here.
                     continue
-                dec = self._decision_for_row(r)
+                dec = self._row_decision(r)
                 st = dec.get("status")
-                if st == DECISION_INCLUDED:
+                if self._is_detached_credit_header_row(r):
+                    color = self._COLOR_ERROR
+                elif st == DECISION_INCLUDED:
                     color = self._COLOR_CONFIRMED
                 elif st == DECISION_NEEDS_REVIEW:
                     # Engine-driven UX nuance: unknown supplier (but otherwise parse OK)
@@ -2188,6 +2444,7 @@ class MainWindow(QMainWindow):
                     if it:
                         it.setBackground(color)
                         it.setForeground(self._TEXT_COLOR_ON_TINT)
+            self._neutralize_child_row_backgrounds()
         finally:
             self._suppress_table_item_changed = prev_suppress
             self._table.blockSignals(blocked)
@@ -2864,6 +3121,9 @@ class MainWindow(QMainWindow):
             },
         )
         self._is_loading_batch = True
+        if parse_pdfs:
+            cleared = len(self._session_amount_overrides)
+            self._clear_session_amount_overrides()
         progress: QProgressDialog | None = None
         try:
             per_source_counts: list[tuple[str, int]] = []
@@ -2930,8 +3190,11 @@ class MainWindow(QMainWindow):
             self._resolve_iban_mismatches(matched, db)
             self._matched_invoices = matched
             self._engine_cache.invalidate("reload")
+            self._expanded_settlement_groups = set()
             engine_result = self._compute_engine_result(matched)
             self._engine_result = engine_result
+            self._init_expand_state_for_engine(engine_result)
+            self._decision_table_fingerprint = None
             n_err_rows = self._populate_from_engine_result(engine_result, matched)
             _dbg_log(
                 hypothesis_id="A",
@@ -2947,7 +3210,7 @@ class MainWindow(QMainWindow):
             initial_run_id = str(uuid.uuid4())
             decision_map: dict[str, dict[str, Any]] = {}
             for r in range(self._table.rowCount()):
-                if self._is_row_blank(r):
+                if self._is_row_blank(r) or self._is_settlement_child_row(r):
                     continue
                 decision_map[self._row_id(r)] = self._row_decision(r)
             decision_map = self._normalize_decision_map_row_ids(decision_map)
@@ -2993,7 +3256,8 @@ class MainWindow(QMainWindow):
             self._decision_store.commit_run(run.run_id)
             self._pinned_run_id = run.run_id
             self._active_run_id = run.run_id
-            # Ensure colors reflect committed decisions (initial table paint may have happened before run commit).
+            self._decision_table_fingerprint = None
+            self._sync_decision_store_from_table(force=True)
             self._apply_row_colors()
             try:
                 targets = {"aluned 502601306.pdf", "bauder 24065433.pdf"}
@@ -3039,7 +3303,7 @@ class MainWindow(QMainWindow):
                 pass
 
             n_pdf = len(all_raw)
-            n_pay = len(payments)
+            n_pay = self._count_payment_header_rows()
             for name, count in per_source_counts:
                 logger.info("bron %r: %d pdf-facturen", name, count)
             logger.info("betalingsregels: %d, foutregels: %d", n_pay, n_err_rows)
@@ -3706,6 +3970,99 @@ class MainWindow(QMainWindow):
         self._mark_row_pending_engine_update(row, "profile_confirmed")
         self._refresh_export_batch_status_label()
         QMessageBox.information(self, "Profiel opslaan", result.message)
+
+    def _row_credit_profile_block_reason(self, row: int) -> str | None:
+        credit = self._credit_note_for_row(row)
+        snap = self._get_row_invoice_diagnostics_snapshot(row)
+        if not isinstance(snap, dict):
+            snap = self._minimal_diagnostics_snapshot_from_row(row)
+        if credit is not None and str(credit.get("type") or "") == "credit_note":
+            snap = dict(snap)
+            snap["type"] = "credit_note"
+        supplier_key = supplier_key_for_matched_invoice(credit) if isinstance(credit, dict) else None
+        gate_snap = dict(snap)
+        ms = self._match_status_for_profile_gate(row, snap)
+        if ms:
+            gate_snap["match_status"] = ms
+        return credit_profile_learning_block_reason(
+            gate_snap,
+            source_file=self._resolve_row_source_file(row),
+            supplier_key=supplier_key,
+        )
+
+    def _row_can_credit_profile_save(self, row: int) -> bool:
+        return self._row_credit_profile_block_reason(row) is None
+
+    def _save_credit_profile_from_row(
+        self,
+        row: int,
+        selected_by_field: dict[str, Any],
+    ) -> None:
+        """Sla creditprofiel op via expliciete user action (diagnostics)."""
+        self._confirm_selected_fields_for_row(row, selected_by_field)
+        if not self._row_can_credit_profile_save(row):
+            reason = self._row_credit_profile_block_reason(row)
+            QMessageBox.warning(
+                self,
+                "Creditprofiel opslaan",
+                reason or "Niet beschikbaar voor deze rij.",
+            )
+            return
+        credit = self._credit_note_for_row(row)
+        if not isinstance(credit, dict):
+            QMessageBox.warning(
+                self,
+                "Creditprofiel opslaan",
+                "Geen creditnota gevonden voor deze rij.",
+            )
+            return
+        supplier_key = supplier_key_for_matched_invoice(credit)
+        if not supplier_key:
+            QMessageBox.warning(
+                self,
+                "Creditprofiel opslaan",
+                "Supplier key ontbreekt; bevestig eerst de leverancier.",
+            )
+            return
+        source_file = self._resolve_row_source_file(row)
+        if not source_file:
+            QMessageBox.warning(
+                self,
+                "Creditprofiel opslaan",
+                "PDF-bestand niet gevonden. Selecteer de factuurmap opnieuw of herlaad de batch.",
+            )
+            return
+        confirmed = self._confirmed_dict_from_selected(row, selected_by_field)
+        try:
+            raw_text = extract_text_strict(source_file)
+        except Exception as exc:
+            QMessageBox.warning(
+                self,
+                "Creditprofiel opslaan",
+                f"PDF kon niet worden gelezen:\n{exc}",
+            )
+            return
+        db = SupplierDB(path=self._supplier_db_path())
+        amt_snap = self._amount_result_snapshot_for_row(row)
+        inv_snap = self._ident_field_result_snapshot_for_row(row, "invoice_number")
+        result = confirm_credit_profile_fields(
+            raw_text=raw_text,
+            source_file=source_file,
+            supplier_key=supplier_key,
+            confirmed=confirmed,
+            db=db,
+            save_profile=True,
+            amount_result=amt_snap if isinstance(amt_snap, dict) else None,
+            invoice_number_result=inv_snap if isinstance(inv_snap, dict) else None,
+            explicit_user_action=True,
+        )
+        if result.saved and isinstance(result.profile, dict):
+            credit["credit_profile"] = result.profile
+            credit["credit_profile_user_override"] = True
+            credit["supplier_key"] = supplier_key
+        self._mark_row_pending_engine_update(row, "credit_profile_saved")
+        self._refresh_export_batch_status_label()
+        QMessageBox.information(self, "Creditprofiel opslaan", result.message)
 
     def _apply_resolved_field_result_to_row(
         self,
@@ -4415,6 +4772,10 @@ class MainWindow(QMainWindow):
                     self._save_profile_from_row(row, selected)
                     or _refresh_diag(selected)
                 ),
+                on_save_credit_profile=lambda selected: (
+                    self._save_credit_profile_from_row(row, selected)
+                    or _refresh_diag(selected)
+                ),
                 limited_snapshot=limited,
             )
             dlg.exec()
@@ -4489,6 +4850,8 @@ class MainWindow(QMainWindow):
         invoice_diagnostics_snapshot: dict | None = None,
         settlement_badge: str = "",
         settlement_group_id: str = "",
+        settlement_status_engine: str = "",
+        document_id_for_row: str = "",
     ) -> None:
         def _field_result_tooltip(result: dict[str, Any] | None) -> str:
             if not isinstance(result, dict):
@@ -4530,6 +4893,9 @@ class MainWindow(QMainWindow):
             sup_item.setData(_ROW_INVOICE_META_ROLE, invoice_number_meta)
         if invoice_diagnostics_snapshot is not None:
             sup_item.setData(_ROW_INVOICE_DIAGNOSTICS_ROLE, invoice_diagnostics_snapshot)
+        doc_id_row = str(document_id_for_row or "").strip()
+        if doc_id_row:
+            sup_item.setData(_ROW_SETTLEMENT_DOC_ID_ROLE, doc_id_row)
         sup_item.setData(
             _ROW_ROW_ID_ROLE,
             row_id
@@ -4642,7 +5008,10 @@ class MainWindow(QMainWindow):
         sett_item = self._item_readonly(settlement_badge or "—")
         if settlement_group_id:
             sett_item.setData(_ROW_SETTLEMENT_GROUP_ID_ROLE, settlement_group_id)
-            sett_item.setData(_ROW_SETTLEMENT_STATUS_ROLE, settlement_badge)
+            sett_item.setData(
+                _ROW_SETTLEMENT_STATUS_ROLE,
+                settlement_status_engine or settlement_badge,
+            )
             mark_group_header_row(self._table, r, settlement_group_id)
         self._table.setItem(r, PaymentColumn.SETTLEMENT, sett_item)
         self._set_row_decision(r, decision if isinstance(decision, dict) else self._missing_decision_payload(r))
@@ -4697,6 +5066,7 @@ class MainWindow(QMainWindow):
             self._suppress_table_item_changed = True
             self._table.setSortingEnabled(False)
             self._table.setRowCount(0)
+            self._decision_table_fingerprint = None
             try:
                 targets = {"aluned 502601306.pdf", "bauder 24065433.pdf"}
                 pay_targets = []
@@ -4749,6 +5119,9 @@ class MainWindow(QMainWindow):
             else:
                 payment_iter = [(p, {}) for p in payments]
             for p, group in payment_iter:
+                if engine_result is not None and group and _is_credit_only_group(group):
+                    # Credit-only manual_review groups are shown once via review_documents.
+                    continue
                 amount_str = str(p.get("amount_display") or "").strip()
                 if not amount_str:
                     amt = p.get("amount")
@@ -4793,7 +5166,8 @@ class MainWindow(QMainWindow):
                 vat_no = str((inv_match or {}).get("vat_number") or "")
                 amt_snap = (
                     inv_match.get("amount_result")
-                    if isinstance(inv_match.get("amount_result"), dict)
+                    if isinstance(inv_match, dict)
+                    and isinstance(inv_match.get("amount_result"), dict)
                     else None
                 )
                 iban_disp, iban_res_snap = _iban_field_from_inv(inv_match or {})
@@ -4804,6 +5178,15 @@ class MainWindow(QMainWindow):
                 supplier_label = str(p.get("supplier_name", ""))
                 if engine_result is not None and group:
                     supplier_label = header_supplier_label(vm_from_group(group), expanded)
+                group_badge = ""
+                group_status_engine = ""
+                if engine_result is not None and group:
+                    group_badge = settlement_badge_for_group(group)
+                    group_status_engine = (
+                        "detached"
+                        if group_badge == settlement_badge_nl("detached")
+                        else str(group.get("settlement_status") or "")
+                    )
                 self._append_table_row(
                     supplier_label,
                     iban_disp,
@@ -4847,10 +5230,14 @@ class MainWindow(QMainWindow):
                         pdf=pdf,
                     ),
                     invoice_diagnostics_snapshot=_diagnostics_snapshot_from_invoice(inv_match or {}),
-                    settlement_badge=settlement_badge_nl(
+                    settlement_badge=group_badge
+                    or settlement_badge_nl(
                         str(group.get("settlement_status") or p.get("settlement_status") or "")
+                        if group
+                        else str(p.get("settlement_status") or "")
                     ),
                     settlement_group_id=gid,
+                    settlement_status_engine=group_status_engine,
                 )
                 if engine_result is not None and group:
                     self._append_settlement_breakdown_rows(group)
@@ -4864,9 +5251,24 @@ class MainWindow(QMainWindow):
                 for inv, r in self._flatten_unique_error_invoices(errors)
                 if r != "needs_review"
             ]
+            hidden_review_ids = (
+                self._settlement_review_hidden_doc_ids(engine_result)
+                if engine_result is not None
+                else set()
+            )
+            if hidden_review_ids:
+                needs_review_invs = [
+                    (inv, r)
+                    for inv, r in needs_review_invs
+                    if document_id({"raw": inv}) not in hidden_review_ids
+                ]
+                other_errors = [
+                    (inv, r)
+                    for inv, r in other_errors
+                    if document_id({"raw": inv}) not in hidden_review_ids
+                ]
             for inv, _reason in needs_review_invs:
-                amt = inv.get("amount")
-                amount_str = _format_amount_nl(amt) if amt is not None else ""
+                amount_str = _error_row_amount_str(inv)
                 cust_r, inv_meta_r, desc_r, inv_res_r, cust_res_r = self._row_ident_fields_from_inv(inv)
                 iban_disp_r, iban_res_r = _iban_field_from_inv(inv)
                 pdf_r = _pdf_basename_from_dict(inv)
@@ -4913,6 +5315,7 @@ class MainWindow(QMainWindow):
                         pdf=pdf_r,
                     ),
                     invoice_diagnostics_snapshot=_diagnostics_snapshot_from_invoice(inv),
+                    document_id_for_row=document_id({"raw": inv}),
                 )
             for inv, reason in other_errors:
                 error_row_count += 1
@@ -4941,7 +5344,7 @@ class MainWindow(QMainWindow):
                     )
                     amount_str = "?"
                 else:
-                    amount_str = _format_amount_nl(amt) if amt is not None else ""
+                    amount_str = _error_row_amount_str(inv)
                 cust_e, inv_meta_e, desc_e, inv_res_e, cust_res_e = self._row_ident_fields_from_inv(inv)
                 iban_disp_e, iban_res_e = _iban_field_from_inv(inv)
                 pdf_e = _pdf_basename_from_dict(inv)
@@ -4984,11 +5387,16 @@ class MainWindow(QMainWindow):
                         pdf=pdf_e,
                     ),
                     invoice_diagnostics_snapshot=_diagnostics_snapshot_from_invoice(inv),
+                    document_id_for_row=document_id({"raw": inv}),
                 )
             self._auto_resize_columns_to_content()
-            self._table.setSortingEnabled(True)
-            if self._persist_sort_column is not None:
-                self._table.sortByColumn(self._persist_sort_column, self._persist_sort_order)
+            if engine_result is not None:
+                # Settlement groups: keep header + child row order (sort breaks group cohesion).
+                self._table.setSortingEnabled(False)
+            else:
+                self._table.setSortingEnabled(True)
+                if self._persist_sort_column is not None:
+                    self._table.sortByColumn(self._persist_sort_column, self._persist_sort_order)
         finally:
             self._table.blockSignals(prev_block)
             hdr.blockSignals(False)
@@ -4996,8 +5404,9 @@ class MainWindow(QMainWindow):
         if not self._sort_persist_connected:
             hdr.sortIndicatorChanged.connect(self._on_sort_indicator_changed)
             self._sort_persist_connected = True
-        self._sync_decision_store_from_table()
-        self._apply_row_colors()
+        if not self._is_loading_batch:
+            self._sync_decision_store_from_table(force=True)
+            self._apply_row_colors()
         self._apply_filter_to_table(self._filter_edit.text())
         self._refresh_export_batch_status_label()
         self._refresh_profile_button_state()
@@ -5253,7 +5662,7 @@ class MainWindow(QMainWindow):
                 menu.addAction("Korting toepassen op geselecteerde rij(en)").triggered.connect(
                     lambda: self._on_reapply_discounts(self._selected_table_rows() or [row])
                 )
-        credit = self._credit_for_row(row)
+        credit = self._credit_note_for_row(row)
         if credit is not None:
             menu.addSeparator()
             act_detach = menu.addAction("Loskoppelen")
@@ -5269,12 +5678,11 @@ class MainWindow(QMainWindow):
                 menu.addSeparator()
                 act_link = menu.addAction("Koppel credit…")
                 act_link.triggered.connect(lambda checked=False, r=row: self._on_link_credit_to_invoice_row(r))
-        if kind in (SettlementRowKind.INVOICE_CHILD, SettlementRowKind.CREDIT_CHILD):
-            sup_it = self._table.item(row, PaymentColumn.SUPPLIER)
-            if sup_it and sup_it.data(_ROW_SETTLEMENT_DOC_ID_ROLE):
-                menu.addSeparator()
-                act_amt = menu.addAction("Bedrag aanpassen…")
-                act_amt.triggered.connect(lambda checked=False, r=row: self._on_adjust_amount_override(r))
+        doc_id_row = self._document_id_for_table_row(row)
+        if doc_id_row and self._invoice_for_document_id(doc_id_row) is not None:
+            menu.addSeparator()
+            act_amt = menu.addAction("Bedrag aanpassen…")
+            act_amt.triggered.connect(lambda checked=False, r=row: self._on_adjust_amount_override(r))
         if not menu.isEmpty():
             menu.exec(self._table.viewport().mapToGlobal(pos))
 
@@ -5890,10 +6298,24 @@ class MainWindow(QMainWindow):
         )
 
     def _decision_for_row(self, row: int) -> dict[str, Any]:
-        """Single source for rendering + export: DecisionStore decision or safe missing default."""
-        vm = self._resolve_row_vm(row)
-        if isinstance(vm.decision, dict):
-            return dict(normalize_decision(vm.decision))
+        """Single source for rendering + export: DecisionStore decision or table projection."""
+        table_dec = self._row_decision(row)
+        table_reason = str(table_dec.get("reason_code") or "")
+        active_run_id = self._active_run_id or self._pinned_run_id
+        store_dec: dict[str, Any] | None = None
+        if active_run_id:
+            self._resolver_active = True
+            try:
+                dec_map = self._decision_store.committed_decision_map(active_run_id)
+                raw = dec_map.get(self._row_id(row))
+                if isinstance(raw, dict):
+                    store_dec = dict(normalize_decision(raw))
+            finally:
+                self._resolver_active = False
+        if isinstance(store_dec, dict):
+            return store_dec
+        if table_reason and table_reason != REASON_MISSING_DECISION_IN_STORE:
+            return table_dec
         return self._missing_decision_payload(row)
 
     def _set_row_decision(self, row: int, decision: dict[str, Any], *, note: str | None = None) -> None:
@@ -6170,34 +6592,53 @@ class MainWindow(QMainWindow):
                     return dict(normalize_decision(dec))
         return None
 
-    def _commit_decision_map_patch(self, decision_updates: dict[str, dict[str, Any]]) -> None:
+    def _commit_decision_map_patch(
+        self,
+        decision_updates: dict[str, dict[str, Any]],
+        *,
+        replace: bool = False,
+    ) -> None:
         if not decision_updates:
             return
         # Engine write path (not render resolver): use inner store to avoid guard crash.
         store = self._decision_store_inner
-        base_map = self._normalize_decision_map_row_ids(
-            dict(store.committed_decision_map(self._active_run_id) or {})
-        )
-        base_map.update(decision_updates)
+        if replace:
+            base_map = self._normalize_decision_map_row_ids(dict(decision_updates))
+        else:
+            base_map = self._normalize_decision_map_row_ids(
+                dict(store.committed_decision_map(self._active_run_id) or {})
+            )
+            base_map.update(decision_updates)
         run_id = str(uuid.uuid4())
         store.begin_run(
             run_id=run_id,
-            input_snapshot_hash=stable_hash({"patch": sorted(decision_updates.keys())}),
+            input_snapshot_hash=stable_hash({"patch": sorted(decision_updates.keys()), "replace": replace}),
             decision_map=base_map,
         )
         store.commit_run(run_id)
         self._pinned_run_id = run_id
         self._active_run_id = run_id
 
-    def _sync_decision_store_from_table(self) -> None:
+    def _table_decision_fingerprint(self) -> str:
+        parts: list[str] = []
+        for r in range(self._table.rowCount()):
+            if self._is_row_blank(r) or self._is_settlement_child_row(r):
+                continue
+            parts.append(f"{self._row_id(r)}:{stable_hash(self._row_decision(r))}")
+        return stable_hash(parts)
+
+    def _sync_decision_store_from_table(self, *, force: bool = False) -> None:
         """Sync fresh row decisions from table items into DecisionStore.
 
         After any repopulate the new decisions live in _ROW_DECISION_ROLE on items
         (set by _set_row_decision inside _append_table_row).  _apply_row_colors reads
-        via _decision_for_row → DecisionStore, so without this sync it would read stale
-        decisions and paint wrong colours.  Child rows are excluded — they have no
-        independent decision and their styling is managed separately.
+        via _row_decision (table projection); DecisionStore is kept in sync for export
+        and user-approval flows.  Child rows are excluded — they have no independent
+        decision and their styling is managed separately.
         """
+        fp = self._table_decision_fingerprint()
+        if not force and fp == self._decision_table_fingerprint:
+            return
         decision_map: dict[str, dict[str, Any]] = {}
         for r in range(self._table.rowCount()):
             if self._is_row_blank(r) or self._is_settlement_child_row(r):
@@ -6205,7 +6646,8 @@ class MainWindow(QMainWindow):
             rid = self._row_id(r)
             decision_map[rid] = self._row_decision(r)
         if decision_map:
-            self._commit_decision_map_patch(decision_map)
+            self._commit_decision_map_patch(decision_map, replace=True)
+            self._decision_table_fingerprint = fp
 
     def build_engine_input_from_row(self, row_id: str) -> EngineInputRow:
         for r in range(self._table.rowCount()):
@@ -6525,6 +6967,9 @@ class MainWindow(QMainWindow):
                 item.setData(Qt.ItemDataRole.UserRole, None)
             item.setToolTip("Handmatig ingesteld — betaaldatum")
         elif col == PaymentColumn.AMOUNT:
+            if self._is_settlement_child_row(row) and self._document_id_for_table_row(row):
+                self._apply_child_row_amount_override(row, item)
+                return
             t = item.text().strip()
             if not t:
                 self._reject_invalid_amount_cell_edit(item, row)

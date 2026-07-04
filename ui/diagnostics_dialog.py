@@ -97,6 +97,7 @@ class DiagnosticsDialog(QDialog):
         on_candidate_click: Callable[[str, dict], dict | None] | None = None,
         on_confirm_selection: Callable[[dict[str, Any]], dict | None] | None = None,
         on_save_profile: Callable[[dict[str, Any]], dict | None] | None = None,
+        on_save_credit_profile: Callable[[dict[str, Any]], dict | None] | None = None,
         limited_snapshot: bool = False,
     ) -> None:
         super().__init__(parent)
@@ -107,6 +108,7 @@ class DiagnosticsDialog(QDialog):
         self._on_candidate_click = on_candidate_click
         self._on_confirm_selection = on_confirm_selection
         self._on_save_profile = on_save_profile
+        self._on_save_credit_profile = on_save_credit_profile
         self._diag: dict[str, Any] = {}
         # Local preview selection (no writes). Confirm button commits via callback.
         self._selected_candidates: dict[str, dict[str, Any]] = {}
@@ -147,6 +149,9 @@ class DiagnosticsDialog(QDialog):
         self._save_profile_btn = QPushButton("Sla profiel op")
         self._save_profile_btn.clicked.connect(self._on_save_profile_clicked)
         action_lay.addWidget(self._save_profile_btn)
+        self._save_credit_profile_btn = QPushButton("Opslaan als creditprofiel")
+        self._save_credit_profile_btn.clicked.connect(self._on_save_credit_profile_clicked)
+        action_lay.addWidget(self._save_credit_profile_btn)
         action_lay.addStretch(1)
         root.addWidget(action_bar)
 
@@ -177,6 +182,10 @@ class DiagnosticsDialog(QDialog):
         iban = diag.get("iban") if isinstance(diag.get("iban"), dict) else {}
         general = diag.get("general") if isinstance(diag.get("general"), dict) else {}
         load_error = general.get("load_error")
+        doc_type = str(general.get("document_type") or "").strip()
+        is_credit_row = doc_type == "credit_note"
+        self._save_credit_profile_btn.setVisible(is_credit_row and self._on_save_credit_profile is not None)
+        self._save_profile_btn.setVisible(not is_credit_row)
 
         body_lay.addWidget(
             self._section_group(
@@ -443,6 +452,13 @@ class DiagnosticsDialog(QDialog):
         if self._on_save_profile is None:
             return
         updated = self._on_save_profile(self.selected_by_field())
+        if isinstance(updated, dict):
+            self._schedule_set_diag(updated)
+
+    def _on_save_credit_profile_clicked(self) -> None:
+        if self._on_save_credit_profile is None:
+            return
+        updated = self._on_save_credit_profile(self.selected_by_field())
         if isinstance(updated, dict):
             self._schedule_set_diag(updated)
 

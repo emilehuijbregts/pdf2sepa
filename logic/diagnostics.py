@@ -545,6 +545,7 @@ def build_diagnostics(
         "general": {
             "load_error": load_error_s,
             "load_error_nl": _nl(load_error_s, LOAD_ERROR_NL) if load_error_s else None,
+            "document_type": str(snap.get("type") or "").strip() or None,
             "decision_status": decision_status,
             "decision_reason_code": reason_code or None,
             "decision_reason_nl": _nl(reason_code, ERROR_REASON_NL) if reason_code else None,

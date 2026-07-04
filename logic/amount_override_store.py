@@ -1,8 +1,8 @@
 """Persisted amount override session — same architectural pattern as CreditOverrideStore.
 
 Each AmountOverride records the user's intent to change the gross amount of a specific
-document.  The store is keyed on batch_key (same fingerprint used by CreditOverrideStore)
-so overrides survive across re-runs within the same batch.
+document during the current app session.  The UI keeps overrides in memory only; they are
+cleared when PDFs are re-read for a batch.  This module remains for tests and future use.
 
 IMPORTANT: applying these overrides does NOT mutate _matched_invoices.  Instead,
 amount_override_apply.apply_amount_overrides() returns a patched *copy* that is fed
@@ -95,6 +95,42 @@ class AmountOverrideStore:
 
     path: Any
     version: int = 1
+
+    def load_applicable_session(
+        self,
+        batch_key: str,
+        document_ids: set[str],
+    ) -> AmountOverrideSession | None:
+        """Load amount overrides for batch_key plus overrides for docs in document_ids."""
+        doc_ids = {str(d).strip() for d in document_ids if str(d).strip()}
+        if not doc_ids:
+            return self.load_session(batch_key)
+        by_doc: dict[str, AmountOverride] = {}
+        history: list[dict[str, Any]] = []
+        data = self._read_batches()
+        batches = data.get("batches") or {}
+        if not isinstance(batches, dict):
+            batches = {}
+        for bk, raw in batches.items():
+            if not isinstance(raw, dict):
+                continue
+            session = _session_from_storage(str(bk), raw)
+            for o in session.overrides:
+                if o.document_id in doc_ids:
+                    by_doc[o.document_id] = o
+            history.extend(session.history)
+        current = self.load_session(batch_key)
+        if current:
+            for o in current.overrides:
+                by_doc[o.document_id] = o
+            history = list(current.history) + [h for h in history if h not in current.history]
+        if not by_doc:
+            return current
+        return AmountOverrideSession(
+            batch_key=batch_key,
+            overrides=tuple(by_doc.values()),
+            history=tuple(history),
+        )
 
     def load_session(self, batch_key: str) -> AmountOverrideSession | None:
         try:

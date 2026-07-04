@@ -6,6 +6,7 @@ import copy
 from typing import Any
 
 from logic.credit_classifier import CreditDetectionResult, classify_credit_document
+from logic.credit_profile_apply import apply_credit_profile_overrides
 from logic.credit_references import extract_referenced_invoice_numbers
 
 _CREDIT_TYPE = "credit_note"
@@ -70,8 +71,18 @@ def enrich_credit_document(inv: dict[str, Any]) -> dict[str, Any]:
     else:
         out.setdefault("type", _INVOICE_TYPE)
 
-    refs = extract_referenced_invoice_numbers(text)
-    if refs:
+    # Re-classify after type assignment for profile gate (metadata_type_credit_note).
+    detection_for_profile = classify_credit_document(
+        text,
+        metadata={"type": out.get("type"), "amount": out.get("amount")},
+    )
+    out = apply_credit_profile_overrides(out, detection=detection_for_profile)
+
+    refs = extract_referenced_invoice_numbers(str(out.get("raw_text") or ""))
+    existing_refs = out.get("referenced_invoice_numbers")
+    if isinstance(existing_refs, list) and existing_refs:
+        refs = list(existing_refs)
+    elif refs:
         out["referenced_invoice_numbers"] = refs
     else:
         out.setdefault("referenced_invoice_numbers", [])

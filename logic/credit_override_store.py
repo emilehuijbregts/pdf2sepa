@@ -132,6 +132,49 @@ class CreditOverrideStore:
     path: Any
     version: int = 1
 
+    def load_applicable_session(
+        self,
+        batch_key: str,
+        document_ids: set[str],
+    ) -> OverrideSession | None:
+        """Load overrides for batch_key plus any stored override whose credit is in document_ids.
+
+        Matching is by credit_document_id only — folder/batch_key must not hide overrides
+        when the same credit PDF is present in the current batch under a different batch_key.
+        """
+        doc_ids = {str(d).strip() for d in document_ids if str(d).strip()}
+        if not doc_ids:
+            return self.load_session(batch_key)
+        by_credit: dict[str, CreditOverride] = {}
+        history: list[dict[str, Any]] = []
+        data = self._read_batches()
+        batches = data.get("batches") or {}
+        if not isinstance(batches, dict):
+            batches = {}
+        for bk, raw in batches.items():
+            if not isinstance(raw, dict):
+                continue
+            session = _session_from_storage(str(bk), raw)
+            for o in session.overrides:
+                cid = str(o.credit_document_id or "").strip()
+                if cid and cid in doc_ids:
+                    by_credit[cid] = o
+            history.extend(session.history)
+        current = self.load_session(batch_key)
+        if current:
+            for o in current.overrides:
+                cid = str(o.credit_document_id or "").strip()
+                if cid:
+                    by_credit[cid] = o
+            history = list(current.history) + [h for h in history if h not in current.history]
+        if not by_credit:
+            return current
+        return OverrideSession(
+            batch_key=batch_key,
+            overrides=tuple(by_credit.values()),
+            history=tuple(history),
+        )
+
     def load_session(self, batch_key: str) -> OverrideSession | None:
         try:
             p = self.path

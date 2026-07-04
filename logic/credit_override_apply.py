@@ -13,6 +13,11 @@ from logic.payment_decisions import now_utc_iso
 _MONEY_TOL = Decimal("0.01")
 
 
+def _doc_type(d: dict[str, Any]) -> str:
+    t = str(d.get("type") or "invoice").strip().lower()
+    return "credit_note" if t == "credit_note" else "invoice"
+
+
 def _credit_doc_id(credit: dict[str, Any]) -> str:
     return document_id({"raw": credit})
 
@@ -42,6 +47,8 @@ def _build_from_override(
     credit: dict[str, Any],
     override: CreditOverride,
     invoice_by_id: dict[str, dict[str, Any]],
+    *,
+    batch_invoices: list[dict[str, Any]] | None = None,
 ) -> tuple[CreditMatchResult | None, dict[str, Any] | None]:
     credit_amt = _credit_amount(credit)
     if credit_amt is None:
@@ -103,6 +110,36 @@ def _build_from_override(
 
     remaining = (credit_amt - total_applied).quantize(_MONEY_TOL)
     warnings: list[str] = ["user_override"]
+
+    if override.action == "reassign":
+        seen_ids: set[str] = set()
+        invoice_capacity = Decimal("0.00")
+        pool = batch_invoices if batch_invoices is not None else list(invoice_by_id.values())
+        for inv in pool:
+            if _doc_type(inv) == "credit_note":
+                continue
+            iid = _invoice_id(inv)
+            if iid in seen_ids:
+                continue
+            seen_ids.add(iid)
+            amt = _invoice_amount(inv)
+            if amt is not None:
+                invoice_capacity += amt
+        if credit_amt > invoice_capacity + _MONEY_TOL:
+            return None, {
+                "event": "override_skipped",
+                "reason": "insufficient_invoices",
+                "credit_document_id": override.credit_document_id,
+                "at": now_utc_iso(),
+            }
+        if remaining > _MONEY_TOL:
+            return None, {
+                "event": "override_skipped",
+                "reason": "partial_allocation",
+                "credit_document_id": override.credit_document_id,
+                "at": now_utc_iso(),
+            }
+
     if remaining > _MONEY_TOL:
         warnings.append("remaining_credit_unallocated")
 
@@ -176,7 +213,9 @@ def apply_credit_overrides(
         if cid not in invoice_by_id and credit not in invoice_pool:
             invoice_by_id[cid] = credit
 
-        modified, event = _build_from_override(credit, override, invoice_by_id)
+        modified, event = _build_from_override(
+            credit, override, invoice_by_id, batch_invoices=invoice_pool
+        )
         if modified is None:
             out.append(result)
             if event:

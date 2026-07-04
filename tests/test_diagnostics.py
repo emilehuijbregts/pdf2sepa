@@ -615,3 +615,9 @@ def test_map_field_candidate_for_diag_includes_explainability_fields() -> None:
     assert mapped["score_breakdown_nl"]
     assert mapped["raw_detected"] == "26FC 000498"
     assert mapped["normalized_iso"] == "26FC000498"
+
+
+def test_build_diagnostics_includes_document_type() -> None:
+    snap = build_invoice_diagnostics_snapshot(_base_invoice(type="credit_note"))
+    diag = build_diagnostics(snap)
+    assert diag["general"]["document_type"] == "credit_note"

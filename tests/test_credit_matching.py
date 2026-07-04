@@ -104,6 +104,23 @@ class TestCreditMatchingEdgeCases:
         assert result.match_method == "manual_review"
         assert "credit_exceeds_available_invoices" in result.warnings
 
+    def test_pooled_largest_credit_first_partial_remainder(self):
+        """350 + 80 credits against 2×200 invoices → pay 50; 80 credit unallocated."""
+        credit_large = _credit(amount=350.0, invoice_number="CR-L", source_file="crl.pdf")
+        credit_small = _credit(amount=80.0, invoice_number="CR-S", source_file="crs.pdf")
+        inv_a = _invoice(amount=200.0, invoice_number="INV-A", source_file="a.pdf")
+        inv_b = _invoice(amount=200.0, invoice_number="INV-B", source_file="b.pdf")
+        results = match_credits_in_batch([inv_a, inv_b, credit_large, credit_small])
+        by_no = {str(r.credit_invoice.get("invoice_number")): r for r in results}
+        large = by_no["CR-L"]
+        small = by_no["CR-S"]
+        assert large.match_method in ("amount_span", "amount_subset")
+        assert large.remaining_credit == Decimal("0.00")
+        assert sum(a.amount_applied for a in large.allocation) == Decimal("350.00")
+        assert small.match_method == "manual_review"
+        assert "credit_exceeds_available_invoices" in small.warnings
+        assert not small.allocation
+
     def test_wrong_supplier_no_match(self):
         credit = _credit(supplier_name="Supplier A")
         inv = _invoice(supplier_name="Supplier B")
