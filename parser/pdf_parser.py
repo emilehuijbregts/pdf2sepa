@@ -3369,7 +3369,8 @@ def extract_invoice_data(
     # Invoice/customer number: try tabular header layout first, then labeled fields.
     try:
         m_credit_inv = re.search(
-            r"(?i)\b(?:creditnota|verkoopcreditnota|credit\s*note)\s+(VCR[\dA-Z+]+)",
+            r"(?i)\b(?:creditnota|verkoopcreditnota|credit\s*note)\s*[:.]?\s*"
+            r"((?:VCR|VCN|VC|CN|CREN|CR|HA|SCM|SI)[\dA-Z+./\-]+)",
             primary_text,
         )
         if m_credit_inv and invoice_number is None:
@@ -3959,6 +3960,7 @@ def extract_invoice_data(
         resolved=invoice_number,
         resolved_source=invoice_number_source if invoice_number else None,
         internal_vat_blacklist=internal_vat_blacklist,
+        debtor_kvk=debtor_kvk,
     )
     if inv_result.value:
         invoice_number = inv_result.value

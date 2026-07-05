@@ -8,6 +8,7 @@ from typing import Any
 from logic.credit_classifier import CreditDetectionResult, classify_credit_document
 from logic.credit_profile_apply import apply_credit_profile_overrides
 from logic.credit_references import extract_referenced_invoice_numbers
+from parser.pdf_parser import build_description
 
 _CREDIT_TYPE = "credit_note"
 _INVOICE_TYPE = "invoice"
@@ -89,6 +90,12 @@ def enrich_credit_document(inv: dict[str, Any]) -> dict[str, Any]:
 
     if str(out.get("type") or "") == _CREDIT_TYPE:
         _normalize_credit_amount_fields(out)
+        cc = str(out.get("customer_number") or "").strip()
+        inv_no = str(out.get("invoice_number") or "").strip()
+        if cc and inv_no:
+            desc = build_description(cc, inv_no)
+            if desc:
+                out["description"] = desc
 
     return out
 

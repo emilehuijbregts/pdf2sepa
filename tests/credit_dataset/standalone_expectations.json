@@ -1,0 +1,92 @@
+{
+  "Aco Sales Credit Memo C10692.pdf": {
+    "supplier_name": "Aco B.V.",
+    "match_status": "confirmed",
+    "invoice_number": "C10692",
+    "amount": "48.40"
+  },
+  "Bitasco VerkoopCreditnota SCM23-00472.pdf": {
+    "supplier_name": "Bitasco Trading B.V",
+    "match_status": "confirmed",
+    "invoice_number": "SCM23-00472",
+    "amount": "363.00"
+  },
+  "Bitasco VerkoopCreditnota SCM25-00640.pdf": {
+    "supplier_name": "Bitasco Trading B.V",
+    "match_status": "confirmed",
+    "invoice_number": "SCM25-00640",
+    "amount": "181.50"
+  },
+  "Bitasco VerkoopCreditnota SCM25-00881.pdf": {
+    "supplier_name": "Bitasco Trading B.V",
+    "match_status": "confirmed",
+    "invoice_number": "SCM25-00881",
+    "amount": "384.18"
+  },
+  "Bonfix Creditfactuur Handelsonderneming Duister _ 2521473.pdf": {
+    "supplier_name": "BONFIX B.V",
+    "match_status": "confirmed",
+    "invoice_number": "2521473",
+    "amount": "144.66"
+  },
+  "DTC elektro 500127_26004431.pdf": {
+    "supplier_name": "DTC Elektro",
+    "match_status": "confirmed",
+    "invoice_number": "26004431",
+    "amount": "181.50"
+  },
+  "Defrancq Verkoop Creditnota VCN25000453.pdf": {
+    "supplier_name": "Defrancq Nederland B.V",
+    "match_status": "confirmed",
+    "invoice_number": "VCN25/000453",
+    "amount": "287.57"
+  },
+  "Korver Uitgaande creditnota 51710.pdf": {
+    "supplier_name": "Korver Holland B.V.",
+    "match_status": "confirmed",
+    "invoice_number": "VC-51710",
+    "amount": "155.08"
+  },
+  "Oeg CreditnotaHO13532695.pdf": {
+    "supplier_name": "OEG",
+    "match_status": "confirmed",
+    "invoice_number": "HA13532695",
+    "amount": "162.05"
+  },
+  "Pearlpaint 2610C000173.pdf": {
+    "supplier_name": "PearlPaint B.V.",
+    "match_status": "confirmed",
+    "invoice_number": "2610C000173",
+    "amount": "128.89"
+  },
+  "Roba metals Creditnota_CN00009082.PDF": {
+    "supplier_name": "Roba Metals B.V.",
+    "match_status": "confirmed",
+    "invoice_number": "CN00009082",
+    "amount": "14.08"
+  },
+  "Sealeco 202632383.pdf": {
+    "supplier_name": "SealEco B.V.",
+    "match_status": "confirmed",
+    "invoice_number": "202632383",
+    "amount": "320.18"
+  },
+  "VTE Verkoopcreditnota VCR2600064+.pdf": {
+    "supplier_name": "VTE Smarter Solutions B.V.",
+    "match_status": "confirmed",
+    "invoice_number": "VCR2600064",
+    "amount": "408.57"
+  },
+  "Wasco 8714252002430_6230076.pdf": {
+    "supplier_name": "Wasco Groothandelsgroep B.V.",
+    "match_status": "confirmed",
+    "invoice_number": "6230076",
+    "amount": "66.67"
+  },
+  "vte Verkoopcreditnota VCR2600003+.pdf": {
+    "supplier_name": "VTE Smarter Solutions B.V.",
+    "match_status": "confirmed",
+    "invoice_number": "VCR2600003",
+    "amount": "33.00"
+  }
+}

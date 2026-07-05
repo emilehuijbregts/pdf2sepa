@@ -152,6 +152,38 @@ def test_credit_profile_applied_for_confirmed_credit_with_key() -> None:
     assert cd.get("profile_applied") is True
 
 
+def test_credit_profile_rebuilds_description_after_invoice_override() -> None:
+    inv = {
+        "type": "credit_note",
+        "customer_number": "104031",
+        "invoice_number": "SI25-99999",
+        "description": "104031 / SI25-99999",
+        "supplier_key": "bitasco trading bv",
+        "raw_text": "Bitasco\nnota Nr: SCM23-00472\nTotaal 363,00",
+        "amount_result": {"status": "confirmed", "value": "100.00", "candidates": []},
+        "invoice_number_result": {
+            "status": "confirmed",
+            "value": "SI25-99999",
+            "candidates": [],
+        },
+        "credit_profile": {
+            "amount": {
+                "label": "Totaal",
+                "strategy": "same_line_last_amount",
+                "confirmed_value": "363.00",
+            },
+            "credit_number": {
+                "label": "nota Nr: ",
+                "strategy": "same_line_after_colon",
+                "confirmed_value": "SCM23-00472",
+            },
+        },
+    }
+    enriched = enrich_credit_document(inv)
+    assert enriched.get("invoice_number") == "SCM23-00472"
+    assert enriched.get("description") == "104031 / SCM23-00472"
+
+
 def test_credit_profile_not_applied_without_supplier_key() -> None:
     inv = {
         "type": "credit_note",

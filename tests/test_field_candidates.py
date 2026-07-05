@@ -445,6 +445,68 @@ class TestBatch6LayoutSnippets:
         assert "VCR2600003" in vals
         assert "VF2600115" not in vals
 
+    def test_defrancq_credit_note_vcn_colon(self):
+        text = "Creditnota: VCN25/000453\nFactuurnr. VFA25/13655\n"
+        inv = extract_invoice_number_result(text)
+        vals = {c.value for c in inv.candidates if c.source != "fallback_missing"}
+        assert "VCN25/000453" in vals
+        assert inv.value == "VCN25/000453"
+
+    def test_korver_credit_note_vc_inline(self):
+        text = "Creditnota: VC-51710\nFactuurnr VF-1094659\n"
+        inv = extract_invoice_number_result(text)
+        vals = {c.value for c in inv.candidates if c.source != "fallback_missing"}
+        assert "VC-51710" in vals
+        assert inv.value == "VC-51710"
+
+    def test_korver_credit_note_vc_next_line(self):
+        text = "Korver Holland B.V.\nCreditnota\nVC-51710\nFactuurnr VF-12345\n"
+        inv = extract_invoice_number_result(text)
+        vals = {c.value for c in inv.candidates if c.source != "fallback_missing"}
+        assert "VC-51710" in vals
+        assert inv.value == "VC-51710"
+
+    def test_korver_creditnota_table_header(self):
+        text = (
+            "klantnummer Factuurdatum Creditnota Betalingstermijn\n"
+            "D3269 10-02-2026 VC-51710 30 dgn. netto na factuurdatum\n"
+        )
+        inv = extract_invoice_number_result(text)
+        vals = {c.value for c in inv.candidates if c.source != "fallback_missing"}
+        assert "VC-51710" in vals
+        assert inv.value == "VC-51710"
+
+    def test_defrancq_credit_beats_debtor_kvk_header_table(self):
+        from parser.field_model import FieldCandidate
+        from parser.field_candidates import rank_candidates
+
+        text = (
+            "Creditnota: VCN25/000453\n"
+            "klantnummer Factuurdatum Factuurnr Betalingstermijn\n"
+            "K05251 14-01-2026 62254448 30 dgn.\n"
+        )
+        inv = extract_invoice_number_result(text, debtor_kvk="62254448")
+        assert inv.value == "VCN25/000453"
+        assert not any(c.value == "62254448" for c in inv.candidates)
+
+        vcn = FieldCandidate(
+            value="VCN25/000453",
+            source="credit_note_title",
+            confidence=92,
+            context="Creditnota: VCN25/000453",
+            meta={"field_id": "invoice_number", "match_type": "regex"},
+        )
+        kvk = FieldCandidate(
+            value="62254448",
+            source="header_table_invoice",
+            confidence=55,
+            context="K05251 14-01-2026 62254448 30 dgn.",
+            label="klantnummer Factuurdatum Factuurnr",
+            meta={"field_id": "invoice_number", "match_type": "label"},
+        )
+        ranked = rank_candidates("invoice_number", [vcn, kvk], context="resolver")
+        assert ranked[0].value == "VCN25/000453"
+
     def test_van_den_borne_colon_invoice_id(self):
         text = "Factuurnummer :4126VF01369\n"
         inv = extract_invoice_number_result(text)

@@ -231,7 +231,23 @@
       "kvk_numbers": [],
       "email_domains": [
         "duister.eu"
-      ]
+      ],
+      "credit_profile": {
+        "learned_from": "Bitasco VerkoopCreditnota SCM23-00472.pdf",
+        "amount": {
+          "label": "Totaal",
+          "strategy": "same_line_last_amount",
+          "confirmed_value": "363.00",
+          "confidence": 90
+        },
+        "credit_number": {
+          "label": "nota Nr: ",
+          "strategy": "same_line_after_colon",
+          "confirmed_value": "SCM23-00472",
+          "confidence": 100
+        }
+      },
+      "supplier_key": "bitasco trading bv"
     },
     {
       "name": "Aluned B.V.",
@@ -1268,7 +1284,17 @@
       ],
       "email_domains": [
         "robametals.com"
-      ]
+      ],
+      "credit_profile": {
+        "learned_from": "Roba metals Creditnota_CN00009082.PDF",
+        "amount": {
+          "label": "Factuurbedrag",
+          "strategy": "same_line_last_amount",
+          "confirmed_value": "14.08",
+          "confidence": 95
+        }
+      },
+      "supplier_key": "roba metals bv"
     },
     {
       "name": "S for Software",

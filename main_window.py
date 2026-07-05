@@ -572,6 +572,11 @@ def _diagnostics_snapshot_from_invoice(inv: dict) -> dict:
     return build_invoice_diagnostics_snapshot(inv if isinstance(inv, dict) else {})
 
 
+def _role_snap_from_snapshot(snapshot: dict[str, Any], key: str) -> dict[str, Any] | None:
+    v = snapshot.get(key)
+    return deepcopy(v) if isinstance(v, dict) else None
+
+
 def _ident_field_display_from_inv(inv: dict[str, Any], field: str) -> str:
     """Celweergave; ``?`` als parser twijfelt en er kandidaten zijn."""
     if field == "customer_number":
@@ -1645,12 +1650,67 @@ class MainWindow(QMainWindow):
             self._table.insertRow(r)
             self._apply_settlement_child_row_full(r, spec, gid)
 
+    def _freeze_row_snapshot_from_inv(self, inv: dict) -> dict:
+        """Single entry: inv → deepcopy snapshot. Row-level SSOT."""
+        return deepcopy(build_invoice_diagnostics_snapshot(inv))
+
+    def _attach_child_row_diagnostics_roles(
+        self,
+        *,
+        snapshot: dict[str, Any],
+        doc_id: str,
+        sup_it: QTableWidgetItem,
+        iban_it: QTableWidgetItem,
+        amt_it: QTableWidgetItem,
+        cust_it: QTableWidgetItem,
+        inv_date_it: QTableWidgetItem,
+    ) -> None:
+        """Mirror header row diagnostics roles; all values from frozen snapshot."""
+        sup_it.setData(_ROW_INVOICE_DIAGNOSTICS_ROLE, snapshot)
+        inv_meta = str(snapshot.get("invoice_number") or "").strip()
+        if inv_meta:
+            sup_it.setData(_ROW_INVOICE_META_ROLE, inv_meta)
+        inv_snap = _role_snap_from_snapshot(snapshot, "invoice_number_result")
+        if inv_snap:
+            sup_it.setData(_ROW_INVOICE_NUMBER_RESULT_ROLE, inv_snap)
+        sup_original = str(
+            snapshot.get("supplier_name") or snapshot.get("supplier_hint") or ""
+        ).strip()
+        if sup_original:
+            sup_it.setData(_ROW_SUPPLIER_ORIGINAL_ROLE, sup_original)
+        vat = str(snapshot.get("vat_number") or "").strip()
+        if vat:
+            sup_it.setData(_ROW_VAT_NUMBER_ROLE, vat)
+        kvk = str(snapshot.get("kvk_number") or "").strip()
+        if kvk:
+            sup_it.setData(_ROW_KVK_NUMBER_ROLE, kvk)
+        email = str(snapshot.get("email_domain") or "").strip()
+        if email:
+            sup_it.setData(_ROW_EMAIL_DOMAIN_ROLE, email)
+        if doc_id:
+            sup_it.setData(_ROW_SETTLEMENT_DOC_ID_ROLE, doc_id)
+        src = str(snapshot.get("source_file") or "").strip()
+        if src:
+            sup_it.setData(_ROW_SETTLEMENT_SOURCE_PDF_ROLE, src)
+        iban_snap = _role_snap_from_snapshot(snapshot, "iban_result")
+        if iban_snap:
+            iban_it.setData(_ROW_IBAN_RESULT_ROLE, iban_snap)
+        amt_snap = _role_snap_from_snapshot(snapshot, "amount_result")
+        if amt_snap:
+            amt_it.setData(_ROW_AMOUNT_RESULT_ROLE, amt_snap)
+        cust_snap = _role_snap_from_snapshot(snapshot, "customer_number_result")
+        if cust_snap:
+            cust_it.setData(_ROW_CUSTOMER_NUMBER_RESULT_ROLE, cust_snap)
+        inv_date_src = snapshot.get("invoice_date_source")
+        if inv_date_src is not None:
+            inv_date_it.setData(_ROW_INVOICE_DATE_SOURCE_ROLE, inv_date_src)
+
     def _apply_settlement_child_row_full(self, row: int, spec: dict[str, Any], gid: str) -> None:
         """Render a settlement child row with all payment columns populated (read-only).
 
-        Each item carries full UserRole metadata so future contextmenu actions can
-        identify the document without extra table scans.  Credits keep their orange
-        foreground.  WARNING_CHILD rows render only the supplier column.
+        Invoice fields come from a frozen diagnostics snapshot (single source).
+        ``spec`` supplies layout/settlement metadata only (kind, styling, amount celtekst).
+        WARNING_CHILD rows render only the supplier column.
         """
         from PySide6.QtGui import QBrush, QColor
 
@@ -1676,18 +1736,23 @@ class MainWindow(QMainWindow):
             self._table.setItem(row, int(PaymentColumn.SUPPLIER), sup_it)
             return
 
-        raw = spec.get("raw_invoice") or {}
-        doc_id = str(spec.get("document_id") or "")
-        if not doc_id and raw:
-            doc_id = document_id({"raw": raw})
+        doc_id = str(spec.get("document_id") or "").strip()
+        inv = self._invoice_for_document_id(doc_id) if doc_id else None
+        snapshot: dict[str, Any] | None = None
+        if isinstance(inv, dict):
+            snapshot = self._freeze_row_snapshot_from_inv(inv)
+            del inv
+
         doc_type = "credit_note" if is_credit else "invoice"
         meta = spec.get("meta") or {}
         detached = bool(meta.get("detached"))
 
-        # ── Supplier ──────────────────────────────────────────────────────────
-        sup_text = str(raw.get("supplier_name") or spec.get("supplier_name") or "")
-        if is_credit and detached:
-            inv_no = str(meta.get("invoice_number") or spec.get("label") or "").strip()
+        # ── Supplier (snapshot only for invoice fields) ───────────────────────
+        sup_text = ""
+        if snapshot:
+            sup_text = str(snapshot.get("supplier_name") or snapshot.get("supplier_hint") or "")
+        if is_credit and detached and snapshot:
+            inv_no = str(snapshot.get("invoice_number") or "").strip()
             if inv_no:
                 sup_text = f"{sup_text}  ·  {inv_no} (losgekoppeld)"
         sup_it = _ro(sup_text)
@@ -1695,19 +1760,16 @@ class MainWindow(QMainWindow):
         sup_it.setData(_ROW_SETTLEMENT_DOC_TYPE_ROLE, doc_type)
         sup_it.setData(_ROW_SETTLEMENT_SUPPLIER_ROLE, sup_text)
         sup_it.setData(_ROW_SETTLEMENT_GROUP_ID_ROLE, gid)
-        if doc_id:
-            sup_it.setData(_ROW_SETTLEMENT_DOC_ID_ROLE, doc_id)
-        if raw.get("source_file"):
-            sup_it.setData(_ROW_SETTLEMENT_SOURCE_PDF_ROLE, str(raw["source_file"]))
         if is_credit:
             sup_it.setForeground(orange)
         self._table.setItem(row, int(PaymentColumn.SUPPLIER), sup_it)
 
         # ── IBAN ──────────────────────────────────────────────────────────────
-        iban_disp = str(raw.get("iban") or "")
-        self._table.setItem(row, int(PaymentColumn.IBAN), _ro(iban_disp))
+        iban_disp = str(snapshot.get("iban") or "") if snapshot else ""
+        iban_it = _ro(iban_disp)
+        self._table.setItem(row, int(PaymentColumn.IBAN), iban_it)
 
-        # ── Amount ────────────────────────────────────────────────────────────
+        # ── Amount: settlement presentation celtekst; truth in snapshot role ────
         amount_str = _format_settlement_child_amount(spec.get("amount"))
         amt_it = self._item_amount(amount_str)
         amt_it.setData(_ROW_SETTLEMENT_ROW_KIND_ROLE, int(kind))
@@ -1716,31 +1778,50 @@ class MainWindow(QMainWindow):
         self._table.setItem(row, int(PaymentColumn.AMOUNT), amt_it)
 
         # ── Customer code ─────────────────────────────────────────────────────
-        cust = str(raw.get("customer_number") or "")
-        self._table.setItem(row, int(PaymentColumn.CUSTOMER_CODE), _ro(cust))
+        cust = _ident_field_display_from_inv(snapshot, "customer_number") if snapshot else ""
+        cust_it = _ro(cust)
+        self._table.setItem(row, int(PaymentColumn.CUSTOMER_CODE), cust_it)
 
         # ── Description ───────────────────────────────────────────────────────
-        desc = _remittance_display_from_inv(raw) if raw else ""
+        desc = _remittance_display_from_inv(snapshot) if snapshot else ""
         self._table.setItem(row, int(PaymentColumn.DESCRIPTION), _ro(desc))
 
         # ── PDF ───────────────────────────────────────────────────────────────
-        src = str(raw.get("source_file") or "")
+        src = str(snapshot.get("source_file") or "") if snapshot else ""
         pdf_disp = Path(src).name if src else "—"
         self._table.setItem(row, int(PaymentColumn.PDF), _ro(pdf_disp))
 
         # ── Discount ──────────────────────────────────────────────────────────
-        disc = str(raw.get("discount") or "0")
+        disc = _discount_str_from_inv(snapshot) if snapshot else "0"
         self._table.setItem(row, int(PaymentColumn.DISCOUNT), _ro(disc))
 
         # ── Invoice date ──────────────────────────────────────────────────────
-        inv_date = str(raw.get("invoice_date") or "")
+        inv_date = str(snapshot.get("invoice_date") or "") if snapshot else ""
         inv_disp, inv_sort = self._table_date_display_and_sort(inv_date)
-        self._table.setItem(row, int(PaymentColumn.INVOICE_DATE), self._item_date_cell(inv_disp, inv_sort))
+        inv_date_it = self._item_date_cell(inv_disp, inv_sort)
+        self._table.setItem(row, int(PaymentColumn.INVOICE_DATE), inv_date_it)
 
-        # ── Status ────────────────────────────────────────────────────────────
-        dec = raw.get("decision") if isinstance(raw.get("decision"), dict) else {}
-        raw_status = str((dec or {}).get("status") or DECISION_NEEDS_REVIEW)
-        self._table.setItem(row, int(PaymentColumn.STATUS), _ro(decision_status_label_nl(raw_status)))
+        # ── Status (decision not in snapshot fields) ──────────────────────────
+        self._table.setItem(row, int(PaymentColumn.STATUS), _ro("—"))
+
+        # ── INFO (diagnostics entry point; mirror header rows) ─────────────────
+        from PySide6.QtGui import QPalette
+
+        info_item = self._item_readonly("🔍")
+        info_item.setToolTip("Diagnostics — wat ging er goed of mis?")
+        info_item.setForeground(QApplication.palette().color(QPalette.ColorRole.WindowText))
+        self._table.setItem(row, int(PaymentColumn.INFO), info_item)
+
+        if snapshot is not None:
+            self._attach_child_row_diagnostics_roles(
+                snapshot=snapshot,
+                doc_id=doc_id,
+                sup_it=sup_it,
+                iban_it=iban_it,
+                amt_it=amt_it,
+                cust_it=cust_it,
+                inv_date_it=inv_date_it,
+            )
 
     def _is_settlement_child_row(self, row: int) -> bool:
         kind = settlement_row_kind(self._table.item(row, PaymentColumn.SUPPLIER))

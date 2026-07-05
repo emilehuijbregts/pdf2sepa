@@ -169,18 +169,32 @@ _PAYMENT_TERM_DG_RE = re.compile(r"(?i)^\d{1,3}dg$")
 _CREDIT_INVOICE_HINT_RE = re.compile(
     r"(?i)\b(?:creditnota|credit\s*note|verkoopcredit|creditfactuur|creditnota)\b"
 )
+_CREDIT_OWN_NUMBER_PREFIX_RE = re.compile(
+    r"(?i)^(?:VCR|VCN|VC|CN|CREN|CR|HA|SCM|SI|C\d)"
+)
 _CREDIT_NOTE_NUMBER_RE = re.compile(
-    r"(?i)\b(?:creditnota|verkoopcreditnota|credit\s*note)\s+"
-    r"((?:VCR|CN|CREN|CR|HA)\s*[\dA-Z+./\-]+)"
+    r"(?i)\b(?:creditnota|verkoopcreditnota|credit\s*note)\s*[:.]?\s*"
+    r"((?:VCR|VCN|VC|CN|CREN|CR|HA|SCM|SI)\s*[\dA-Z+./\-]+)"
 )
 _CREDIT_DOCUMENT_NUMBER_RE = re.compile(
-    r"(?i)\b(?:nummer|number|nr\.?)\s+(CN[\dA-Z]+)"
+    r"(?i)\b(?:credit(?:nota)?(?:nummer|nr\.?)|creditnummer)\s*[:.]?\s*"
+    r"((?:CN|VC|VCN|SCM|VCR)[\dA-Z+\-/]+)"
+)
+_CREDIT_NUMBER_LINE_RE = re.compile(
+    r"(?i)\b(?:nummer|number|nr\.?)\s*[:.]?\s*((?:CN|VC|VCN|SCM|VCR)[\dA-Z+\-/]+)"
+)
+_CREDIT_INVOICE_SOURCES = frozenset(
+    {"credit_note_title", "credit_document_number", "credit_note_next_line"}
+)
+_KVK_LABEL_CTX_RE = re.compile(
+    r"(?i)\b(?:kvk|k\.?\s*v\.?\s*k\.?|handelsregister|kamer\s+van\s+koophandel)\b"
 )
 _PARENT_INVOICE_LINE_RE = re.compile(
     r"(?i)\b(?:betr\.?:?\s*)?(?:onze\s+)?factuur\s+([A-Z0-9][\w./+\-]{2,})"
 )
 _PARENT_INVOICE_REF_CTX_RE = re.compile(
-    r"(?i)\b(?:fact\.?\s*nr\.?|vereffening\s+met\s+factuurnr|"
+    r"(?i)\b(?:factuurnr\.?|factuurnummer|faktuurnummer|faktuurnr\.?|"
+    r"fact\.?\s*nr\.?|vereffening\s+met\s+factuurnr|"
     r"betr\.?:?\s*(?:onze\s+)?factuur|onze\s+factuur)\b"
 )
 _ORDER_VS_INVOICE_PENALTY = 60
@@ -613,11 +627,9 @@ def _field_type_match_score(cand: IdentFieldCandidate, *, field_id: str) -> int:
         return 15
     if conflict == "reference_number":
         return 25
-    if cand.source == "credit_note_title" or cand.source == "credit_document_number":
+    if cand.source in _CREDIT_INVOICE_SOURCES:
         return 98
-    if _CREDIT_INVOICE_HINT_RE.search(hay) or re.match(
-        r"(?i)^(?:VCR|CN|CREN|CR|HA|C\d)", value
-    ):
+    if _CREDIT_INVOICE_HINT_RE.search(hay) or _CREDIT_OWN_NUMBER_PREFIX_RE.match(value):
         return 95
     if _has_explicit_invoice_label(cand):
         return 90
@@ -651,6 +663,9 @@ def _context_proximity_score(cand: IdentFieldCandidate) -> int:
 
 
 def _label_strength(cand: IdentFieldCandidate) -> int:
+    src = str(cand.source or "").strip().lower()
+    if src in _CREDIT_INVOICE_SOURCES:
+        return 340
     mt = _candidate_match_type(cand)
     strength = _MATCH_TYPE_PRIORITY.get(mt, 1) * 100
     if mt != "label":
@@ -1597,6 +1612,26 @@ def _invoice_candidate_ok(
     )
 
 
+def _filter_debtor_identifiers_from_invoice_candidates(
+    cands: list[IdentFieldCandidate],
+    *,
+    debtor_kvk: str | None = None,
+) -> list[IdentFieldCandidate]:
+    """Drop eigen debiteur-KvK en KvK-gelabelde context uit factuurnummer-pool."""
+    debtor_norm = _normalize_kvk_digits(debtor_kvk) if debtor_kvk else ""
+    out: list[IdentFieldCandidate] = []
+    for cand in cands:
+        val = str(cand.value or "").strip()
+        digits = re.sub(r"\D", "", val)
+        hay = f"{cand.label or ''} {cand.context or ''}"
+        if debtor_norm and digits == debtor_norm:
+            continue
+        if _KVK_LABEL_CTX_RE.search(hay):
+            continue
+        out.append(cand)
+    return out
+
+
 def _filter_invoice_number_candidates(
     cands: list[IdentFieldCandidate],
     body: str,
@@ -1715,6 +1750,69 @@ def _collect_credit_note_invoice_candidates(text: str) -> list[IdentFieldCandida
                 ),
             )
         )
+    for m in _CREDIT_NUMBER_LINE_RE.finditer(body):
+        val = re.sub(r"\++$", "", str(m.group(1) or "").strip())
+        if not val or not _invoice_candidate_ok(val):
+            continue
+        key = val.upper()
+        if key in seen:
+            continue
+        seen.add(key)
+        cands.append(
+            IdentFieldCandidate(
+                value=val,
+                source="credit_document_number",
+                confidence=93,
+                context=_line_context_at(body, m.start()),
+                label="Nummer",
+                meta=_candidate_explain_meta(
+                    extraction_method="regex",
+                    label_reason="credit number after Nummer label",
+                    score_breakdown={"base": 93},
+                ),
+            )
+        )
+    lines = body.splitlines()
+    for i, line in enumerate(lines):
+        if not re.fullmatch(
+            r"(?i)(?:creditnota|verkoopcreditnota|credit\s*note)",
+            (line or "").strip(),
+        ):
+            continue
+        if i + 1 >= len(lines):
+            continue
+        nxt = (lines[i + 1] or "").strip()
+        if not nxt or _CUSTOMER_FIELD_LABEL_RE.search(nxt):
+            continue
+        m = re.match(
+            r"(?i)((?:VCR|VCN|VC|CN|CREN|CR|HA|SCM|SI)\s*[\dA-Z+./\-]+)",
+            nxt,
+        )
+        if not m:
+            continue
+        val = re.sub(r"\s+", "", str(m.group(1) or "").strip())
+        val = re.sub(r"\++$", "", val)
+        if not val or not _invoice_candidate_ok(val):
+            continue
+        key = val.upper()
+        if key in seen:
+            continue
+        seen.add(key)
+        ctx = re.sub(r"\s+", " ", nxt).strip()[:160]
+        cands.append(
+            IdentFieldCandidate(
+                value=val,
+                source="credit_note_next_line",
+                confidence=91,
+                context=ctx,
+                label="Creditnota",
+                meta=_candidate_explain_meta(
+                    extraction_method="proximity",
+                    label_reason="credit number on line after Creditnota header",
+                    score_breakdown={"base": 91},
+                ),
+            )
+        )
     return cands
 
 
@@ -1727,8 +1825,8 @@ def _filter_parent_invoice_refs_on_credit(
     if not _CREDIT_INVOICE_HINT_RE.search(body):
         return cands
     has_credit_own_number = any(
-        str(c.source or "") in {"credit_note_title", "credit_document_number"}
-        or re.match(r"(?i)^(?:VCR|CN|CREN|CR|HA|C\d)", str(c.value or ""))
+        str(c.source or "") in _CREDIT_INVOICE_SOURCES
+        or _CREDIT_OWN_NUMBER_PREFIX_RE.match(str(c.value or "").strip())
         for c in cands
     )
     parent_refs: set[str] = set()
@@ -1752,10 +1850,7 @@ def _filter_parent_invoice_refs_on_credit(
             if has_credit_own_number:
                 continue
         if val in parent_refs and has_credit_own_number:
-            if str(cand.source or "") not in {
-                "credit_note_title",
-                "credit_document_number",
-            }:
+            if str(cand.source or "") not in _CREDIT_INVOICE_SOURCES:
                 continue
         if val.startswith("VF") and _PARENT_INVOICE_REF_CTX_RE.search(hay):
             if has_credit_own_number:
@@ -1845,7 +1940,16 @@ def _collect_date_invoice_line_candidates(text: str) -> list[IdentFieldCandidate
 
 
 def _line_looks_like_postcode_row(line: str) -> bool:
-    return bool(re.search(r"\b\d{4}\s+[A-Z]{2}\b", line or ""))
+    ln = str(line or "")
+    for m in re.finditer(r"\b\d{4}\s+[A-Z]{2}\b", ln):
+        before = ln[max(0, m.start() - 12) : m.start()]
+        if re.search(r"\d{1,2}[\./-]\d{1,2}[\./-]$", before):
+            continue
+        after = ln[m.end() : m.end() + 8]
+        if re.match(r"[-/]\d", after):
+            continue
+        return True
+    return False
 
 
 def _truncate_at_next_field_label(segment: str) -> str:
@@ -1886,9 +1990,21 @@ def _line_looks_like_order_reference_row(line: str) -> bool:
     return bool(re.match(r"^\d{4,}\s*:\s*\d", ln))
 
 
+def _line_looks_like_table_data_row(line: str) -> bool:
+    """Herken tabelwaarde-regels (klant + datum + factuur/credit + betalingstermijn)."""
+    ln = str(line or "")
+    return bool(
+        re.search(r"(?i)\b\d{1,3}\s*dgn\.?\b", ln)
+        and re.search(r"(?i)\bna\s+factuurdatum\b", ln)
+        and re.search(r"[A-Za-z][\w./-]*\d", ln)
+    )
+
+
 def _line_looks_like_label_not_value(line: str) -> bool:
     """Volgende regel is zelf een label, geen tabelwaarde."""
     ln = str(line or "")
+    if _line_looks_like_table_data_row(ln):
+        return False
     if re.search(
         r"(?i)\b(?:factuurnummer|factuurnr|invoice\s*no|debiteurnr|debiteur(?:en)?(?:\s*nr)?|"
         r"klant\s*nr|ordernummer|leveringsnummer|leveringsnr|factuurdatum|vervaldatum|"
@@ -2101,7 +2217,13 @@ def _header_word_indices(hdr: str) -> tuple[int | None, int | None]:
     cust_i: int | None = None
     bare_factuur_indices: list[int] = []
     for i, w in enumerate(words):
-        if "factuurnr" in w or w in ("factuurnummer", "faktuurnr", "faktuurnummer"):
+        if (
+            "creditnota" in w
+            or w in ("creditnummer", "creditnotanr")
+            or (w == "credit" and i + 1 < len(words) and words[i + 1] in ("nota", "nr", "nummer"))
+        ):
+            inv_i = i
+        elif "factuurnr" in w or w in ("factuurnummer", "faktuurnr", "faktuurnummer"):
             inv_i = i
         elif w == "factuur":
             bare_factuur_indices.append(i)
@@ -2203,6 +2325,9 @@ def _collect_header_value_table_candidates(
             not re.search(r"(?i)\bdatum\s+nummer\b", hdr)
             and (
                 inv_i is not None
+                or re.search(
+                    r"(?i)\b(?:creditnota(?:\s*nr\.?)?|creditnummer|creditnotanr)\b", hdr
+                )
                 or re.search(r"(?i)\b(?:factuurnr|factuurnummer|faktuurnummer|factuur\s*nr)\b", hdr)
                 or (
                     re.search(r"(?i)\bfactuur\b", hdr)
@@ -3995,6 +4120,7 @@ def extract_invoice_number_result(
     resolved: str | None = None,
     resolved_source: str | None = None,
     internal_vat_blacklist: frozenset[str] | None = None,
+    debtor_kvk: str | None = None,
 ) -> IdentFieldResult:
     cands = collect_ident_field_candidates(
         text,
@@ -4031,6 +4157,7 @@ def extract_invoice_number_result(
     blacklist = internal_vat_blacklist or frozenset()
     cands = _filter_invoice_number_candidates(cands, text, internal_vat_blacklist=blacklist)
     cands = _filter_internal_vat_blacklist(cands, blacklist, field_id="invoice_number")
+    cands = _filter_debtor_identifiers_from_invoice_candidates(cands, debtor_kvk=debtor_kvk)
     cands = _dedupe_candidates(cands)
     resolved_value = resolved
     resolved_src = resolved_source
