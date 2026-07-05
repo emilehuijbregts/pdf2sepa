@@ -1135,6 +1135,33 @@ def _run_shadow_mode_checks(results: list[bool]) -> None:
         _record(results, False, f"Shadow mode checks crash ({e.__class__.__name__}: {e})")
 
 
+def _run_phase5_strategy_guard_checks(results: list[bool]) -> None:
+    print()
+    print("[ Phase 5 strategy regression guard ]")
+    baseline = Path(__file__).resolve().parent / "data" / "strategy_regression_baseline.json"
+    if not baseline.is_file():
+        print("  Skipped — no regression baseline committed yet")
+        return
+    try:
+        import subprocess
+        import sys
+
+        proc = subprocess.run(
+            [sys.executable, "scripts/run_phase5_guard.py"],
+            cwd=str(Path(__file__).resolve().parent),
+            capture_output=True,
+            text=True,
+        )
+        if proc.stdout:
+            print(proc.stdout.rstrip())
+        if proc.stderr:
+            print(proc.stderr.rstrip())
+        passed = proc.returncode == 0
+        _record(results, passed, "Phase 5 — strategy regression guard (subprocess)")
+    except Exception as e:
+        _record(results, False, f"Phase 5 guard crash ({e.__class__.__name__}: {e})")
+
+
 def main() -> int:
     results: list[bool] = []
 
@@ -1170,6 +1197,11 @@ def main() -> int:
     _run_shadow_mode_checks(results)
     shadow_ok = all(results[shadow_start:])
     print("All shadow mode checks passed ✅" if shadow_ok else "Some shadow mode checks failed ❌")
+
+    phase5_start = len(results)
+    _run_phase5_strategy_guard_checks(results)
+    phase5_ok = all(results[phase5_start:])
+    print("All Phase 5 strategy guard checks passed ✅" if phase5_ok else "Some Phase 5 checks failed ❌")
 
     print()
     all_ok = all(results)

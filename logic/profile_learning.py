@@ -12,9 +12,11 @@ from parser.field_model import ALL_FIELD_IDS, CORE_PROFILE_FIELD_KEYS, FieldId
 from parser.profile_learner import (
     AMOUNT_LEARN_FIELDS,
     IDENTIFICATION_LEARN_FIELDS,
+    get_last_strategy_results,
     learn_profile_from_resolved_fields,
     prepare_learnable_field_results,
 )
+from parser.profile_strategy_engine import is_valid_field_spec
 from parser.supplier_db import SupplierDB, customer_number_profile_locked
 
 ProfileFieldStatus = Literal["learned", "failed", "skipped"]
@@ -36,6 +38,7 @@ class ProfileFieldOutcome:
     field_id: str
     status: ProfileFieldStatus
     detail: str = ""
+    strategy_trace: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -54,7 +57,7 @@ def profile_field_keys_missing(stored_profile: dict[str, Any] | None) -> list[st
     missing: list[str] = []
     for key in CORE_PROFILE_FIELD_KEYS:
         spec = stored_profile.get(key)
-        if not isinstance(spec, dict) or not spec.get("label") or not spec.get("strategy"):
+        if not isinstance(spec, dict) or not is_valid_field_spec(spec, key):  # type: ignore[arg-type]
             missing.append(key)
     return missing
 
@@ -164,18 +167,24 @@ def _compute_profile_field_outcomes(
 ) -> tuple[ProfileFieldOutcome, ...]:
     """Per-field learn status (identification and amount domains are independent)."""
     prof = profile if isinstance(profile, dict) else {}
+    traces = get_last_strategy_results()
     outcomes: list[ProfileFieldOutcome] = []
     for field_id in _PROFILE_LEARN_FIELD_KEYS:
+        trace_dict = traces.get(field_id)  # type: ignore[arg-type]
+        strategy_trace = trace_dict.to_dict() if trace_dict is not None else None
         if field_id not in norm:
-            outcomes.append(ProfileFieldOutcome(field_id=field_id, status="skipped"))
+            outcomes.append(
+                ProfileFieldOutcome(field_id=field_id, status="skipped", strategy_trace=strategy_trace)
+            )
             continue
         spec = prof.get(field_id)
-        if isinstance(spec, dict) and (spec.get("label") or spec.get("strategy") == "derived_excl_plus_vat"):
+        if isinstance(spec, dict) and is_valid_field_spec(spec, field_id):  # type: ignore[arg-type]
             outcomes.append(
                 ProfileFieldOutcome(
                     field_id=field_id,
                     status="learned",
                     detail="geleerd en opgeslagen",
+                    strategy_trace=strategy_trace,
                 )
             )
         else:
@@ -187,7 +196,16 @@ def _compute_profile_field_outcomes(
                 )
             else:
                 detail = "kon niet automatisch worden afgeleid uit de bevestigde waarde."
-            outcomes.append(ProfileFieldOutcome(field_id=field_id, status="failed", detail=detail))
+            if strategy_trace and strategy_trace.get("validation_trace"):
+                detail = f"{detail} (trace: {', '.join(strategy_trace['validation_trace'][:3])})"
+            outcomes.append(
+                ProfileFieldOutcome(
+                    field_id=field_id,
+                    status="failed",
+                    detail=detail,
+                    strategy_trace=strategy_trace,
+                )
+            )
     return tuple(outcomes)
 
 

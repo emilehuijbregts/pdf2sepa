@@ -1,0 +1,499 @@
+{
+  "source": "golden_learning_pass",
+  "golden_hash": "sha256:82ef8adbba0ffe8dc1189bb922cf95e7215cc41dd5c1132314c4aa149cdfc036",
+  "field_matrix": {
+    "amount": [
+      {
+        "strategy_name": "token_matching_confirmed_amount",
+        "attempts": 119,
+        "wins": 75,
+        "win_rate": 0.6303,
+        "avg_confidence": 0.949,
+        "avg_fragility": 0.1067,
+        "fallback_dependency_rate": 0.6303
+      },
+      {
+        "strategy_name": "amount_label_next_line",
+        "attempts": 119,
+        "wins": 19,
+        "win_rate": 0.1597,
+        "avg_confidence": 0.5405,
+        "avg_fragility": 1.0,
+        "fallback_dependency_rate": 0.1597
+      },
+      {
+        "strategy_name": "amount_from_context",
+        "attempts": 0,
+        "wins": 0,
+        "win_rate": 0.0,
+        "avg_confidence": 0.0,
+        "avg_fragility": 0.0,
+        "fallback_dependency_rate": 0.0
+      },
+      {
+        "strategy_name": "amount_fallback_scan",
+        "attempts": 119,
+        "wins": 6,
+        "win_rate": 0.0504,
+        "avg_confidence": 0.7779,
+        "avg_fragility": 1.0,
+        "fallback_dependency_rate": 0.0504
+      },
+      {
+        "strategy_name": "derived_excl_plus_vat",
+        "attempts": 119,
+        "wins": 2,
+        "win_rate": 0.0168,
+        "avg_confidence": 0.895,
+        "avg_fragility": 0.0,
+        "fallback_dependency_rate": 0.0168
+      },
+      {
+        "strategy_name": "unlabeled_prefix_amount",
+        "attempts": 119,
+        "wins": 17,
+        "win_rate": 0.1429,
+        "avg_confidence": 0.4728,
+        "avg_fragility": 1.0,
+        "fallback_dependency_rate": 0.1429
+      }
+    ],
+    "invoice_number": [
+      {
+        "strategy_name": "factuur_inline_pagina",
+        "attempts": 129,
+        "wins": 0,
+        "win_rate": 0.0,
+        "avg_confidence": 0.0,
+        "avg_fragility": 0.0,
+        "fallback_dependency_rate": 0.0
+      },
+      {
+        "strategy_name": "token_matching_confirmed_value",
+        "attempts": 129,
+        "wins": 119,
+        "win_rate": 0.9225,
+        "avg_confidence": 0.9332,
+        "avg_fragility": 0.0756,
+        "fallback_dependency_rate": 0.9225
+      },
+      {
+        "strategy_name": "same_line_value_after_label",
+        "attempts": 129,
+        "wins": 0,
+        "win_rate": 0.0,
+        "avg_confidence": 0.0,
+        "avg_fragility": 0.0,
+        "fallback_dependency_rate": 0.0
+      },
+      {
+        "strategy_name": "generic_label_same_line_after_colon",
+        "attempts": 129,
+        "wins": 8,
+        "win_rate": 0.062,
+        "avg_confidence": 0.9275,
+        "avg_fragility": 0.0,
+        "fallback_dependency_rate": 0.062
+      },
+      {
+        "strategy_name": "label_then_next_line",
+        "attempts": 129,
+        "wins": 2,
+        "win_rate": 0.0155,
+        "avg_confidence": 0.9575,
+        "avg_fragility": 0.0,
+        "fallback_dependency_rate": 0.0155
+      },
+      {
+        "strategy_name": "last_token_on_line",
+        "attempts": 129,
+        "wins": 0,
+        "win_rate": 0.0,
+        "avg_confidence": 0.0,
+        "avg_fragility": 0.0,
+        "fallback_dependency_rate": 0.0
+      },
+      {
+        "strategy_name": "slash_compound_split",
+        "attempts": 7,
+        "wins": 0,
+        "win_rate": 0.0,
+        "avg_confidence": 0.0,
+        "avg_fragility": 0.0,
+        "fallback_dependency_rate": 0.0
+      },
+      {
+        "strategy_name": "ocr_tag_extraction",
+        "attempts": 129,
+        "wins": 0,
+        "win_rate": 0.0,
+        "avg_confidence": 0.0,
+        "avg_fragility": 0.0,
+        "fallback_dependency_rate": 0.0
+      },
+      {
+        "strategy_name": "fallback_value_locate_minimal_label",
+        "attempts": 129,
+        "wins": 0,
+        "win_rate": 0.0,
+        "avg_confidence": 0.0,
+        "avg_fragility": 0.0,
+        "fallback_dependency_rate": 0.0
+      }
+    ],
+    "customer_number": [
+      {
+        "strategy_name": "token_matching_confirmed_value",
+        "attempts": 114,
+        "wins": 110,
+        "win_rate": 0.9649,
+        "avg_confidence": 0.9405,
+        "avg_fragility": 0.0818,
+        "fallback_dependency_rate": 0.9649
+      },
+      {
+        "strategy_name": "same_line_value_after_label",
+        "attempts": 114,
+        "wins": 0,
+        "win_rate": 0.0,
+        "avg_confidence": 0.0,
+        "avg_fragility": 0.0,
+        "fallback_dependency_rate": 0.0
+      },
+      {
+        "strategy_name": "generic_label_same_line_after_colon",
+        "attempts": 114,
+        "wins": 2,
+        "win_rate": 0.0175,
+        "avg_confidence": 0.92,
+        "avg_fragility": 0.0,
+        "fallback_dependency_rate": 0.0175
+      },
+      {
+        "strategy_name": "label_then_next_line",
+        "attempts": 114,
+        "wins": 0,
+        "win_rate": 0.0,
+        "avg_confidence": 0.0,
+        "avg_fragility": 0.0,
+        "fallback_dependency_rate": 0.0
+      },
+      {
+        "strategy_name": "last_token_on_line",
+        "attempts": 114,
+        "wins": 0,
+        "win_rate": 0.0,
+        "avg_confidence": 0.0,
+        "avg_fragility": 0.0,
+        "fallback_dependency_rate": 0.0
+      },
+      {
+        "strategy_name": "slash_compound_split",
+        "attempts": 4,
+        "wins": 2,
+        "win_rate": 0.5,
+        "avg_confidence": 0.795,
+        "avg_fragility": 1.0,
+        "fallback_dependency_rate": 0.0175
+      },
+      {
+        "strategy_name": "ocr_tag_extraction",
+        "attempts": 114,
+        "wins": 0,
+        "win_rate": 0.0,
+        "avg_confidence": 0.0,
+        "avg_fragility": 0.0,
+        "fallback_dependency_rate": 0.0
+      },
+      {
+        "strategy_name": "fallback_value_locate_minimal_label",
+        "attempts": 114,
+        "wins": 0,
+        "win_rate": 0.0,
+        "avg_confidence": 0.0,
+        "avg_fragility": 0.0,
+        "fallback_dependency_rate": 0.0
+      }
+    ],
+    "iban": [
+      {
+        "strategy_name": "iban_full_text_scan",
+        "attempts": 112,
+        "wins": 0,
+        "win_rate": 0.0,
+        "avg_confidence": 0.0,
+        "avg_fragility": 0.0,
+        "fallback_dependency_rate": 0.0
+      },
+      {
+        "strategy_name": "iban_label_same_line",
+        "attempts": 112,
+        "wins": 39,
+        "win_rate": 0.3482,
+        "avg_confidence": 0.9906,
+        "avg_fragility": 0.0,
+        "fallback_dependency_rate": 0.3482
+      },
+      {
+        "strategy_name": "iban_label_next_line",
+        "attempts": 112,
+        "wins": 0,
+        "win_rate": 0.0,
+        "avg_confidence": 0.0,
+        "avg_fragility": 0.0,
+        "fallback_dependency_rate": 0.0
+      },
+      {
+        "strategy_name": "iban_scan_with_checksum_filter",
+        "attempts": 112,
+        "wins": 73,
+        "win_rate": 0.6518,
+        "avg_confidence": 0.8851,
+        "avg_fragility": 0.1233,
+        "fallback_dependency_rate": 0.6518
+      }
+    ]
+  },
+  "field_fragility": {
+    "amount": 0.4202,
+    "invoice_number": 0.0698,
+    "customer_number": 0.0965,
+    "iban": 0.0804
+  },
+  "failure_patterns": [
+    {
+      "pattern_type": "amount_vat_confusion",
+      "frequency": 119,
+      "affected_fields": [
+        "amount"
+      ],
+      "suggested_strategy_fix": "Prioritize derived_excl_plus_vat when excl/btw lines present; penalize excl-line amount matches",
+      "examples": [
+        {
+          "pdf": "2ba Fact-2BA-20260114-260789-Duister.pdf",
+          "field": "amount",
+          "strategy_used": "token_matching_confirmed_amount",
+          "status": "success",
+          "confidence": 1.0
+        },
+        {
+          "pdf": "JSK Handelsonderneming Factuur 1225540.pdf",
+          "field": "amount",
+          "strategy_used": "token_matching_confirmed_amount",
+          "status": "success",
+          "confidence": 1.0
+        },
+        {
+          "pdf": "ASF Fischer 100460 26005032 29-01-2026.pdf",
+          "field": "amount",
+          "strategy_used": "amount_label_next_line",
+          "status": "success",
+          "confidence": 0.535
+        },
+        {
+          "pdf": "Aluned 502601306.pdf",
+          "field": "amount",
+          "strategy_used": "token_matching_confirmed_amount",
+          "status": "success",
+          "confidence": 0.915
+        },
+        {
+          "pdf": "BJ autotechniek 26069 duister wouter.pdf",
+          "field": "amount",
+          "strategy_used": "token_matching_confirmed_amount",
+          "status": "success",
+          "confidence": 1.0
+        }
+      ]
+    },
+    {
+      "pattern_type": "token_ambiguity",
+      "frequency": 91,
+      "affected_fields": [
+        "amount",
+        "customer_number",
+        "invoice_number"
+      ],
+      "suggested_strategy_fix": "Demote fragile strategies (amount_fallback_scan, unlabeled_prefix_amount); boost label_match scoring weight",
+      "examples": [
+        {
+          "pdf": "ASF Fischer 100460 26005032 29-01-2026.pdf",
+          "field": "amount",
+          "strategy_used": "amount_label_next_line",
+          "status": "success",
+          "confidence": 0.535
+        },
+        {
+          "pdf": "ASF Fischer 100460 26005032 29-01-2026.pdf",
+          "field": "invoice_number",
+          "strategy_used": "token_matching_confirmed_value",
+          "status": "success",
+          "confidence": 0.83
+        },
+        {
+          "pdf": "ASF Fischer 100460 26005032 29-01-2026.pdf",
+          "field": "customer_number",
+          "strategy_used": "token_matching_confirmed_value",
+          "status": "success",
+          "confidence": 0.85
+        },
+        {
+          "pdf": "B&M Factuur 76793.pdf",
+          "field": "amount",
+          "strategy_used": "unlabeled_prefix_amount",
+          "status": "success",
+          "confidence": 0.4675
+        },
+        {
+          "pdf": "Bauder 24065173.pdf",
+          "field": "amount",
+          "strategy_used": "amount_fallback_scan",
+          "status": "success",
+          "confidence": 0.7125
+        }
+      ]
+    },
+    {
+      "pattern_type": "iban_scan_miss",
+      "frequency": 33,
+      "affected_fields": [
+        "iban"
+      ],
+      "suggested_strategy_fix": "Prioritize iban_scan_with_checksum_filter and iban_label_same_line over plain iban_full_text_scan",
+      "examples": [
+        {
+          "pdf": "Aco Sales Invoice - F444643.pdf",
+          "field": "iban",
+          "strategy_used": null,
+          "status": "expected_failure",
+          "confidence": null
+        },
+        {
+          "pdf": "Aluned 502601306.pdf",
+          "field": "iban",
+          "strategy_used": null,
+          "status": "expected_failure",
+          "confidence": null
+        },
+        {
+          "pdf": "B&M Factuur 76793.pdf",
+          "field": "iban",
+          "strategy_used": null,
+          "status": "expected_failure",
+          "confidence": null
+        },
+        {
+          "pdf": "Bauder 24065173.pdf",
+          "field": "iban",
+          "strategy_used": null,
+          "status": "expected_failure",
+          "confidence": null
+        },
+        {
+          "pdf": "Bauder 24065433.pdf",
+          "field": "iban",
+          "strategy_used": null,
+          "status": "expected_failure",
+          "confidence": null
+        }
+      ]
+    }
+  ],
+  "baseline_metrics": {
+    "amount": {
+      "success": 119,
+      "failure": 0,
+      "success_rate_pct": 100.0,
+      "stable_learning_rate_pct": 58.0,
+      "fragile_wins": 46,
+      "fallback_dependency_rate": 0.1933,
+      "avg_confidence": 0.806
+    },
+    "invoice_number": {
+      "success": 129,
+      "failure": 0,
+      "success_rate_pct": 100.0,
+      "stable_learning_rate_pct": 93.0,
+      "fragile_wins": 9,
+      "fallback_dependency_rate": 0.0,
+      "avg_confidence": 0.933
+    },
+    "customer_number": {
+      "success": 114,
+      "failure": 0,
+      "success_rate_pct": 100.0,
+      "stable_learning_rate_pct": 90.4,
+      "fragile_wins": 9,
+      "fallback_dependency_rate": 0.0,
+      "avg_confidence": 0.938
+    },
+    "iban": {
+      "success": 112,
+      "failure": 0,
+      "success_rate_pct": 100.0,
+      "stable_learning_rate_pct": 92.0,
+      "fragile_wins": 0,
+      "fallback_dependency_rate": 0.0,
+      "avg_confidence": 0.922
+    }
+  },
+  "recommended_order": {
+    "amount": [
+      "token_matching_confirmed_amount",
+      "derived_excl_plus_vat",
+      "amount_from_context",
+      "amount_label_next_line",
+      "unlabeled_prefix_amount",
+      "amount_fallback_scan"
+    ],
+    "invoice_number": [
+      "token_matching_confirmed_value",
+      "generic_label_same_line_after_colon",
+      "label_then_next_line",
+      "factuur_inline_pagina",
+      "same_line_value_after_label",
+      "last_token_on_line",
+      "slash_compound_split",
+      "ocr_tag_extraction",
+      "fallback_value_locate_minimal_label"
+    ],
+    "customer_number": [
+      "token_matching_confirmed_value",
+      "generic_label_same_line_after_colon",
+      "same_line_value_after_label",
+      "label_then_next_line",
+      "last_token_on_line",
+      "ocr_tag_extraction",
+      "fallback_value_locate_minimal_label",
+      "slash_compound_split"
+    ],
+    "iban": [
+      "iban_scan_with_checksum_filter",
+      "iban_label_same_line",
+      "iban_full_text_scan",
+      "iban_label_next_line"
+    ]
+  },
+  "recommended_demotions": [
+    {
+      "field": "amount",
+      "strategy": "amount_label_next_line",
+      "reason": "avg_fragility=1.00"
+    },
+    {
+      "field": "amount",
+      "strategy": "amount_fallback_scan",
+      "reason": "avg_fragility=1.00"
+    },
+    {
+      "field": "amount",
+      "strategy": "unlabeled_prefix_amount",
+      "reason": "avg_fragility=1.00"
+    },
+    {
+      "field": "customer_number",
+      "strategy": "slash_compound_split",
+      "reason": "avg_fragility=1.00"
+    }
+  ]
+}

@@ -1,0 +1,96 @@
+{
+  "version": 1,
+  "source": "golden_learning_pass",
+  "generated_at": "2026-07-05T09:16:05Z",
+  "golden_hash": "sha256:c2073c0f9d7829f12eaf21870ae0abb01163c4dfcbc3ac9fe4e1ce61da5d7dfd",
+  "patch": {
+    "order": {
+      "amount": [
+        "token_matching_confirmed_amount",
+        "derived_excl_plus_vat",
+        "amount_from_context",
+        "amount_label_next_line",
+        "unlabeled_prefix_amount",
+        "amount_fallback_scan"
+      ],
+      "invoice_number": [
+        "token_matching_confirmed_value",
+        "generic_label_same_line_after_colon",
+        "label_then_next_line",
+        "factuur_inline_pagina",
+        "same_line_value_after_label",
+        "last_token_on_line",
+        "slash_compound_split",
+        "ocr_tag_extraction",
+        "fallback_value_locate_minimal_label"
+      ],
+      "customer_number": [
+        "token_matching_confirmed_value",
+        "generic_label_same_line_after_colon",
+        "same_line_value_after_label",
+        "label_then_next_line",
+        "last_token_on_line",
+        "ocr_tag_extraction",
+        "fallback_value_locate_minimal_label",
+        "slash_compound_split"
+      ],
+      "iban": [
+        "iban_scan_with_checksum_filter",
+        "iban_label_same_line",
+        "iban_full_text_scan",
+        "iban_label_next_line"
+      ]
+    },
+    "demotions": [
+      {
+        "field": "amount",
+        "strategy": "amount_label_next_line",
+        "reason": "avg_fragility=1.00"
+      },
+      {
+        "field": "amount",
+        "strategy": "amount_fallback_scan",
+        "reason": "avg_fragility=1.00"
+      },
+      {
+        "field": "amount",
+        "strategy": "unlabeled_prefix_amount",
+        "reason": "avg_fragility=1.00"
+      },
+      {
+        "field": "customer_number",
+        "strategy": "slash_compound_split",
+        "reason": "avg_fragility=1.00"
+      }
+    ]
+  },
+  "semantic_scoring": {
+    "amount": {
+      "enabled": true,
+      "trigger_observed": {
+        "fallback_dependency": 0.1933,
+        "field_fragility": 0.4202
+      },
+      "adjustments": {
+        "incl_btw_boost": 0.12,
+        "payable_label_boost": 0.12,
+        "totaal_anchor_boost": 0.1,
+        "vat_line_penalty": -0.15,
+        "excl_without_payable_penalty": -0.2
+      }
+    },
+    "invoice_number": {
+      "enabled": false
+    },
+    "customer_number": {
+      "enabled": false
+    },
+    "iban": {
+      "enabled": false
+    }
+  },
+  "trigger_observed": {
+    "amount_fallback_dependency": 0.1933,
+    "amount_field_fragility": 0.4202
+  }
+}

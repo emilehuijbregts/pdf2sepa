@@ -125,8 +125,8 @@ def breakdown_child_rows(
     """Child row specs for a settlement group (render-only from VM).
 
     When *group* (the raw SettlementGroupOutput dict) is supplied, each spec is
-    enriched with ``document_id`` and ``raw_invoice`` so that the full-row renderer
-    can populate all payment columns and store rich UserRole metadata.
+    enriched with ``document_id`` (legacy ``raw_invoice`` payload is ignored by
+    the full-row renderer; invoice data comes from frozen snapshot lookup).
     """
     if not expanded:
         return []

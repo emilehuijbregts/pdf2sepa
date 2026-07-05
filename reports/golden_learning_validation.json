@@ -1,0 +1,220 @@
+{
+  "passed": true,
+  "golden_hash": "sha256:82ef8adbba0ffe8dc1189bb922cf95e7215cc41dd5c1132314c4aa149cdfc036",
+  "baseline_metrics": {
+    "amount": {
+      "success": 119,
+      "evaluable": 119,
+      "success_rate_pct": 100.0,
+      "stable_learning_rate_pct": 58.0,
+      "fragile_wins": 46,
+      "fallback_dependency_rate": 0.1933
+    },
+    "invoice_number": {
+      "success": 129,
+      "evaluable": 129,
+      "success_rate_pct": 100.0,
+      "stable_learning_rate_pct": 93.0,
+      "fragile_wins": 9,
+      "fallback_dependency_rate": 0.0
+    },
+    "customer_number": {
+      "success": 114,
+      "evaluable": 114,
+      "success_rate_pct": 100.0,
+      "stable_learning_rate_pct": 90.4,
+      "fragile_wins": 9,
+      "fallback_dependency_rate": 0.0
+    },
+    "iban": {
+      "success": 112,
+      "evaluable": 112,
+      "success_rate_pct": 100.0,
+      "stable_learning_rate_pct": 92.0,
+      "fragile_wins": 0,
+      "fallback_dependency_rate": 0.0
+    }
+  },
+  "post_metrics": {
+    "amount": {
+      "success": 119,
+      "evaluable": 119,
+      "success_rate_pct": 100.0,
+      "stable_learning_rate_pct": 58.0,
+      "fragile_wins": 46,
+      "fallback_dependency_rate": 0.1933
+    },
+    "invoice_number": {
+      "success": 129,
+      "evaluable": 129,
+      "success_rate_pct": 100.0,
+      "stable_learning_rate_pct": 93.0,
+      "fragile_wins": 9,
+      "fallback_dependency_rate": 0.0
+    },
+    "customer_number": {
+      "success": 114,
+      "evaluable": 114,
+      "success_rate_pct": 100.0,
+      "stable_learning_rate_pct": 90.4,
+      "fragile_wins": 9,
+      "fallback_dependency_rate": 0.0
+    },
+    "iban": {
+      "success": 112,
+      "evaluable": 112,
+      "success_rate_pct": 100.0,
+      "stable_learning_rate_pct": 92.0,
+      "fragile_wins": 0,
+      "fallback_dependency_rate": 0.0
+    }
+  },
+  "checks": [
+    {
+      "name": "evaluable_success_count",
+      "baseline": 474,
+      "post": 474,
+      "passed": true
+    },
+    {
+      "name": "amount_success_rate",
+      "baseline_pct": 100.0,
+      "post_pct": 100.0,
+      "max_drop_pct": 2.0,
+      "passed": true
+    },
+    {
+      "name": "amount_fallback_dependency",
+      "baseline": 0.1933,
+      "post": 0.1933,
+      "passed": true
+    },
+    {
+      "name": "invoice_number_success_rate",
+      "baseline_pct": 100.0,
+      "post_pct": 100.0,
+      "max_drop_pct": 2.0,
+      "passed": true
+    },
+    {
+      "name": "invoice_number_fallback_dependency",
+      "baseline": 0.0,
+      "post": 0.0,
+      "passed": true
+    },
+    {
+      "name": "customer_number_success_rate",
+      "baseline_pct": 100.0,
+      "post_pct": 100.0,
+      "max_drop_pct": 2.0,
+      "passed": true
+    },
+    {
+      "name": "customer_number_fallback_dependency",
+      "baseline": 0.0,
+      "post": 0.0,
+      "passed": true
+    },
+    {
+      "name": "iban_success_rate",
+      "baseline_pct": 100.0,
+      "post_pct": 100.0,
+      "max_drop_pct": 2.0,
+      "passed": true
+    },
+    {
+      "name": "iban_fallback_dependency",
+      "baseline": 0.0,
+      "post": 0.0,
+      "passed": true
+    },
+    {
+      "name": "bundle_golden_hash",
+      "expected": "sha256:82ef8adbba0ffe8dc1189bb922cf95e7215cc41dd5c1132314c4aa149cdfc036",
+      "actual": "sha256:82ef8adbba0ffe8dc1189bb922cf95e7215cc41dd5c1132314c4aa149cdfc036",
+      "passed": true
+    },
+    {
+      "name": "amount_stable_learning_not_decreased",
+      "baseline_pct": 58.0,
+      "post_pct": 58.0,
+      "passed": true
+    },
+    {
+      "name": "runtime_value_parity",
+      "value_divergence_count": 0,
+      "strategy_divergence_count": 6,
+      "passed": true
+    }
+  ],
+  "runtime_smoke": {
+    "checked": 50,
+    "value_divergence_count": 0,
+    "strategy_divergence_count": 6,
+    "divergence_count": 0,
+    "value_divergences_by_field": {
+      "amount": 0,
+      "invoice_number": 0,
+      "customer_number": 0,
+      "iban": 0
+    },
+    "strategy_divergences_by_field": {
+      "amount": 2,
+      "invoice_number": 2,
+      "customer_number": 2,
+      "iban": 0
+    },
+    "value_examples": [],
+    "strategy_examples": [
+      {
+        "pdf": "JSK Handelsonderneming Factuur 1225540.pdf",
+        "field": "amount",
+        "eval_strategy": "token_matching_confirmed_amount",
+        "runtime_strategy": "amount_fallback_scan",
+        "eval_value": 62.14,
+        "runtime_value": 62.14
+      },
+      {
+        "pdf": "Aluned 502601306.pdf",
+        "field": "amount",
+        "eval_strategy": "token_matching_confirmed_amount",
+        "runtime_strategy": "amount_fallback_scan",
+        "eval_value": 1930.71,
+        "runtime_value": 1930.71
+      },
+      {
+        "pdf": "Bauder 24065173.pdf",
+        "field": "invoice_number",
+        "eval_strategy": "generic_label_same_line_after_colon",
+        "runtime_strategy": "token_matching_confirmed_value",
+        "eval_value": "24065173",
+        "runtime_value": "24065173"
+      },
+      {
+        "pdf": "Bauder 24065173.pdf",
+        "field": "customer_number",
+        "eval_strategy": "slash_compound_split",
+        "runtime_strategy": "token_matching_confirmed_value",
+        "eval_value": "603540 / 880",
+        "runtime_value": "603540 / 880"
+      },
+      {
+        "pdf": "Bauder 24065433.pdf",
+        "field": "invoice_number",
+        "eval_strategy": "generic_label_same_line_after_colon",
+        "runtime_strategy": "token_matching_confirmed_value",
+        "eval_value": "24065433",
+        "runtime_value": "24065433"
+      },
+      {
+        "pdf": "Bauder 24065433.pdf",
+        "field": "customer_number",
+        "eval_strategy": "slash_compound_split",
+        "runtime_strategy": "token_matching_confirmed_value",
+        "eval_value": "603540 / 880",
+        "runtime_value": "603540 / 880"
+      }
+    ]
+  },
+  "amount_fallback_dependency": 0.1933
+}

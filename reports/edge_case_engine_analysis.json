@@ -1,0 +1,700 @@
+[
+  {
+    "scenario": "legacy_19_invoices",
+    "pipeline": "legacy",
+    "settlement_groups": 0,
+    "review_documents": 0,
+    "exportable_payments": 19,
+    "error_buckets": 0,
+    "groups": [],
+    "review": [],
+    "export_validation_errors": []
+  },
+  {
+    "scenario": "wasco_settlement",
+    "pipeline": "settlement",
+    "settlement_groups": 1,
+    "review_documents": 0,
+    "exportable_payments": 1,
+    "error_buckets": 0,
+    "groups": [
+      {
+        "group_id": "09e87fb999394a73",
+        "supplier": "Wasco",
+        "settlement_status": "ok",
+        "exportable": true,
+        "final_amount_due": "40.00",
+        "decision_status": "included",
+        "decision_reason": "included_validated",
+        "members": [
+          {
+            "doc_id": "5660148.pdf",
+            "type": "invoice",
+            "inv_no": "5660148"
+          },
+          {
+            "doc_id": "6305463.pdf",
+            "type": "invoice",
+            "inv_no": "6305463"
+          },
+          {
+            "doc_id": "6230076.pdf",
+            "type": "credit_note",
+            "inv_no": "6230076"
+          }
+        ],
+        "allocations": [
+          {
+            "credit": "6230076",
+            "invoice": "6305463",
+            "applied": "41.16",
+            "remaining": "0.00",
+            "status": "matched"
+          },
+          {
+            "credit": "6230076",
+            "invoice": "5660148",
+            "applied": "25.51",
+            "remaining": "0.00",
+            "status": "matched"
+          }
+        ]
+      }
+    ],
+    "review": [],
+    "export_validation_errors": []
+  },
+  {
+    "scenario": "vte_settlement",
+    "pipeline": "settlement",
+    "settlement_groups": 3,
+    "review_documents": 1,
+    "exportable_payments": 1,
+    "error_buckets": 1,
+    "groups": [
+      {
+        "group_id": "a91a0788ee32dccb",
+        "supplier": "VTE",
+        "settlement_status": "manual_review",
+        "exportable": false,
+        "final_amount_due": "0.00",
+        "decision_status": "needs_review",
+        "decision_reason": "credit_match_needs_review",
+        "members": [
+          {
+            "doc_id": "VCR2600064.pdf",
+            "type": "credit_note",
+            "inv_no": "VCR2600064"
+          }
+        ],
+        "allocations": [
+          {
+            "credit": "VCR2600064",
+            "invoice": null,
+            "applied": "0.00",
+            "remaining": "408.57",
+            "status": "unallocated_full"
+          }
+        ]
+      },
+      {
+        "group_id": "3bbbdf9b43e4d5c2",
+        "supplier": "VTE",
+        "settlement_status": "ok",
+        "exportable": true,
+        "final_amount_due": "245.15",
+        "decision_status": "included",
+        "decision_reason": "included_validated",
+        "members": [
+          {
+            "doc_id": "VF2600048.pdf",
+            "type": "invoice",
+            "inv_no": "VF2600048"
+          }
+        ],
+        "allocations": []
+      },
+      {
+        "group_id": "52ec031d57205679",
+        "supplier": "VTE",
+        "settlement_status": "ok",
+        "exportable": false,
+        "final_amount_due": "102.35",
+        "decision_status": "needs_review",
+        "decision_reason": "credit_match_needs_review",
+        "members": [
+          {
+            "doc_id": "VF2601788.pdf",
+            "type": "invoice",
+            "inv_no": "VF2601788"
+          },
+          {
+            "doc_id": "VCR2600003.pdf",
+            "type": "credit_note",
+            "inv_no": "VCR2600003"
+          }
+        ],
+        "allocations": [
+          {
+            "credit": "VCR2600003",
+            "invoice": "VF2601788",
+            "applied": "33.00",
+            "remaining": "0.00",
+            "status": "matched"
+          }
+        ]
+      }
+    ],
+    "review": [
+      {
+        "type": "credit_note",
+        "inv_no": "VCR2600064",
+        "source": "VCR2600064.pdf",
+        "review_reason": "unallocated_credit_not_payable",
+        "decision": "excluded",
+        "reason_code": "unallocated_credit_not_payable"
+      }
+    ],
+    "export_validation_errors": []
+  },
+  {
+    "scenario": "sealeco_partial_credit",
+    "pipeline": "settlement",
+    "settlement_groups": 1,
+    "review_documents": 0,
+    "exportable_payments": 1,
+    "error_buckets": 0,
+    "groups": [
+      {
+        "group_id": "abf5231b8ab8fec7",
+        "supplier": "Sealeco B.V.",
+        "settlement_status": "ok",
+        "exportable": true,
+        "final_amount_due": "100.00",
+        "decision_status": "included",
+        "decision_reason": "included_validated",
+        "members": [
+          {
+            "doc_id": "sealeco_inv.pdf",
+            "type": "invoice",
+            "inv_no": "202630925"
+          },
+          {
+            "doc_id": "sealeco_cr.pdf",
+            "type": "credit_note",
+            "inv_no": "CN-001"
+          }
+        ],
+        "allocations": [
+          {
+            "credit": "CN-001",
+            "invoice": "202630925",
+            "applied": "50.00",
+            "remaining": "0.00",
+            "status": "matched"
+          }
+        ]
+      }
+    ],
+    "review": [],
+    "export_validation_errors": []
+  },
+  {
+    "scenario": "credit_only",
+    "pipeline": "settlement",
+    "settlement_groups": 0,
+    "review_documents": 1,
+    "exportable_payments": 0,
+    "error_buckets": 1,
+    "groups": [],
+    "review": [
+      {
+        "type": "credit_note",
+        "inv_no": "CR-SOLO",
+        "source": "solo.pdf",
+        "review_reason": "credit_note_only",
+        "decision": "excluded",
+        "reason_code": "credit_note_only"
+      }
+    ],
+    "export_validation_errors": []
+  },
+  {
+    "scenario": "credit_equals_invoice",
+    "pipeline": "settlement",
+    "settlement_groups": 1,
+    "review_documents": 0,
+    "exportable_payments": 0,
+    "error_buckets": 0,
+    "groups": [
+      {
+        "group_id": "1c885ca6575ba48f",
+        "supplier": "Test BV",
+        "settlement_status": "zero_amount",
+        "exportable": false,
+        "final_amount_due": "0.00",
+        "decision_status": "excluded",
+        "decision_reason": "zero_amount",
+        "members": [
+          {
+            "doc_id": "eq_inv.pdf",
+            "type": "invoice",
+            "inv_no": "INV-EQ"
+          },
+          {
+            "doc_id": "eq_cr.pdf",
+            "type": "credit_note",
+            "inv_no": "CR-EQ"
+          }
+        ],
+        "allocations": [
+          {
+            "credit": "CR-EQ",
+            "invoice": "INV-EQ",
+            "applied": "100.00",
+            "remaining": "0.00",
+            "status": "matched"
+          }
+        ]
+      }
+    ],
+    "review": [],
+    "export_validation_errors": []
+  },
+  {
+    "scenario": "credit_exceeds_invoice",
+    "pipeline": "settlement",
+    "settlement_groups": 2,
+    "review_documents": 1,
+    "exportable_payments": 1,
+    "error_buckets": 1,
+    "groups": [
+      {
+        "group_id": "05996ac97a908b47",
+        "supplier": "Test BV",
+        "settlement_status": "manual_review",
+        "exportable": false,
+        "final_amount_due": "0.00",
+        "decision_status": "needs_review",
+        "decision_reason": "credit_match_needs_review",
+        "members": [
+          {
+            "doc_id": "lg_cr.pdf",
+            "type": "credit_note",
+            "inv_no": "CR-LG"
+          }
+        ],
+        "allocations": [
+          {
+            "credit": "CR-LG",
+            "invoice": null,
+            "applied": "0.00",
+            "remaining": "100.00",
+            "status": "unallocated_full"
+          }
+        ]
+      },
+      {
+        "group_id": "f4be0e6efaa6a7e2",
+        "supplier": "Test BV",
+        "settlement_status": "ok",
+        "exportable": true,
+        "final_amount_due": "50.00",
+        "decision_status": "included",
+        "decision_reason": "included_validated",
+        "members": [
+          {
+            "doc_id": "sm_inv.pdf",
+            "type": "invoice",
+            "inv_no": "INV-SM"
+          }
+        ],
+        "allocations": []
+      }
+    ],
+    "review": [
+      {
+        "type": "credit_note",
+        "inv_no": "CR-LG",
+        "source": "lg_cr.pdf",
+        "review_reason": "unallocated_credit_not_payable",
+        "decision": "excluded",
+        "reason_code": "unallocated_credit_not_payable"
+      }
+    ],
+    "export_validation_errors": []
+  },
+  {
+    "scenario": "credit_no_match",
+    "pipeline": "settlement",
+    "settlement_groups": 1,
+    "review_documents": 0,
+    "exportable_payments": 0,
+    "error_buckets": 0,
+    "groups": [
+      {
+        "group_id": "0ba24e7529582a12",
+        "supplier": "Test BV",
+        "settlement_status": "ok",
+        "exportable": false,
+        "final_amount_due": "150.00",
+        "decision_status": "needs_review",
+        "decision_reason": "credit_match_needs_review",
+        "members": [
+          {
+            "doc_id": "i1.pdf",
+            "type": "invoice",
+            "inv_no": "INV-1"
+          },
+          {
+            "doc_id": "c1.pdf",
+            "type": "credit_note",
+            "inv_no": "CR-1"
+          }
+        ],
+        "allocations": [
+          {
+            "credit": "CR-1",
+            "invoice": "INV-1",
+            "applied": "50.00",
+            "remaining": "0.00",
+            "status": "matched"
+          }
+        ]
+      }
+    ],
+    "review": [],
+    "export_validation_errors": []
+  },
+  {
+    "scenario": "multi_credit_one_invoice",
+    "pipeline": "settlement",
+    "settlement_groups": 1,
+    "review_documents": 0,
+    "exportable_payments": 1,
+    "error_buckets": 0,
+    "groups": [
+      {
+        "group_id": "d8d8eee53c48e996",
+        "supplier": "Test BV",
+        "settlement_status": "ok",
+        "exportable": true,
+        "final_amount_due": "130.00",
+        "decision_status": "included",
+        "decision_reason": "included_validated",
+        "members": [
+          {
+            "doc_id": "im.pdf",
+            "type": "invoice",
+            "inv_no": "INV-M"
+          },
+          {
+            "doc_id": "ca.pdf",
+            "type": "credit_note",
+            "inv_no": "CR-A"
+          },
+          {
+            "doc_id": "cb.pdf",
+            "type": "credit_note",
+            "inv_no": "CR-B"
+          }
+        ],
+        "allocations": [
+          {
+            "credit": "CR-A",
+            "invoice": "INV-M",
+            "applied": "30.00",
+            "remaining": "0.00",
+            "status": "matched"
+          },
+          {
+            "credit": "CR-B",
+            "invoice": "INV-M",
+            "applied": "40.00",
+            "remaining": "0.00",
+            "status": "matched"
+          }
+        ]
+      }
+    ],
+    "review": [],
+    "export_validation_errors": []
+  },
+  {
+    "scenario": "invoice_bad_iban",
+    "pipeline": "settlement",
+    "settlement_groups": 1,
+    "review_documents": 0,
+    "exportable_payments": 0,
+    "error_buckets": 0,
+    "groups": [
+      {
+        "group_id": "5dbaa812aa6215de",
+        "supplier": "Test BV",
+        "settlement_status": "ok",
+        "exportable": false,
+        "final_amount_due": "80.00",
+        "decision_status": "excluded",
+        "decision_reason": "missing_iban",
+        "members": [
+          {
+            "doc_id": "bad.pdf",
+            "type": "invoice",
+            "inv_no": "INV-BAD"
+          },
+          {
+            "doc_id": "crbad.pdf",
+            "type": "credit_note",
+            "inv_no": "CR-BAD"
+          }
+        ],
+        "allocations": [
+          {
+            "credit": "CR-BAD",
+            "invoice": "INV-BAD",
+            "applied": "20.00",
+            "remaining": "0.00",
+            "status": "matched"
+          }
+        ]
+      }
+    ],
+    "review": [],
+    "export_validation_errors": []
+  },
+  {
+    "scenario": "mixed_suppliers",
+    "pipeline": "settlement",
+    "settlement_groups": 1,
+    "review_documents": 1,
+    "exportable_payments": 1,
+    "error_buckets": 1,
+    "groups": [
+      {
+        "group_id": "a7949e623819aa32",
+        "supplier": "Supplier A",
+        "settlement_status": "ok",
+        "exportable": true,
+        "final_amount_due": "100.00",
+        "decision_status": "included",
+        "decision_reason": "included_validated",
+        "members": [
+          {
+            "doc_id": "a.pdf",
+            "type": "invoice",
+            "inv_no": "A1"
+          }
+        ],
+        "allocations": []
+      }
+    ],
+    "review": [
+      {
+        "type": "credit_note",
+        "inv_no": "B1",
+        "source": "b.pdf",
+        "review_reason": "credit_note_only",
+        "decision": "excluded",
+        "reason_code": "credit_note_only"
+      }
+    ],
+    "export_validation_errors": []
+  },
+  {
+    "scenario": "wasco_detach_override",
+    "pipeline": "settlement",
+    "settlement_groups": 3,
+    "review_documents": 1,
+    "exportable_payments": 2,
+    "error_buckets": 1,
+    "groups": [
+      {
+        "group_id": "be9500225789c09c",
+        "supplier": "Wasco",
+        "settlement_status": "ok",
+        "exportable": true,
+        "final_amount_due": "65.51",
+        "decision_status": "included",
+        "decision_reason": "included_validated",
+        "members": [
+          {
+            "doc_id": "5660148.pdf",
+            "type": "invoice",
+            "inv_no": "5660148"
+          }
+        ],
+        "allocations": []
+      },
+      {
+        "group_id": "e555e54f168b55b4",
+        "supplier": "Wasco",
+        "settlement_status": "ok",
+        "exportable": true,
+        "final_amount_due": "41.16",
+        "decision_status": "included",
+        "decision_reason": "included_validated",
+        "members": [
+          {
+            "doc_id": "6305463.pdf",
+            "type": "invoice",
+            "inv_no": "6305463"
+          }
+        ],
+        "allocations": []
+      },
+      {
+        "group_id": "e4f1bccd39006e8d",
+        "supplier": "Wasco",
+        "settlement_status": "manual_review",
+        "exportable": false,
+        "final_amount_due": "0.00",
+        "decision_status": "needs_review",
+        "decision_reason": "credit_match_needs_review",
+        "members": [
+          {
+            "doc_id": "6230076.pdf",
+            "type": "credit_note",
+            "inv_no": "6230076"
+          }
+        ],
+        "allocations": [
+          {
+            "credit": "6230076",
+            "invoice": null,
+            "applied": "0.00",
+            "remaining": "66.67",
+            "status": "unallocated_full"
+          }
+        ]
+      }
+    ],
+    "review": [
+      {
+        "type": "credit_note",
+        "inv_no": "6230076",
+        "source": "6230076.pdf",
+        "review_reason": "unallocated_credit_not_payable",
+        "decision": "excluded",
+        "reason_code": "unallocated_credit_not_payable"
+      }
+    ],
+    "export_validation_errors": []
+  },
+  {
+    "scenario": "wasco_reassign_override",
+    "pipeline": "settlement",
+    "settlement_groups": 1,
+    "review_documents": 0,
+    "exportable_payments": 0,
+    "error_buckets": 0,
+    "groups": [
+      {
+        "group_id": "09e87fb999394a73",
+        "supplier": "Wasco",
+        "settlement_status": "ok",
+        "exportable": false,
+        "final_amount_due": "40.00",
+        "decision_status": "needs_review",
+        "decision_reason": "credit_match_needs_review",
+        "members": [
+          {
+            "doc_id": "5660148.pdf",
+            "type": "invoice",
+            "inv_no": "5660148"
+          },
+          {
+            "doc_id": "6305463.pdf",
+            "type": "invoice",
+            "inv_no": "6305463"
+          },
+          {
+            "doc_id": "6230076.pdf",
+            "type": "credit_note",
+            "inv_no": "6230076"
+          }
+        ],
+        "allocations": [
+          {
+            "credit": "6230076",
+            "invoice": "5660148",
+            "applied": "25.51",
+            "remaining": "0.00",
+            "status": "matched"
+          },
+          {
+            "credit": "6230076",
+            "invoice": "6305463",
+            "applied": "41.16",
+            "remaining": "0.00",
+            "status": "matched"
+          }
+        ]
+      }
+    ],
+    "review": [],
+    "export_validation_errors": []
+  },
+  {
+    "scenario": "credit_triggers_settlement_for_all",
+    "pipeline": "settlement",
+    "settlement_groups": 2,
+    "review_documents": 0,
+    "exportable_payments": 2,
+    "error_buckets": 0,
+    "groups": [
+      {
+        "group_id": "b25acf935bbb13ec",
+        "supplier": "HasCredit Supplier",
+        "settlement_status": "ok",
+        "exportable": true,
+        "final_amount_due": "150.00",
+        "decision_status": "included",
+        "decision_reason": "included_validated",
+        "members": [
+          {
+            "doc_id": "hc.pdf",
+            "type": "invoice",
+            "inv_no": "HC1"
+          },
+          {
+            "doc_id": "hccr.pdf",
+            "type": "credit_note",
+            "inv_no": "HC-CR"
+          }
+        ],
+        "allocations": [
+          {
+            "credit": "HC-CR",
+            "invoice": "HC1",
+            "applied": "50.00",
+            "remaining": "0.00",
+            "status": "matched"
+          }
+        ]
+      },
+      {
+        "group_id": "c9ef61cbe74938ce",
+        "supplier": "NoCredit Supplier",
+        "settlement_status": "ok",
+        "exportable": true,
+        "final_amount_due": "100.00",
+        "decision_status": "included",
+        "decision_reason": "included_validated",
+        "members": [
+          {
+            "doc_id": "nc.pdf",
+            "type": "invoice",
+            "inv_no": "NC1"
+          }
+        ],
+        "allocations": []
+      }
+    ],
+    "review": [],
+    "export_validation_errors": []
+  },
+  {
+    "scenario": "amount_override_with_credit",
+    "error": "__init__() got an unexpected keyword argument 'amount'"
+  }
+]

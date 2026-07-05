@@ -1,0 +1,56 @@
+{
+  "passed": true,
+  "golden_success_count": 474,
+  "expected_success_count": 474,
+  "summary": {
+    "total_snapshots": 474,
+    "drift_count": 0,
+    "drift_by_field": {
+      "amount": 0,
+      "invoice_number": 0,
+      "customer_number": 0,
+      "iban": 0
+    },
+    "drift_by_type": {
+      "winner": 0,
+      "candidate": 0,
+      "confidence": 0,
+      "breakdown": 0,
+      "missing": 0,
+      "extra": 0
+    }
+  },
+  "confidence_drift_histogram": {
+    "0.00-0.01": 0,
+    "0.01-0.02": 0,
+    ">0.02": 0
+  },
+  "top_broken_strategies": [],
+  "semantic_scoring_delta": null,
+  "drifts": [],
+  "baseline_path": "/Users/eh/Documents/Cursor/PDF2SEPA/data/strategy_regression_baseline.json",
+  "bundle_path": "/Users/eh/Documents/Cursor/PDF2SEPA/data/strategy_engine_bundle.json",
+  "execution_state_diffing": {
+    "enabled": true,
+    "mutations_detected": 0,
+    "passed": true
+  },
+  "runtime_value_parity": {
+    "enabled": true,
+    "checked": 523,
+    "value_divergence_count": 0,
+    "strategy_divergence_count": 1,
+    "no_shortcuts": true,
+    "fresh_context_per_case": true,
+    "value_divergences": [],
+    "strategy_divergences": [
+      {
+        "pdf": "vd donk Factuur 25041 Wouter Duister.pdf",
+        "field": "amount",
+        "eval_strategy": "token_matching_confirmed_amount",
+        "runtime_strategy": "derived_excl_plus_vat"
+      }
+    ],
+    "passed": true
+  }
+}

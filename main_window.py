@@ -193,7 +193,6 @@ from ui.settlement_expand import (
     _ROW_SETTLEMENT_ROW_KIND_ROLE,
     _ROW_SETTLEMENT_SOURCE_PDF_ROLE,
     _ROW_SETTLEMENT_SUPPLIER_ROLE,
-    apply_child_row_items,
     breakdown_child_rows,
     header_supplier_label,
     mark_group_header_row,
@@ -572,9 +571,22 @@ def _diagnostics_snapshot_from_invoice(inv: dict) -> dict:
     return build_invoice_diagnostics_snapshot(inv if isinstance(inv, dict) else {})
 
 
-def _role_snap_from_snapshot(snapshot: dict[str, Any], key: str) -> dict[str, Any] | None:
+def _role_snap_from_snapshot(snapshot: dict[str, Any], key: str) -> Any:
+    """Return an independent FIELD slice for Qt role storage.
+
+    Dict values (incl. nested lists like ``candidates``) are always deepcopied.
+    Primitives (str/int/None) are returned as-is.
+    Callers must treat the return value as owned by the Qt role — not shared
+    with the FULL diagnostics snapshot or the render-time snapshot.
+    """
     v = snapshot.get(key)
-    return deepcopy(v) if isinstance(v, dict) else None
+    return deepcopy(v) if isinstance(v, dict) else v
+
+
+def _freeze_immutable_row_snapshot(inv: dict) -> dict[str, Any]:
+    """Immutable row boundary — no shared refs to live inv or nested objects."""
+    snapshot = deepcopy(build_invoice_diagnostics_snapshot(inv))
+    return deepcopy(snapshot)
 
 
 def _ident_field_display_from_inv(inv: dict[str, Any], field: str) -> str:
@@ -1528,8 +1540,7 @@ class MainWindow(QMainWindow):
     def _on_adjust_amount_override(self, row: int) -> None:
         """Open a dialog for the user to enter a new gross amount for this document.
 
-        Works on both INVOICE_CHILD and CREDIT_CHILD rows.  Uses the raw_invoice
-        and document_id stored as UserRole metadata on the supplier item.
+        Works on both INVOICE_CHILD and CREDIT_CHILD rows via document_id lookup.
         """
         from PySide6.QtWidgets import QInputDialog, QMessageBox
 
@@ -1650,10 +1661,6 @@ class MainWindow(QMainWindow):
             self._table.insertRow(r)
             self._apply_settlement_child_row_full(r, spec, gid)
 
-    def _freeze_row_snapshot_from_inv(self, inv: dict) -> dict:
-        """Single entry: inv → deepcopy snapshot. Row-level SSOT."""
-        return deepcopy(build_invoice_diagnostics_snapshot(inv))
-
     def _attach_child_row_diagnostics_roles(
         self,
         *,
@@ -1665,8 +1672,9 @@ class MainWindow(QMainWindow):
         cust_it: QTableWidgetItem,
         inv_date_it: QTableWidgetItem,
     ) -> None:
-        """Mirror header row diagnostics roles; all values from frozen snapshot."""
-        sup_it.setData(_ROW_INVOICE_DIAGNOSTICS_ROLE, snapshot)
+        """Mirror header row diagnostics roles; copy-by-value into Qt roles."""
+        diag_snapshot = deepcopy(snapshot)
+        sup_it.setData(_ROW_INVOICE_DIAGNOSTICS_ROLE, diag_snapshot)
         inv_meta = str(snapshot.get("invoice_number") or "").strip()
         if inv_meta:
             sup_it.setData(_ROW_INVOICE_META_ROLE, inv_meta)
@@ -1740,7 +1748,7 @@ class MainWindow(QMainWindow):
         inv = self._invoice_for_document_id(doc_id) if doc_id else None
         snapshot: dict[str, Any] | None = None
         if isinstance(inv, dict):
-            snapshot = self._freeze_row_snapshot_from_inv(inv)
+            snapshot = _freeze_immutable_row_snapshot(inv)
             del inv
 
         doc_type = "credit_note" if is_credit else "invoice"
@@ -7724,6 +7732,9 @@ class MainWindow(QMainWindow):
         self._log_export(abspath, payment_dicts, total_amount)
 
 def main() -> None:
+    from parser.profile_strategy_engine import reload_strategy_engine_state
+
+    reload_strategy_engine_state()
     app = QApplication(sys.argv)
     window = MainWindow()
     window.resize(1100, 560)

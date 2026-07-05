@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "batches": {
+    "0e1b3c6504d852fb60b9c38caad91e02b9e44e9b37996c0adf5024483bc6a748": {
+      "overrides": [
+        {
+          "document_id": "/Users/eh/Documents/Cursor/PDF2SEPA/tests/Credit facturen/Pearlpaint 2610C000173.pdf",
+          "old_amount": "128.89",
+          "new_amount": "200.00",
+          "reason": "user_adjusted",
+          "created_at": "2026-07-03T14:27:27+00:00"
+        }
+      ],
+      "history": [
+        {
+          "event": "user_adjusted_amount",
+          "document_id": "/Users/eh/Documents/Cursor/PDF2SEPA/tests/Credit facturen/Pearlpaint 2610C000173.pdf",
+          "old_amount": "128.89",
+          "new_amount": "200.00",
+          "at": "2026-07-03T14:27:27+00:00"
+        }
+      ]
+    }
+  }
+}

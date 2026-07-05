@@ -1,0 +1,125 @@
+{
+  "version": 1,
+  "batches": {
+    "0e1b3c6504d852fb60b9c38caad91e02b9e44e9b37996c0adf5024483bc6a748": {
+      "overrides": [
+        {
+          "credit_document_id": "/Users/eh/Documents/Cursor/PDF2SEPA/tests/Credit facturen/Sealeco 202632383.pdf",
+          "action": "reassign",
+          "target_invoice_ids": [
+            "/Users/eh/Documents/Cursor/PDF2SEPA/tests/Credit facturen/Sealeco 202630925.pdf"
+          ],
+          "allocations": [
+            {
+              "invoice_document_id": "/Users/eh/Documents/Cursor/PDF2SEPA/tests/Credit facturen/Sealeco 202630925.pdf",
+              "invoice_number": "202630925",
+              "amount_applied": "320.18"
+            }
+          ],
+          "created_at": "2026-07-03T10:33:26+00:00",
+          "reason": "user_reassign"
+        },
+        {
+          "credit_document_id": "/Users/eh/Documents/Cursor/PDF2SEPA/tests/Credit facturen/Wasco 8714252002430_6230076.pdf",
+          "action": "reassign",
+          "target_invoice_ids": [
+            "/Users/eh/Documents/Cursor/PDF2SEPA/tests/Credit facturen/Wasco 8714252002430_5660148.pdf",
+            "/Users/eh/Documents/Cursor/PDF2SEPA/tests/Credit facturen/Wasco 8714252002430_6305463.pdf"
+          ],
+          "allocations": [
+            {
+              "invoice_document_id": "/Users/eh/Documents/Cursor/PDF2SEPA/tests/Credit facturen/Wasco 8714252002430_5660148.pdf",
+              "invoice_number": "5660148",
+              "amount_applied": "65.51"
+            },
+            {
+              "invoice_document_id": "/Users/eh/Documents/Cursor/PDF2SEPA/tests/Credit facturen/Wasco 8714252002430_6305463.pdf",
+              "invoice_number": "6305463",
+              "amount_applied": "1.16"
+            }
+          ],
+          "created_at": "2026-07-03T10:33:48+00:00",
+          "reason": "user_reassign"
+        },
+        {
+          "credit_document_id": "/Users/eh/Documents/Cursor/PDF2SEPA/tests/Credit facturen/VTE Verkoopcreditnota VCR2600064+.pdf",
+          "action": "detach",
+          "target_invoice_ids": [],
+          "allocations": [],
+          "created_at": "2026-07-03T14:36:37+00:00",
+          "reason": "user_detach"
+        }
+      ],
+      "history": [
+        {
+          "event": "user_detached",
+          "credit_document_id": "/Users/eh/Documents/Cursor/PDF2SEPA/tests/Credit facturen/Sealeco 202632383.pdf"
+        },
+        {
+          "event": "user_reset",
+          "credit_document_id": "/Users/eh/Documents/Cursor/PDF2SEPA/tests/Credit facturen/Roba metals Creditnota_CN00009082.PDF",
+          "at": "2026-07-02T19:29:23+00:00"
+        },
+        {
+          "event": "user_reset",
+          "credit_document_id": "/Users/eh/Documents/Cursor/PDF2SEPA/tests/Credit facturen/Roba metals Creditnota_CN00009082.PDF",
+          "at": "2026-07-02T19:29:25+00:00"
+        },
+        {
+          "event": "user_reassigned",
+          "credit_document_id": "/Users/eh/Documents/Cursor/PDF2SEPA/tests/Credit facturen/Sealeco 202632383.pdf",
+          "invoices": [
+            "202630925"
+          ]
+        },
+        {
+          "event": "user_detached",
+          "credit_document_id": "/Users/eh/Documents/Cursor/PDF2SEPA/tests/Credit facturen/Wasco 8714252002430_6230076.pdf"
+        },
+        {
+          "event": "user_detached",
+          "credit_document_id": "/Users/eh/Documents/Cursor/PDF2SEPA/tests/Credit facturen/Sealeco 202632383.pdf"
+        },
+        {
+          "event": "user_reassigned",
+          "credit_document_id": "/Users/eh/Documents/Cursor/PDF2SEPA/tests/Credit facturen/Sealeco 202632383.pdf",
+          "invoices": [
+            "202630925"
+          ]
+        },
+        {
+          "event": "user_reassigned",
+          "credit_document_id": "/Users/eh/Documents/Cursor/PDF2SEPA/tests/Credit facturen/Wasco 8714252002430_6230076.pdf",
+          "invoices": [
+            "5660148",
+            "6305463"
+          ]
+        },
+        {
+          "event": "user_reassigned",
+          "credit_document_id": "/Users/eh/Documents/Cursor/PDF2SEPA/tests/Credit facturen/VTE Verkoopcreditnota VCR2600064+.pdf",
+          "invoices": [
+            "VF2600048",
+            "VF2601788"
+          ]
+        },
+        {
+          "event": "user_detached",
+          "credit_document_id": "/Users/eh/Documents/Cursor/PDF2SEPA/tests/Credit facturen/VTE Verkoopcreditnota VCR2600064+.pdf"
+        },
+        {
+          "event": "user_reassigned",
+          "credit_document_id": "/Users/eh/Documents/Cursor/PDF2SEPA/tests/Credit facturen/VTE Verkoopcreditnota VCR2600064+.pdf",
+          "invoices": [
+            "VF2600048",
+            "VF2601788"
+          ]
+        },
+        {
+          "event": "user_detached",
+          "credit_document_id": "/Users/eh/Documents/Cursor/PDF2SEPA/tests/Credit facturen/VTE Verkoopcreditnota VCR2600064+.pdf"
+        }
+      ]
+    }
+  }
+}
