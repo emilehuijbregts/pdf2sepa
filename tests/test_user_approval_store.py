@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from logic.decision_store import UserApprovalStore
 
 
-def test_remove_from_batch_drops_row(tmp_path) -> None:
+def test_remove_from_batch_drops_row(tmp_path: Path) -> None:
     store = UserApprovalStore(tmp_path / "user_approvals.json")
     batch_key = "batch-1"
     store.upsert_batch(

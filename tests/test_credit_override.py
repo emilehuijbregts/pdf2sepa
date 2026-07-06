@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from decimal import Decimal
 
 from logic.credit_override_apply import (
@@ -203,7 +204,7 @@ def test_orphan_override_ignored():
     assert with_orphan.settlement_groups[0]["final_amount_due"] == auto.settlement_groups[0]["final_amount_due"]
 
 
-def test_override_store_persistence(tmp_path):
+def test_override_store_session_memory(tmp_path: Path):
     store = CreditOverrideStore(tmp_path / "credit_overrides.json")
     ov = make_detach_override("cr1.pdf")
     session = store.upsert_override("batch1", ov, history_event={"event": "user_detached"})
@@ -214,6 +215,8 @@ def test_override_store_persistence(tmp_path):
     store.remove_override("batch1", "cr1.pdf")
     assert store.load_session("batch1") is not None
     assert not store.load_session("batch1").overrides
+    fresh = CreditOverrideStore(tmp_path / "credit_overrides_fresh.json")
+    assert fresh.load_session("batch1") is None
 
 
 def test_override_session_fingerprint():

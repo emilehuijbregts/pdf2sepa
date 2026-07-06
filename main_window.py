@@ -1265,8 +1265,8 @@ class MainWindow(QMainWindow):
         self._decision_store = GuardedDecisionStore(self._decision_store_inner, is_allowed=lambda: self._resolver_active)
         self._pinned_run_id: str | None = None
         self._active_run_id: str | None = None
-        self._approval_store = UserApprovalStore()
-        self._override_store = CreditOverrideStore()
+        self._approval_store = UserApprovalStore(self._user_data_dir / "user_approvals.json")
+        self._override_store = CreditOverrideStore(self._user_data_dir / "credit_overrides.json")
         self._document_type_override_store = DocumentTypeOverrideStore()
         self._session_amount_overrides: dict[str, AmountOverride] = {}
         self._engine_cache = SettlementEngineCache()
