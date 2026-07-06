@@ -16,7 +16,7 @@ DefaultDirName={localappdata}\PDF2SEPA\app
 DisableDirPage=yes
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
-OutputDir=packaging\output
+OutputDir=output
 OutputBaseFilename=PDF2SEPA-Setup-{#MyAppVersion}
 Compression=lzma2
 SolidCompression=yes
@@ -27,7 +27,7 @@ Name: "dutch"; MessagesFile: "compiler:Languages\Dutch.isl"
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Files]
-Source: "packaging\dist\PDF2SEPA\*"; DestDir: "{localappdata}\PDF2SEPA\app"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "dist\PDF2SEPA\*"; DestDir: "{localappdata}\PDF2SEPA\app"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{userdesktop}\{#MyAppName}"; Filename: "{localappdata}\PDF2SEPA\app\PDF2SEPA.exe"; Tasks: desktopicon
