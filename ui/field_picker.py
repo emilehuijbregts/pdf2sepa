@@ -9,7 +9,8 @@ from PySide6.QtWidgets import QMenu, QWidget
 from logic.validation import clean_iban, is_plausible_iban
 from parser.field_adapters import field_result_from_amount, field_result_from_iban, field_result_from_ident
 from parser.field_model import FieldId, FieldResult
-from ui.field_review import CUSTOMER_ABSENT_MENU_LABEL_NL, make_customer_absent_pick_candidate
+from ui.field_review import CUSTOMER_ABSENT_MENU_LABEL_KEY, make_customer_absent_pick_candidate
+from ui.i18n import tr
 
 
 def field_result_from_snapshot(
@@ -103,5 +104,5 @@ def append_customer_absent_menu_action(
 ) -> None:
     """Extra keuze onder klantnummer-kandidaten."""
     menu.addSeparator()
-    act = menu.addAction(CUSTOMER_ABSENT_MENU_LABEL_NL)
+    act = menu.addAction(tr(CUSTOMER_ABSENT_MENU_LABEL_KEY))
     act.triggered.connect(lambda checked=False: on_pick())

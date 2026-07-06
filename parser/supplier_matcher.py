@@ -183,18 +183,21 @@ def _apply_pdf_identity_signals(invoice: dict, match_info: dict) -> None:
             pass
 
 
+UNKNOWN_SUPPLIER_CODE = "unknown_supplier"
+
+
 def _db_core_matches(match_info: dict) -> list[str]:
     core: list[str] = []
     if match_info.get("iban_match"):
-        core.append("IBAN")
+        core.append("iban")
     if match_info.get("customer_code_match"):
-        core.append("Klantnummer")
+        core.append("customer_number")
     if match_info.get("kvk_match"):
-        core.append("KvK")
+        core.append("kvk")
     if match_info.get("vat_match"):
-        core.append("BTW")
+        core.append("vat")
     if match_info.get("email_domain_match"):
-        core.append("E-mail")
+        core.append("email")
     return core
 
 
@@ -619,7 +622,7 @@ def match_suppliers(invoices: list[dict], db: SupplierDB) -> list[dict]:
                 candidate = _sanitize_supplier_hint(inv_hint)
                 if _is_poor_supplier_candidate(candidate):
                     candidate = email_name
-                invoice_copy["supplier_name"] = _clean_supplier_candidate(candidate) or "Onbekende leverancier"
+                invoice_copy["supplier_name"] = _clean_supplier_candidate(candidate) or UNKNOWN_SUPPLIER_CODE
                 invoice_copy["supplier_match_source"] = "new_from_iban"
                 invoice_copy["match_status"] = "new"
             else:
@@ -672,9 +675,13 @@ def _try_ocr_upgrade(
         return "needs_review"
 
     try:
-        from parser.pdf_parser import extract_text_from_images
+        ocr_text = str(invoice.get("ocr_text") or "").strip()
+        if not ocr_text:
+            ocr_text = str(invoice.get("_ocr_image_text") or "").strip()
+        if not ocr_text:
+            from logic.pdf_ocr_session import PdfOcrSession
 
-        ocr_text = extract_text_from_images(str(source_file))
+            ocr_text = PdfOcrSession(str(source_file)).image_text()
         if not ocr_text:
             return "needs_review"
 

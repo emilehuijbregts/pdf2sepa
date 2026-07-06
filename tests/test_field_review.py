@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from ui.i18n import tr
 from ui.field_review import (
     CUSTOMER_ABSENT_PICK_SOURCE,
     CUSTOMER_ABSENT_STATE,
@@ -40,7 +41,7 @@ def test_format_iban_candidate_menu_label() -> None:
         }
     )
     assert "NL20INGB0001234567" in label
-    assert "PDF-tekst" in label
+    assert tr("field.iban.source.pdf_text") in label
     assert "88%" in label
 
 
@@ -104,7 +105,7 @@ def test_format_amount_candidate_menu_label() -> None:
         format_amount_nl=lambda v: f"€ {v}",
     )
     assert "100.00" in label
-    assert "Totaal te betalen" in label
+    assert tr("field.amount.source.total_label_payable") in label
     assert "80%" in label
 
 
@@ -117,16 +118,19 @@ def test_candidate_menu_tooltip_is_human_readable_nl() -> None:
             "context_hint": "header",
             "raw_detected": "26FC 000498",
             "normalized_iso": "26FC000498",
-            "score_breakdown_nl": ["Basisscore: 90", "Bonus voor labelmatch: 8"],
+            "score_breakdown": {"base": 90, "label_bonus": 8},
         },
         max_len=500,
     )
-    assert "PDF-context: Factuurnummer: 26FC000498" in tip
-    assert "Methode: Gevonden naast herkenbaar label" in tip
-    assert "Uitleg: Gevonden direct na label" in tip
-    assert "Locatie: header van document" in tip
-    assert "Originele waarde: 26FC 000498" in tip
-    assert "Genormaliseerde waarde: 26FC000498" in tip
-    assert "Score-opbouw: Basisscore: 90; Bonus voor labelmatch: 8" in tip
+    assert tr("field.tooltip.pdf_context", context="Factuurnummer: 26FC000498") in tip
+    assert tr("field.tooltip.method", method=tr("field.extraction_method.label_match")) in tip
+    assert tr("field.tooltip.explanation", reason="Gevonden direct na label") in tip
+    assert tr("field.tooltip.location", hint=tr("field.context_hint.header")) in tip
+    assert tr("field.tooltip.raw_detected", value="26FC 000498") in tip
+    assert tr("field.tooltip.normalized", value="26FC000498") in tip
+    assert tr(
+        "field.tooltip.score_breakdown",
+        lines=f"{tr('field.score_label.base')}=90, {tr('field.score_label.label_bonus')}=8",
+    ) in tip
     assert "method:" not in tip
     assert "why:" not in tip

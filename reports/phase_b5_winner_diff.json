@@ -2,7 +2,116 @@
   "phase": "B5",
   "note": "Phase B5: unmatched suppliers route parser winners through resolve_field(empty overrides); production winners must match Phase A.1.",
   "summary": {
-    "production_winner_changes": 0
+    "production_winner_changes": 6
   },
-  "production_winner_changes": []
+  "production_winner_changes": [
+    {
+      "pdf": "Korver Holland Uitgaande factuur 1083663.pdf",
+      "field": "invoice_number",
+      "old_winner": {
+        "confidence": 64,
+        "source": "label_next_line",
+        "status": "tentative",
+        "value": "VF-1083663"
+      },
+      "new_winner": {
+        "value": "VF-1083663",
+        "source": "header_table_invoice",
+        "status": "confirmed",
+        "confidence": 89
+      },
+      "reason": "production_pipeline_drift_vs_phase_a1_snapshot",
+      "classification": "unclassified_requires_review"
+    },
+    {
+      "pdf": "Korver Holland Uitgaande factuur 1083663.pdf",
+      "field": "customer_number",
+      "old_winner": {
+        "confidence": 92,
+        "source": "label_block_next_line",
+        "status": "confirmed",
+        "value": "D3269"
+      },
+      "new_winner": {
+        "value": "D3269",
+        "source": "header_table_customer",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_phase_a1_snapshot",
+      "classification": "unclassified_requires_review"
+    },
+    {
+      "pdf": "Korver Holland Uitgaande factuur 1094659.pdf",
+      "field": "invoice_number",
+      "old_winner": {
+        "confidence": 64,
+        "source": "label_next_line",
+        "status": "tentative",
+        "value": "VF-1094659"
+      },
+      "new_winner": {
+        "value": "VF-1094659",
+        "source": "header_table_invoice",
+        "status": "confirmed",
+        "confidence": 89
+      },
+      "reason": "production_pipeline_drift_vs_phase_a1_snapshot",
+      "classification": "unclassified_requires_review"
+    },
+    {
+      "pdf": "Korver Holland Uitgaande factuur 1094659.pdf",
+      "field": "customer_number",
+      "old_winner": {
+        "confidence": 92,
+        "source": "label_block_next_line",
+        "status": "confirmed",
+        "value": "D3269"
+      },
+      "new_winner": {
+        "value": "D3269",
+        "source": "header_table_customer",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_phase_a1_snapshot",
+      "classification": "unclassified_requires_review"
+    },
+    {
+      "pdf": "Korver Uitgaande factuur 1131590.pdf",
+      "field": "invoice_number",
+      "old_winner": {
+        "confidence": 64,
+        "source": "label_next_line",
+        "status": "tentative",
+        "value": "VF-1131590"
+      },
+      "new_winner": {
+        "value": "VF-1131590",
+        "source": "header_table_invoice",
+        "status": "confirmed",
+        "confidence": 89
+      },
+      "reason": "production_pipeline_drift_vs_phase_a1_snapshot",
+      "classification": "unclassified_requires_review"
+    },
+    {
+      "pdf": "Korver Uitgaande factuur 1131590.pdf",
+      "field": "customer_number",
+      "old_winner": {
+        "confidence": 92,
+        "source": "label_block_next_line",
+        "status": "confirmed",
+        "value": "D3269"
+      },
+      "new_winner": {
+        "value": "D3269",
+        "source": "header_table_customer",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_phase_a1_snapshot",
+      "classification": "unclassified_requires_review"
+    }
+  ]
 }

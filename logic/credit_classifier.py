@@ -28,15 +28,16 @@ _CREDIT_CONTEXT_RE = re.compile(
     r"(?i)\b(?:nota|factuur|invoice|volgens\s+afspraak|slechte|terug|crediteren)\b"
 )
 
-# Negative payable totals.
+# Negative payable totals (exclude date fragments; require monetary decimals).
+_NEGATIVE_AMOUNT_TOKEN = r"-\s*(?!\d{2}-)\d+(?:[.,]\d{2})\b"
 _NEGATIVE_TOTAL_RE = re.compile(
     r"(?i)\b(?:"
     r"factuurbedrag|totaal(?:\s*te\s*betalen)?|te\s*betalen|total\s*due|"
     r"gesamtbetrag|amount\s*due"
-    r")\b[^\n]{0,40}?-\s*\d"
+    rf")\b[^\n]{{0,40}}?{_NEGATIVE_AMOUNT_TOKEN}"
 )
 _NEGATIVE_AMOUNT_LINE_RE = re.compile(
-    r"(?i)(?:EUR|€)\s*-\s*\d[\d.,]*|\b-\s*\d[\d.,]+\s*(?:EUR|€)?"
+    rf"(?i)(?:EUR|€)\s*{_NEGATIVE_AMOUNT_TOKEN}|{_NEGATIVE_AMOUNT_TOKEN}(?:\s*(?:EUR|€))?"
 )
 
 # VAT reversal lines (negative VAT amount near total context).

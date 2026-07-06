@@ -139,54 +139,6 @@ def decision_is_exportable(decision: PaymentDecision | dict[str, Any] | None) ->
     return d["status"] == DECISION_INCLUDED and not d["requires_rerun"]
 
 
-def decision_status_label_nl(status: str) -> str:
-    if status == DECISION_INCLUDED:
-        return "Wordt betaald"
-    if status == DECISION_NEEDS_REVIEW:
-        return "Controle nodig"
-    return "Wordt niet betaald"
-
-
-def decision_reason_text_nl(reason_code: str) -> str:
-    reason_map = {
-        REASON_EXPORT_ALLOWED: "Gevalideerd door engine.",
-        REASON_MANUAL_PENDING: "Wijziging nog niet door engine gevalideerd.",
-        REASON_USER_APPROVED: "Handmatig goedgekeurd.",
-        REASON_USER_MARKED_ERROR: "Handmatig gemarkeerd als fout (niet exporteren).",
-        REASON_LOW_CONFIDENCE: "Bedrag of match heeft lage betrouwbaarheid.",
-        REASON_AMBIGUOUS: "Meerdere mogelijke bedragen gevonden.",
-        REASON_UNCERTAIN: "Onvoldoende zekerheid over factuurgegevens.",
-        REASON_MISSING_IBAN: "IBAN ontbreekt.",
-        REASON_INVALID_IBAN: "IBAN is ongeldig.",
-        REASON_MISSING_AMOUNT: "Bedrag ontbreekt of is ongeldig.",
-        REASON_RUNTIME_MISMATCH: "UI en engine-state zijn niet consistent.",
-        REASON_MISSING_DECISION_IN_STORE: "Geen engine decision beschikbaar (nog niet berekend).",
-        REASON_CREDIT_REFUND_REQUIRED: "Credit overschrijdt factuurbedrag; terugbetaling vereist.",
-        REASON_CREDIT_SETTLEMENT_MANUAL_REVIEW: "Credit-verrekening vereist handmatige controle.",
-        "credit_match_needs_review": "Credit-match vereist handmatige controle.",
-        REASON_UNALLOCATED_CREDIT_NOT_PAYABLE: (
-            "Wordt niet betaald vanwege onmogelijke verrekening."
-        ),
-        "credit_note_only": "Alleen creditnota(s), geen factuur om te verrekenen.",
-        "zero_amount": "Volledig verrekend; geen betaling.",
-    }
-    return reason_map.get(reason_code, reason_code)
-
-
-def decision_fix_hint_nl(reason_code: str) -> str:
-    hint_map = {
-        REASON_MANUAL_PENDING: "Sla op of bevestig de wijziging om opnieuw te valideren.",
-        REASON_USER_APPROVED: "Deze rij is door jou goedgekeurd en wordt meegenomen in de export.",
-        REASON_USER_MARKED_ERROR: "Herstel de rij om opnieuw te beoordelen of te exporteren.",
-        REASON_MISSING_IBAN: "Vul een geldig IBAN in om betaling te activeren.",
-        REASON_INVALID_IBAN: "Corrigeer het IBAN-formaat en valideer opnieuw.",
-        REASON_AMBIGUOUS: "Kies handmatig het juiste bedrag en herbereken.",
-        REASON_UNCERTAIN: "Controleer factuur en voer bedrag handmatig in.",
-        REASON_LOW_CONFIDENCE: "Controleer leverancier en bedrag, daarna opnieuw valideren.",
-    }
-    return hint_map.get(reason_code, "")
-
-
 def canonical_payment_sort_key(payment: dict[str, Any]) -> tuple[str, str, str, str]:
     return (
         str(payment.get("invoice_number") or "").strip().lower(),

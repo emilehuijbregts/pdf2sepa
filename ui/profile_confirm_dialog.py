@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 )
 
 from logic.payment_amounts import amount_to_decimal
+from ui.i18n import tr
 
 
 class ProfileConfirmDialog(QDialog):
@@ -36,48 +37,43 @@ class ProfileConfirmDialog(QDialog):
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Factuurgegevens bevestigen")
+        self.setWindowTitle(tr("dialog.profile_confirm.title"))
         self.setMinimumWidth(420)
         self._save_profile = False
 
         root = QVBoxLayout(self)
-        root.addWidget(
-            QLabel(
-                "Controleer de velden. Met «Bevestig en leer profiel» wordt een "
-                "extractieprofiel voor deze leverancier opgeslagen."
-            )
-        )
+        root.addWidget(QLabel(tr("dialog.profile_confirm.intro")))
 
         form = QFormLayout()
         self._supplier_edit = QLineEdit(supplier_name.strip())
         self._supplier_edit.setReadOnly(True)
-        form.addRow("Leverancier", self._supplier_edit)
+        form.addRow(tr("dialog.profile_confirm.supplier"), self._supplier_edit)
 
         self._amount_edit = QLineEdit(amount_initial.strip())
         if amount_placeholder.strip():
             self._amount_edit.setPlaceholderText(amount_placeholder.strip())
-        form.addRow("Bedrag", self._amount_edit)
+        form.addRow(tr("dialog.profile_confirm.amount"), self._amount_edit)
 
         self._invoice_edit = QLineEdit(invoice_initial.strip())
         if invoice_placeholder.strip():
             self._invoice_edit.setPlaceholderText(invoice_placeholder.strip())
-        form.addRow("Factuur-/polisnummer", self._invoice_edit)
+        form.addRow(tr("dialog.profile_confirm.invoice_number"), self._invoice_edit)
 
         self._customer_edit = QLineEdit(customer_initial.strip())
         if customer_placeholder.strip():
             self._customer_edit.setPlaceholderText(customer_placeholder.strip())
-        form.addRow("Klantnummer", self._customer_edit)
+        form.addRow(tr("dialog.profile_confirm.customer_number"), self._customer_edit)
 
         root.addLayout(form)
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel)
         buttons.rejected.connect(self.reject)
 
-        learn_btn = QPushButton("Bevestig en leer profiel")
+        learn_btn = QPushButton(tr("dialog.profile_confirm.learn"))
         learn_btn.clicked.connect(self._on_learn)
         buttons.addButton(learn_btn, QDialogButtonBox.ButtonRole.AcceptRole)
 
-        confirm_btn = QPushButton("Alleen bevestigen")
+        confirm_btn = QPushButton(tr("dialog.profile_confirm.confirm_only"))
         confirm_btn.clicked.connect(self._on_confirm_only)
         buttons.addButton(confirm_btn, QDialogButtonBox.ButtonRole.ActionRole)
 

@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from copy import deepcopy
 from decimal import Decimal, InvalidOperation
 from difflib import SequenceMatcher
 from pathlib import Path
@@ -1493,4 +1494,30 @@ class SupplierDB:
             atomic_write(Path(self.path), text)
         except Exception:
             logger.debug("Leveranciersbestand opslaan mislukt", exc_info=True)
+
+
+class SupplierDBSnapshot:
+    """Frozen read-only supplier DB view for worker preprocess (no writes)."""
+
+    def __init__(self, inner: SupplierDB) -> None:
+        self._inner = SupplierDB(path=inner.path)
+        self._inner._data = {"suppliers": deepcopy(inner.suppliers)}
+        self._inner.suppliers = self._inner._data["suppliers"]
+        self._inner._rebuild_runtime_cache()
+
+    @classmethod
+    def from_path(cls, path: str) -> SupplierDBSnapshot:
+        return cls(SupplierDB(path=path))
+
+    @classmethod
+    def from_db(cls, db: SupplierDB) -> SupplierDBSnapshot:
+        return cls(db)
+
+    def matcher_db(self) -> SupplierDB:
+        """Return SupplierDB instance for match_suppliers (read-only in practice)."""
+        return self._inner
+
+    @property
+    def path(self) -> str:
+        return self._inner.path
 

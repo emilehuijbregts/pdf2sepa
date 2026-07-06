@@ -12,6 +12,7 @@ from ui.settlement_expand import (
     breakdown_child_rows,
     expand_indicator,
     header_supplier_label,
+    settlement_group_is_expandable,
     vm_from_group,
 )
 
@@ -209,6 +210,60 @@ def test_header_supplier_label():
     vm = vm_from_group(_sample_group())
     assert "Test BV" in header_supplier_label(vm, False)
     assert header_supplier_label(vm, False).startswith("▶")
+
+
+def test_header_supplier_label_singleton_no_indicator():
+    group = {
+        "group_id": "g-solo",
+        "supplier_name": "Solo BV",
+        "breakdown": {
+            "linked_groups": [
+                {
+                    "invoices": [
+                        {
+                            "doc_type": "invoice",
+                            "invoice_number": "INV-9",
+                            "gross_amount": "100.00",
+                        }
+                    ],
+                    "credits": [],
+                }
+            ],
+        },
+    }
+    vm = vm_from_group(group)
+    assert not settlement_group_is_expandable(vm, group=group)
+    label = header_supplier_label(vm, False, group=group)
+    assert label == "Solo BV"
+    assert not label.startswith(expand_indicator(False))
+
+
+def test_settlement_group_is_expandable_multi_document():
+    vm = vm_from_group(_sample_group())
+    assert settlement_group_is_expandable(vm, group=_sample_group())
+
+
+def test_settlement_group_is_expandable_singleton():
+    group = {
+        "group_id": "g-solo",
+        "supplier_name": "Solo BV",
+        "breakdown": {
+            "linked_groups": [
+                {
+                    "invoices": [
+                        {
+                            "doc_type": "invoice",
+                            "invoice_number": "INV-9",
+                            "gross_amount": "100.00",
+                        }
+                    ],
+                    "credits": [],
+                }
+            ],
+        },
+    }
+    vm = vm_from_group(group)
+    assert not settlement_group_is_expandable(vm, group=group)
 
 
 def test_new_role_constants_exported():

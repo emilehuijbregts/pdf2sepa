@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 
 from logic.credit_override_store import CreditOverrideAllocation
 from logic.credit_settlement import document_id
+from ui.i18n import tr, tr_or_code
 
 _MONEY_TOL = Decimal("0.01")
 
@@ -145,16 +146,11 @@ def suggest_allocations_across_invoices(
     return suggested
 
 
-_REASSIGN_ERRORS_NL = {
-    "insufficient_invoices": (
-        "Credit kan niet worden verrekend: het creditbedrag is hoger dan het totaal "
-        "van de beschikbare facturen in deze batch."
-    ),
-    "exceeds_credit": "De toegewezen bedragen overschrijden het creditbedrag.",
-    "partial_allocation": "Het volledige creditbedrag moet worden toegewezen aan facturen.",
-    "invalid_amount": "Ongeldig bedrag ingevuld.",
-    "empty": "Wijs het creditbedrag toe aan minstens één factuur.",
-}
+def _credit_reassign_error_message(code: str) -> str:
+    return tr_or_code(
+        f"error.credit_reassign.{code}",
+        tr("error.credit_reassign.invalid_distribution"),
+    )
 
 
 class CreditOverrideDialog(QDialog):
@@ -166,10 +162,10 @@ class CreditOverrideDialog(QDialog):
         *,
         credit: dict[str, Any],
         available_invoices: list[dict[str, Any]],
-        title: str = "Credit koppelen",
+        title: str | None = None,
     ) -> None:
         super().__init__(parent)
-        self.setWindowTitle(title)
+        self.setWindowTitle(title or tr("dialog.credit_override.title"))
         self.setMinimumWidth(520)
         self._credit = credit
         self._invoices = list(available_invoices)
@@ -178,13 +174,15 @@ class CreditOverrideDialog(QDialog):
 
         credit_no = str(credit.get("invoice_number") or "")
         credit_amt = _credit_amount_dec(credit)
-        header = QLabel(f"Credit: {credit_no} — totaal € {credit_amt}")
-
-        hint = QLabel(
-            "Vul per factuur het toe te passen creditbedrag in. "
-            "Het volledige creditbedrag moet worden verdeeld; de som van de facturen "
-            "moet minstens het creditbedrag zijn."
+        header = QLabel(
+            tr(
+                "dialog.credit_override.header",
+                invoice_number=credit_no,
+                amount=credit_amt,
+            )
         )
+
+        hint = QLabel(tr("dialog.credit_override.hint"))
         hint.setWordWrap(True)
 
         self._alloc_container = QWidget()
@@ -201,10 +199,15 @@ class CreditOverrideDialog(QDialog):
             edit = QLineEdit(str(default) if default is not None else "")
             edit.setPlaceholderText("0,00")
             self._alloc_inputs[doc_id] = edit
-            label = f"{inv_no}  ({pdf})  max € {inv_amt}"
+            label = tr(
+                "dialog.credit_override.invoice_row",
+                invoice_number=inv_no,
+                pdf=pdf,
+                max_amount=inv_amt,
+            )
             self._alloc_layout.addRow(label, edit)
 
-        auto_btn = QPushButton("Verdeel automatisch over facturen")
+        auto_btn = QPushButton(tr("dialog.credit_override.auto_split"))
         auto_btn.clicked.connect(self._apply_auto_split)
 
         buttons = QDialogButtonBox(
@@ -235,8 +238,8 @@ class CreditOverrideDialog(QDialog):
         if err is not None:
             QMessageBox.warning(
                 self,
-                "Credit koppelen",
-                _REASSIGN_ERRORS_NL.get(err, "Ongeldige verdeling."),
+                tr("dialog.credit_override.title"),
+                _credit_reassign_error_message(err),
             )
             return
         self._result_allocations = allocations or ()

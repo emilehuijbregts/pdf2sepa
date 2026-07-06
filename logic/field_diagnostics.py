@@ -48,151 +48,54 @@ _AMOUNT_REASON_CODES = frozenset(
 
 _AMOUNT_NEEDS_ATTENTION = frozenset({"tentative", "ambiguous", "failed"})
 
-_OVERRIDE_REASON_NL: dict[str, str] = {
-    "user_locked": "Handmatig vergrendeld door gebruiker",
-    "generic_strong": "Generieke parser sterk genoeg — profiel niet toegepast",
-    "generic_only": "Alleen generieke extractie beschikbaar",
-    "profile_fills_gap": "Profiel vult ontbrekende of zwakke generieke waarde aan",
-    "profile_higher_confidence": "Profiel heeft hogere confidence dan generiek",
-    "generic_preferred": "Generieke waarde heeft voorrang (confidence dichtbij)",
-    "db_master_conflict": "Leveranciers-DB heeft voorrang bij afwijkende waarde",
-}
 
-_FINAL_DECISION_REASON_NL: dict[str, str] = {
-    "highest_confidence": "Had de hoogste betrouwbaarheid",
-    "profile_override": "Herkend via leveranciersprofiel",
-    "user_override": "Handmatig gekozen door gebruiker",
-    "db_master_override": "Overgenomen uit leveranciersdatabase",
-    "fallback_generic": "Generieke parser gaf de sterkste match",
-}
-
-_REJECTION_REASON_NL: dict[str, str] = {
-    "user_locked": "Een handmatige keuze had voorrang",
-    "db_master_conflict": "De leveranciersdatabase had voorrang",
-    "generic_strong": "Een sterkere generieke match won",
-    "generic_preferred": "De generieke kandidaat was net sterker",
-    "profile_fills_gap": "Het leveranciersprofiel was overtuigender",
-    "profile_higher_confidence": "Een alternatief had hogere betrouwbaarheid",
-    "lower_confidence": "Lagere confidence dan de winnaar",
-    "weaker_label": "Zwakkere labelsterkte dan de winnaar",
-    "lower_source_priority": "Lagere bronprioriteit dan de winnaar",
-    "deterministic_tiebreak": "Verloren op deterministische tiebreak",
-    "cross_field_penalty": "Afgestraft door cross-field conflict",
-}
-
-_WINNER_REASON_NL: dict[str, str] = {
-    "higher_confidence": "Gekozen door hogere confidence",
-    "deterministic_tiebreak": "Gekozen via deterministische tiebreak",
-}
-
-_EXTRACTION_METHOD_NL: dict[str, str] = {
-    "fallback_missing": "Geen waarde gevonden in PDF",
-    "label_match": "Gevonden naast herkenbaar label",
-    "regex_fallback": "Herkend via patroonherkenning",
-    "regex": "Herkend via patroonherkenning",
-    "proximity": "Gevonden op basis van nabijheid in de tekst",
-    "footer_scan": "Gevonden in footer van document",
-    "header_scan": "Gevonden in header van document",
-}
-
-_CONTEXT_HINT_NL: dict[str, str] = {
-    "header": "header van document",
-    "footer": "footer van document",
-    "table": "tabel in document",
-    "body": "hoofdtekst van document",
-}
-
-_SOURCE_LABEL_NL: dict[str, str] = {
-    "profile": "Leveranciersprofiel",
-    "generic": "Generieke parser",
-    "db_master": "Leveranciersdatabase",
-    "manual": "Handmatige keuze",
-    "USER_PICKED": "Handmatige keuze",
-    "resolved": "Gekozen waarde",
-    "pdf_text": "PDF-tekst",
-    "ocr": "OCR",
-    "label": "Label in PDF",
-    "factuur_colon": "Factuurnummer naast label",
-    "factuur_plain": "Factuurreferentie in tekst",
-    "datum_nummer_table": "Nummer uit tabelregel",
-    "date_invoice_line": "Factuurregel met datum",
-    "year_slash_ref": "Referentie met jaartal",
-    "klantcode_inline": "Klantcode in tekstregel",
-    "label_block_same_line": "Waarde op dezelfde regel als label",
-    "split_k_newline": "Klantcode over meerdere regels",
-    "ref_slash": "Referentieveld met slash-notatie",
-    "tabular": "Tabelherkenning",
-    "vat": "BTW-herkenning",
-    "kvk": "KvK-herkenning",
-    "email": "E-mailherkenning",
-    "total_label_payable": "Totaal te betalen",
-    "total_label_invoice": "Factuurtotaal",
-    "total_label_generic": "Totaalbedrag",
-    "total_label_excl": "Subtotaal / excl. BTW",
-    "total_label_sum": "Somregel in document",
-    "total_line_hint": "Totaalregel in document",
-    "vat_summary": "BTW-overzicht",
-    "fallback_last_token": "Laatste bedrag in document",
-}
-
-_SCORE_LABEL_NL: dict[str, str] = {
-    "base": "Basisscore",
-    "label_bonus": "Bonus voor labelmatch",
-    "regex_bonus": "Bonus voor patroonmatch",
-    "table_bonus": "Bonus voor tabelcontext",
-    "layout_bonus": "Bonus voor documentlayout",
-    "distance_penalty": "Aftrek door afstand",
-}
-
-_IBAN_SOURCE_NL: dict[str, str] = {
-    "pdf_text": "PDF-tekst",
-    "ocr": "OCR",
-    "USER_PICKED": "Handmatige keuze",
-    "resolved": "Gekozen waarde",
-    "AMBIGUOUS": "Meerdere kandidaten",
-    "NOT_FOUND": "Niet gevonden",
-}
-
-
-def _nl(code: str, mapping: dict[str, str]) -> str:
+def _field_key(prefix: str, code: str) -> str:
     s = str(code or "").strip()
     if not s:
         return ""
-    return mapping.get(s, s)
+    return f"{prefix}.{s}"
 
 
 def translate_final_decision_reason(code: str) -> str:
-    translated = _nl(code, _FINAL_DECISION_REASON_NL)
-    return translated if translated != code else "Gekozen op basis van de sterkste signalen"
+    s = str(code or "").strip()
+    if not s:
+        return "field.final_decision_reason._default"
+    return _field_key("field.final_decision_reason", s)
 
 
 def translate_rejection_reason(code: str) -> str:
-    translated = _nl(code, _REJECTION_REASON_NL)
-    return (
-        translated
-        if translated != code
-        else "Niet gekozen omdat een andere kandidaat sterker was"
-    )
+    s = str(code or "").strip()
+    if not s:
+        return "field.rejection_reason._default"
+    return _field_key("field.rejection_reason", s)
 
 
 def translate_winner_reason(code: str) -> str:
-    translated = _nl(code, _WINNER_REASON_NL)
-    return translated if translated != code else "Gekozen op basis van deterministische ranking"
+    s = str(code or "").strip()
+    if not s:
+        return "field.winner_reason._default"
+    return _field_key("field.winner_reason", s)
 
 
 def translate_extraction_method(code: str) -> str:
-    translated = _nl(code, _EXTRACTION_METHOD_NL)
-    return translated if translated != code else "Herkend op basis van documentanalyse"
+    s = str(code or "").strip()
+    if not s:
+        return "field.extraction_method._default"
+    return _field_key("field.extraction_method", s)
 
 
 def translate_context_hint(code: str) -> str:
-    translated = _nl(code, _CONTEXT_HINT_NL)
-    return translated if translated != code else "locatie in document"
+    s = str(code or "").strip()
+    if not s:
+        return "field.context_hint._default"
+    return _field_key("field.context_hint", s)
 
 
 def translate_source_label(code: str) -> str:
-    translated = _nl(code, _SOURCE_LABEL_NL)
-    return translated if translated != code else "bron in document"
+    s = str(code or "").strip()
+    if not s:
+        return "field.source_label._default"
+    return _field_key("field.source_label", s)
 
 
 def _score_breakdown_lines_nl(score_breakdown: dict[str, Any] | None) -> list[str]:
@@ -203,8 +106,7 @@ def _score_breakdown_lines_nl(score_breakdown: dict[str, Any] | None) -> list[st
         k = str(key or "").strip()
         if not k:
             continue
-        label = _SCORE_LABEL_NL.get(k, "Scoringssignaal")
-        lines.append(f"{label}: {raw_value}")
+        lines.append(f"field.score_label.{k}|{raw_value}")
     return lines[:8]
 
 
@@ -236,7 +138,7 @@ def _hybrid_override_meta(result_dict: dict[str, Any] | None) -> dict[str, Any]:
     reason = str(result_dict.get("override_reason") or "").strip()
     if reason:
         out["override_reason"] = reason
-        out["override_reason_nl"] = _OVERRIDE_REASON_NL.get(reason, reason)
+        out["override_reason_nl"] = _field_key("field.override_reason", reason)
     trace = result_dict.get("decision_trace")
     if isinstance(trace, list) and trace:
         out["decision_trace"] = trace
@@ -290,7 +192,7 @@ def map_field_candidate_for_diag(
     cand: FieldCandidate | dict[str, Any],
     *,
     field_id: FieldId,
-    source_nl_map: dict[str, str] | None = None,
+    
 ) -> dict[str, Any]:
     cand_dict: dict[str, Any] | None = cand if isinstance(cand, dict) else None
     if isinstance(cand, dict):
@@ -345,19 +247,18 @@ def map_field_candidate_for_diag(
             "value": val_str,
             "value_display": _format_amount_display(raw_val),
             "source": src,
-            "source_nl": _nl(src, source_nl_map or {}) or translate_source_label(src),
+            "source_nl": translate_source_label(src) if src else "",
             "confidence": conf,
             "type": str(fc.meta.get("type") or "unknown"),
             **common_explain,
         }
 
     if field_id == "iban":
-        nl_map = source_nl_map or _IBAN_SOURCE_NL
         return {
             "value": val_str,
             "value_display": mask_iban_for_log(val_str) if val_str else val_str,
             "source": src,
-            "source_nl": _nl(src, nl_map),
+            "source_nl": _field_key("field.iban.source", src),
             "confidence": conf,
             "label": str(fc.label or "").strip() or None,
             **common_explain,
@@ -403,13 +304,13 @@ def build_ident_field_diag_block(
             )
             return {
                 "value": None,
-                "value_display": "Geen klantnummer",
+                "value_display": "diag.ident.status.no_customer_number",
                 "status": "confirmed" if user_absent else "not_applicable",
                 "needs_attention": False,
                 "status_nl": (
-                    "Geen klantnummer (handmatig gekozen)"
+                    "diag.ident.status.customer_absent_user"
                     if user_absent
-                    else "Geen klantnummer (leveranciersprofiel)"
+                    else "diag.ident.status.customer_absent_profile"
                 ),
                 "candidates": [],
                 "resolved_source": str(
@@ -422,8 +323,8 @@ def build_ident_field_diag_block(
             return {
                 "value": auth,
                 "needs_attention": not auth,
-                "status_nl": "Via extractieprofiel" if auth and from_profile else (
-                    "Aanwezig" if auth else "Ontbreekt"
+                "status_nl": "diag.ident.status.via_profile" if auth and from_profile else (
+                    "diag.ident.status.present" if auth else "diag.ident.status.missing"
                 ),
                 "candidates": [],
                 "resolved_source": "profile" if from_profile else None,
@@ -434,8 +335,8 @@ def build_ident_field_diag_block(
         return {
             "value": legacy,
             "needs_attention": not legacy,
-            "status_nl": "Via extractieprofiel" if legacy and from_profile else (
-                "Aanwezig" if legacy else "Ontbreekt"
+            "status_nl": "diag.ident.status.via_profile" if legacy and from_profile else (
+                "diag.ident.status.present" if legacy else "diag.ident.status.missing"
             ),
             "candidates": [],
             "resolved_source": "profile" if from_profile else None,
@@ -472,7 +373,7 @@ def build_ident_field_diag_block(
                     "value": val,
                     "value_display": val,
                     "source": "profile",
-                    "source_nl": "Extractieprofiel",
+                    "source_nl": "field.source_label.profile",
                     "confidence": 95,
                     "label": None,
                     "context_preview": None,
@@ -488,7 +389,7 @@ def build_ident_field_diag_block(
                         "value": val,
                         "value_display": val,
                         "source": "resolved",
-                        "source_nl": "Gekozen waarde",
+                        "source_nl": "field.source_label.resolved",
                         "confidence": 95,
                         "label": None,
                         "context_preview": None,
@@ -515,17 +416,17 @@ def build_ident_field_diag_block(
     ) or (st in ("ambiguous", "tentative") and val and len(cands_out) > 1)
 
     if from_profile and val:
-        status_nl = "Via extractieprofiel"
+        status_nl = "diag.ident.status.via_profile"
     elif st == "confirmed" and val:
-        status_nl = "Aanwezig"
+        status_nl = "diag.ident.status.present"
     elif st == "ambiguous":
-        status_nl = "Meerdere kandidaten — kies in tabel"
+        status_nl = "diag.ident.status.ambiguous"
     elif st == "tentative":
-        status_nl = "Twijfelachtig — controleer"
+        status_nl = "diag.ident.status.tentative"
     elif val:
-        status_nl = "Aanwezig"
+        status_nl = "diag.ident.status.present"
     else:
-        status_nl = "Ontbreekt"
+        status_nl = "diag.ident.status.missing"
 
     return {
         "value": val,
@@ -555,10 +456,6 @@ def build_amount_diag_block(
     *,
     reason_code: str,
     warning_keys: list[str],
-    error_reason_nl: dict[str, str],
-    warning_nl: dict[str, str],
-    amount_status_nl: dict[str, str],
-    amount_source_nl: dict[str, str],
 ) -> dict[str, Any]:
     ar_raw = snap.get("amount_result") if isinstance(snap.get("amount_result"), dict) else None
     ar_norm = normalize_amount_result_dict(ar_raw)
@@ -569,20 +466,20 @@ def build_amount_diag_block(
     engine_reason_nl: str | None = None
     if reason_code in _AMOUNT_REASON_CODES:
         engine_reason_code = reason_code
-        engine_reason_nl = _nl(reason_code, error_reason_nl)
+        engine_reason_nl = _field_key("error.reason", reason_code)
 
     amount_needs = amount_needs_attention(amount_status, reason_code, warning_keys)
     amount_warnings_nl = [
-        _nl(k, warning_nl) for k in warning_keys if k in _AMOUNT_WARNING_KEYS
+        _field_key("warning", k) for k in warning_keys if k in _AMOUNT_WARNING_KEYS
     ]
 
     detail_nl: str | None = None
     if amount_source in _AMOUNT_CONFLICT_SOURCES:
-        detail_nl = _nl(amount_source, amount_source_nl)
+        detail_nl = _field_key("diag.amount.source", amount_source)
 
     fr = field_result_from_amount(ar_raw or {})
     candidates_out = [
-        map_field_candidate_for_diag(c, field_id="amount", source_nl_map=amount_source_nl)
+        map_field_candidate_for_diag(c, field_id="amount")
         for c in fr.candidates
     ]
     if not candidates_out:
@@ -590,7 +487,7 @@ def build_amount_diag_block(
             if isinstance(c, dict):
                 candidates_out.append(
                     map_field_candidate_for_diag(
-                        c, field_id="amount", source_nl_map=amount_source_nl
+                        c, field_id="amount"
                     )
                 )
 
@@ -602,7 +499,7 @@ def build_amount_diag_block(
         "source": amount_source,
         "candidates": candidates_out,
         "needs_attention": amount_needs,
-        "status_nl": _nl(amount_status, amount_status_nl),
+        "status_nl": _field_key("diag.amount.status", amount_status),
         "detail_nl": detail_nl,
         "engine_reason_code": engine_reason_code,
         "engine_reason_nl": engine_reason_nl,
@@ -649,7 +546,7 @@ def build_iban_diag_block(
                 "value": x,
                 "value_display": mask_iban_for_log(x),
                 "source": "ocr" if ocr_attempted and iban_list and x == iban_list[0] else "pdf_text",
-                "source_nl": "OCR" if ocr_attempted and iban_list and x == iban_list[0] else "PDF-tekst",
+                "source_nl": "field.iban.source.ocr" if ocr_attempted and iban_list and x == iban_list[0] else "field.iban.source.pdf_text",
                 "confidence": 95 if x == legacy else 80,
                 "is_resolved": x == legacy,
             }
@@ -661,9 +558,9 @@ def build_iban_diag_block(
             or reason_code in {"missing_iban", "invalid_iban"}
             or not legacy
         )
-        status_nl = "IBAN aanwezig" if legacy else "IBAN ontbreekt"
+        status_nl = "diag.ident.status.iban_present" if legacy else "diag.ident.status.iban_missing"
         if iban_mismatch or "iban_mismatch_supplier" in warning_keys:
-            status_nl = "IBAN komt niet overeen met leverancier"
+            status_nl = "diag.ident.status.iban_mismatch"
         return {
             "masked_value": mask_iban_for_log(legacy) if legacy else "<none>",
             "all_ibans_masked": [mask_iban_for_log(x) for x in iban_list],
@@ -701,7 +598,7 @@ def build_iban_diag_block(
                     "value": val,
                     "value_display": mask_iban_for_log(val),
                     "source": "resolved",
-                    "source_nl": "Gekozen waarde",
+                    "source_nl": "field.source_label.resolved",
                     "confidence": 95,
                     "label": None,
                     "context_preview": None,
@@ -735,17 +632,17 @@ def build_iban_diag_block(
     )
 
     if st == "confirmed" and val:
-        status_nl = "IBAN aanwezig"
+        status_nl = "diag.ident.status.iban_present"
     elif st == "ambiguous":
-        status_nl = "Meerdere IBAN's — kies in tabel"
+        status_nl = "diag.ident.status.iban_ambiguous"
     elif st == "tentative":
-        status_nl = "Twijfelachtig — controleer IBAN"
+        status_nl = "diag.ident.status.iban_tentative"
     elif val:
-        status_nl = "IBAN aanwezig"
+        status_nl = "diag.ident.status.iban_present"
     else:
-        status_nl = "IBAN ontbreekt"
+        status_nl = "diag.ident.status.iban_missing"
     if iban_mismatch or "iban_mismatch_supplier" in warning_keys:
-        status_nl = "IBAN komt niet overeen met leverancier"
+        status_nl = "diag.ident.status.iban_mismatch"
 
     all_masked = [str(c.get("value_display") or c.get("value") or "") for c in cands_out if c.get("value")]
 

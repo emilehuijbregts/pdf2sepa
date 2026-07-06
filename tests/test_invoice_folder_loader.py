@@ -13,16 +13,17 @@ def test_load_error_no_text(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
     def empty_text(_path: str) -> str:
         return ""
 
-    def empty_ocr(_path: str) -> str:
-        return ""
-
     monkeypatch.setattr(
         "logic.invoice_folder_loader.extract_text_strict",
         empty_text,
     )
     monkeypatch.setattr(
-        "logic.invoice_folder_loader.extract_ocr_supplement_text",
-        empty_ocr,
+        "logic.pdf_ocr_session.extract_text_from_images",
+        lambda _path: "",
+    )
+    monkeypatch.setattr(
+        "logic.pdf_ocr_session.extract_text_force_raster_ocr",
+        lambda _path, max_pages=1: "",
     )
     pdf = tmp_path / "scan.pdf"
     pdf.write_bytes(b"x")
@@ -47,16 +48,17 @@ def test_image_only_pdf_uses_ocr_when_text_layer_empty(
     def empty_text(_path: str) -> str:
         return ""
 
-    def fake_ocr(_path: str) -> str:
-        return ocr_sample
-
     monkeypatch.setattr(
         "logic.invoice_folder_loader.extract_text_strict",
         empty_text,
     )
     monkeypatch.setattr(
-        "logic.invoice_folder_loader.extract_ocr_supplement_text",
-        fake_ocr,
+        "logic.pdf_ocr_session.extract_text_from_images",
+        lambda _path: ocr_sample,
+    )
+    monkeypatch.setattr(
+        "logic.pdf_ocr_session.extract_text_force_raster_ocr",
+        lambda _path, max_pages=1: "",
     )
     pdf = tmp_path / "scan.pdf"
     pdf.write_bytes(b"x")
@@ -171,3 +173,62 @@ def test_ocr_nl_vat_handles_spaced_ocr_suffix() -> None:
     from logic.invoice_folder_loader import _ocr_nl_vat_from_text
 
     assert _ocr_nl_vat_from_text("NL 8055131 52 BO1 NL15ABNA0591821249") == "NL805513152B01"
+
+
+def test_supplement_ocr_skipped_for_complete_text_layer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sample = (
+        "IBAN: NL25CITI0266075452\n"
+        "Totaal te betalen EUR 10,00\n"
+        "Factuur nr. INV-99\n"
+        "Leverancier Wavin Nederland\n"
+    )
+    supplement_calls = 0
+
+    def fake_strict(_path: str) -> str:
+        return sample
+
+    def track_supplement(self) -> str:
+        nonlocal supplement_calls
+        supplement_calls += 1
+        return "unexpected supplement"
+
+    monkeypatch.setattr("logic.invoice_folder_loader.extract_text_strict", fake_strict)
+    monkeypatch.setattr("logic.pdf_ocr_session.PdfOcrSession.supplement_text", track_supplement)
+    monkeypatch.setattr("logic.pdf_ocr_session.extract_text_from_images", lambda _p: "")
+    pdf = tmp_path / "ok.pdf"
+    pdf.write_bytes(b"x")
+    out = load_invoices_from_folder(tmp_path)
+    assert len(out) == 1
+    assert out[0].get("load_error") is None
+    assert supplement_calls == 0
+
+
+def test_iban_image_ocr_skipped_for_text_layer_iban(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sample = (
+        "IBAN: NL25CITI0266075452\n"
+        "Totaal te betalen EUR 10,00\n"
+        "Factuur nr. INV-99\n"
+    )
+    iban_ocr_calls = 0
+
+    def fake_strict(_path: str) -> str:
+        return sample
+
+    def track_ibans(self) -> list[str]:
+        nonlocal iban_ocr_calls
+        iban_ocr_calls += 1
+        return []
+
+    monkeypatch.setattr("logic.invoice_folder_loader.extract_text_strict", fake_strict)
+    monkeypatch.setattr("logic.pdf_ocr_session.PdfOcrSession.ibans_from_images", track_ibans)
+    monkeypatch.setattr("logic.pdf_ocr_session.extract_text_from_images", lambda _p: "")
+    pdf = tmp_path / "ok.pdf"
+    pdf.write_bytes(b"x")
+    out = load_invoices_from_folder(tmp_path)
+    assert len(out) == 1
+    assert iban_ocr_calls == 0
+    assert out[0].get("iban") == "NL25CITI0266075452"

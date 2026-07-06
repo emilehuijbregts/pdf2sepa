@@ -39,7 +39,7 @@ def test_credit_pdf_detection(pdf_path: Path) -> None:
     if exp["is_credit"]:
         assert detection.confidence >= 50
     else:
-        assert detection.confidence >= 40
+        assert detection.confidence < 50
 
     enriched = enrich_credit_document(inv)
     assert enriched.get("type") == exp["type"]

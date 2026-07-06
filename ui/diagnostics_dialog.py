@@ -21,8 +21,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ui.i18n import UiStrings, tr, tr_or_code
 from ui.field_review import (
-    CUSTOMER_ABSENT_MENU_LABEL_NL,
+    CUSTOMER_ABSENT_MENU_LABEL_KEY,
     candidate_menu_tooltip,
     make_customer_absent_pick_candidate,
     is_customer_absent_pick,
@@ -61,6 +62,20 @@ def _dbg_log_3d66a1(
 
 
 # #endregion
+
+
+
+def _display_text(value: str | None) -> str:
+    s = str(value or "").strip()
+    if not s:
+        return ""
+    if UiStrings.has(s):
+        return tr(s)
+    if s.startswith("field.score_label.") and "|" in s:
+        key, raw = s.split("|", 1)
+        return f"{tr_or_code(key, key)}: {raw}"
+    return s
+
 
 _DIAG_FIELD_BLOCKS: dict[str, str] = {
     "amount": "amount",
@@ -103,7 +118,9 @@ class DiagnosticsDialog(QDialog):
         super().__init__(parent)
         header = diag.get("header") if isinstance(diag.get("header"), dict) else {}
         supplier_disp = str(header.get("supplier_display") or "").strip() or "—"
-        self.setWindowTitle(f"Diagnostics — {supplier_disp}")
+        if supplier_disp == "unknown_supplier":
+            supplier_disp = tr("matching.fallback.unknown_supplier")
+        self.setWindowTitle(tr("diagnostics.title", supplier=supplier_disp))
         self.setMinimumSize(560, 520)
         self._on_candidate_click = on_candidate_click
         self._on_confirm_selection = on_confirm_selection
@@ -117,10 +134,7 @@ class DiagnosticsDialog(QDialog):
         root = QVBoxLayout(self)
 
         if limited_snapshot:
-            banner = QLabel(
-                "Herlaad batch voor volledige diagnostics "
-                "(parser- en matchgegevens kunnen ontbreken)."
-            )
+            banner = QLabel(tr("diagnostics.banner.limited"))
             banner.setWordWrap(True)
             banner.setStyleSheet(
                 "background-color: #fff3cd; color: #664d03; padding: 8px; border-radius: 4px;"
@@ -143,13 +157,13 @@ class DiagnosticsDialog(QDialog):
         action_bar = QWidget()
         action_lay = QHBoxLayout(action_bar)
         action_lay.setContentsMargins(0, 8, 0, 8)
-        self._confirm_btn = QPushButton("Bevestig selectie")
+        self._confirm_btn = QPushButton(tr("diagnostics.button.confirm"))
         self._confirm_btn.clicked.connect(self._on_confirm_selection_clicked)
         action_lay.addWidget(self._confirm_btn)
-        self._save_profile_btn = QPushButton("Sla profiel op")
+        self._save_profile_btn = QPushButton(tr("diagnostics.button.save_profile"))
         self._save_profile_btn.clicked.connect(self._on_save_profile_clicked)
         action_lay.addWidget(self._save_profile_btn)
-        self._save_credit_profile_btn = QPushButton("Opslaan als creditprofiel")
+        self._save_credit_profile_btn = QPushButton(tr("diagnostics.button.save_credit_profile"))
         self._save_credit_profile_btn.clicked.connect(self._on_save_credit_profile_clicked)
         action_lay.addWidget(self._save_credit_profile_btn)
         action_lay.addStretch(1)
@@ -159,7 +173,7 @@ class DiagnosticsDialog(QDialog):
         buttons.rejected.connect(self.reject)
         close_btn = buttons.button(QDialogButtonBox.StandardButton.Close)
         if close_btn is not None:
-            close_btn.setText("Sluiten")
+            close_btn.setText(tr("diagnostics.button.close"))
 
         root.addWidget(buttons)
         self.set_diag(diag)
@@ -189,7 +203,7 @@ class DiagnosticsDialog(QDialog):
 
         body_lay.addWidget(
             self._section_group(
-                title="Leverancier",
+                title=tr("diagnostics.section.supplier"),
                 icon=section_icon(
                     needs_attention=bool(supplier.get("needs_attention")),
                     is_error=str(supplier.get("status") or "") == "load_failed",
@@ -199,7 +213,7 @@ class DiagnosticsDialog(QDialog):
         )
         body_lay.addWidget(
             self._section_group(
-                title="Bedrag",
+                title=tr("diagnostics.section.amount"),
                 icon=section_icon(
                     needs_attention=bool(amount.get("needs_attention")),
                     is_error=str(amount.get("status") or "") == "failed" or bool(load_error),
@@ -209,7 +223,7 @@ class DiagnosticsDialog(QDialog):
         )
         body_lay.addWidget(
             self._section_group(
-                title="BTW-nummer",
+                title=tr("diagnostics.section.vat"),
                 icon=section_icon(
                     needs_attention=bool(vat_number.get("needs_attention")),
                     is_error=False,
@@ -220,7 +234,7 @@ class DiagnosticsDialog(QDialog):
         )
         body_lay.addWidget(
             self._section_group(
-                title="KvK-nummer",
+                title=tr("diagnostics.section.kvk"),
                 icon=section_icon(
                     needs_attention=bool(kvk_number.get("needs_attention")),
                     is_error=False,
@@ -231,7 +245,7 @@ class DiagnosticsDialog(QDialog):
         )
         body_lay.addWidget(
             self._section_group(
-                title="Factuurdatum",
+                title=tr("diagnostics.section.invoice_date"),
                 icon=section_icon(
                     needs_attention=bool(invoice_date.get("needs_attention")),
                     is_error=False,
@@ -242,7 +256,7 @@ class DiagnosticsDialog(QDialog):
         )
         body_lay.addWidget(
             self._section_group(
-                title="E-maildomein",
+                title=tr("diagnostics.section.email_domain"),
                 icon=section_icon(
                     needs_attention=bool(email_domain.get("needs_attention")),
                     is_error=False,
@@ -253,7 +267,7 @@ class DiagnosticsDialog(QDialog):
         )
         body_lay.addWidget(
             self._section_group(
-                title="Factuur-/polisnummer",
+                title=tr("diagnostics.section.invoice_number"),
                 icon=section_icon(
                     needs_attention=bool(invoice_number.get("needs_attention")),
                     is_error=False,
@@ -264,7 +278,7 @@ class DiagnosticsDialog(QDialog):
         )
         body_lay.addWidget(
             self._section_group(
-                title="Klantnummer",
+                title=tr("diagnostics.section.customer_number"),
                 icon=section_icon(
                     needs_attention=bool(customer_number.get("needs_attention")),
                     is_error=False,
@@ -278,7 +292,7 @@ class DiagnosticsDialog(QDialog):
         )
         body_lay.addWidget(
             self._section_group(
-                title="IBAN",
+                title=tr("diagnostics.section.iban"),
                 icon=section_icon(
                     needs_attention=bool(iban.get("needs_attention")),
                     is_error=False,
@@ -290,7 +304,7 @@ class DiagnosticsDialog(QDialog):
         overall = str(diag.get("overall_status") or "")
         body_lay.addWidget(
             self._section_group(
-                title="Algemeen",
+                title=tr("diagnostics.section.general"),
                 icon=section_icon(
                     needs_attention=overall == "needs_review" and not load_error,
                     is_error=bool(load_error) or overall == "error",
@@ -301,7 +315,7 @@ class DiagnosticsDialog(QDialog):
 
         suggestions = diag.get("action_suggestions")
         if isinstance(suggestions, list) and suggestions:
-            sug_box = QGroupBox("Actiesuggesties")
+            sug_box = QGroupBox(tr("diagnostics.section.suggestions"))
             sug_lay = QVBoxLayout(sug_box)
             for s in suggestions:
                 txt = str(s or "").strip()
@@ -483,7 +497,7 @@ class DiagnosticsDialog(QDialog):
     @staticmethod
     def _supplier_lines(supplier: dict) -> list[str]:
         lines: list[str] = []
-        st = str(supplier.get("status_nl") or "").strip()
+        st = _display_text(str(supplier.get("status_nl") or ""))
         if st:
             lines.append(st)
         detail = str(supplier.get("detail_nl") or "").strip()
@@ -494,7 +508,8 @@ class DiagnosticsDialog(QDialog):
             lines.append(f"Naam: {name}")
         matched = supplier.get("matched_by")
         if isinstance(matched, list) and matched:
-            lines.append(f"Match via: {', '.join(str(m) for m in matched)}")
+            labels = [tr_or_code(f"matching.signal.{m}", str(m)) for m in matched]
+            lines.append(tr("diagnostics.label.match_via", matches=", ".join(labels)))
         flags = supplier.get("match_info_flags")
         if isinstance(flags, dict) and flags:
             active = [k for k, v in flags.items() if v]
@@ -507,7 +522,7 @@ class DiagnosticsDialog(QDialog):
         lines: list[str] = []
         reason_nl = str(section.get("override_reason_nl") or "").strip()
         if reason_nl:
-            lines.append(f"Bron & overschrijving: {reason_nl}")
+            lines.append(tr("diagnostics.label.override_source", reason=_display_text(reason_nl)))
         if section.get("user_overridden"):
             lines.append("Gebruiker heeft dit veld handmatig vergrendeld.")
         prev = section.get("previous_value")
@@ -541,7 +556,7 @@ class DiagnosticsDialog(QDialog):
                         lines.append(f"    Waarde: {w_val}")
                     lines.append(f"    Bron: {w_src}")
                     continue
-                src = str(entry.get("source_nl") or "").strip() or "bron in document"
+                src = str(entry.get("source_nl") or "").strip() or tr("diagnostics.label.source_in_doc")
                 try:
                     conf = int(entry.get("confidence") or 0)
                 except (TypeError, ValueError):
@@ -883,29 +898,29 @@ class DiagnosticsDialog(QDialog):
         if kind == "amount":
             st = str(field.get("status_nl") or "").strip()
             if st:
-                lay.addWidget(QLabel(st))
+                lay.addWidget(QLabel(_display_text(st)))
             detail = str(field.get("detail_nl") or "").strip()
             if detail:
-                lay.addWidget(QLabel(detail))
+                lay.addWidget(QLabel(_display_text(detail)))
             vd = str(field.get("value_display") or "").strip()
             if vd:
-                lay.addWidget(QLabel(f"Gekozen/weergegeven: {vd}"))
+                lay.addWidget(QLabel(tr("diagnostics.label.displayed", value=vd)))
             engine_nl = field.get("engine_reason_nl")
             if engine_nl:
-                lay.addWidget(QLabel(str(engine_nl)))
+                lay.addWidget(QLabel(_display_text(str(engine_nl))))
             warnings = field.get("warnings_nl")
             if isinstance(warnings, list):
                 for w in warnings:
                     ws = str(w or "").strip()
                     if ws:
-                        lay.addWidget(QLabel(ws))
+                        lay.addWidget(QLabel(_display_text(ws)))
             for line in self._override_trace_lines(field):
-                lay.addWidget(QLabel(line))
+                lay.addWidget(QLabel(_display_text(line)))
 
         cands = field.get("candidates")
         selected_candidate: dict[str, Any] | None = None
         if isinstance(cands, list) and cands:
-            lay.addWidget(QLabel("<b>Kandidaten</b>"))
+            lay.addWidget(QLabel(f"<b>{tr('diagnostics.label.candidates')}</b>"))
             lw = QListWidget()
             selected_candidate = self._populate_candidate_list(
                 lw, field, kind=kind, field_id=field_id
@@ -913,26 +928,26 @@ class DiagnosticsDialog(QDialog):
             lay.addWidget(lw)
 
         if field_id == "customer_number":
-            absent_btn = QPushButton(CUSTOMER_ABSENT_MENU_LABEL_NL)
+            absent_btn = QPushButton(tr(CUSTOMER_ABSENT_MENU_LABEL_KEY))
             absent_btn.clicked.connect(
                 lambda _checked=False, fid=field_id: self._on_customer_absent_clicked(fid)
             )
             lay.addWidget(absent_btn)
             if is_customer_absent_pick(self._selected_values.get("customer_number")):
-                lay.addWidget(QLabel("<b>Gekozen: Geen klantnummer</b>"))
+                lay.addWidget(QLabel(f"<b>{tr('diagnostics.label.chosen_none')}</b>"))
 
         why_chosen = self._why_chosen_lines(field, field_id=field_id)
         if why_chosen:
-            lay.addWidget(QLabel("<b>Waarom gekozen?</b>"))
+            lay.addWidget(QLabel(f"<b>{tr('diagnostics.label.why_chosen')}</b>"))
             for line in why_chosen:
-                lay.addWidget(QLabel(line))
+                lay.addWidget(QLabel(_display_text(line)))
 
         if selected_candidate is not None:
             why_not = self._why_not_chosen_lines(field, selected_candidate)
             if why_not:
-                lay.addWidget(QLabel("<b>Waarom deze NIET gekozen is</b>"))
+                lay.addWidget(QLabel(f"<b>{tr('diagnostics.label.why_not_chosen')}</b>"))
                 for line in why_not:
-                    lay.addWidget(QLabel(line))
+                    lay.addWidget(QLabel(_display_text(line)))
 
         if lay.count() == 0:
             return None

@@ -24,78 +24,6 @@ from parser.supplier_db import (
     infer_customer_number_mode_from_result,
 )
 
-# --- NL label maps (single source for diagnostics popup; UI may import these) ---
-
-AMOUNT_STATUS_NL: dict[str, str] = {
-    "confirmed": "Bedrag gevonden met hoge zekerheid",
-    "tentative": "Bedrag gevonden maar lage zekerheid — controleer",
-    "ambiguous": "Meerdere bedragen gevonden, geen winnaar — kies zelf",
-    "failed": "Geen enkel bedrag gevonden in de PDF-tekst",
-}
-
-AMOUNT_SOURCE_NL: dict[str, str] = {
-    "total_label_payable": "Totaal te betalen",
-    "total_label_invoice": "Factuurbedrag",
-    "total_label_generic": "Totaal",
-    "total_label_excl": "Totaal excl. BTW",
-    "total_line_hint": "Totaalregel (fallback)",
-    "total_label_sum": "Label: totaal",
-    "vat_summary": "BTW-overzicht (tabel/regel)",
-    "fallback_last_token": "Laatste bedrag in document (onzeker)",
-    "INCL_CONFLICT": 'Meerdere "incl. BTW"-bedragen gevonden die niet overeenkomen',
-    "GENERIC_TOTAL_CONFLICT": "Gevonden totaal lijkt te laag vergeleken met andere bedragen",
-    "CONFLICTING_HIGH_CONFIDENCE": "Conflicterende totalen met hoge zekerheid",
-    "LOAD_FAILED": "PDF niet geladen — geen bedragextractie",
-}
-
-MATCH_STATUS_NL: dict[str, str] = {
-    "confirmed": "Leverancier zeker herkend (≥2 kernkenmerken of equivalente regel)",
-    "needs_review": "Leverancier gedeeltelijk herkend — controleer",
-    "unmatched": "Leverancier niet gevonden in database",
-    "no_hint": "Geen leveranciersnaam gevonden in PDF",
-    "new": "Nieuwe leverancier (lege DB + plausibel IBAN)",
-    "load_failed": "PDF niet geladen — matching overgeslagen",
-}
-
-LOAD_ERROR_NL: dict[str, str] = {
-    "read_failed": "PDF kon niet worden geopend of gelezen",
-    "no_text": "PDF heeft geen tekstlaag (mogelijk gescand)",
-}
-
-ERROR_REASON_NL: dict[str, str] = {
-    "no_supplier_hint": "Geen leveranciersnaam herkend in PDF; voeg een alias toe of vul handmatig in.",
-    "unmatched_supplier": "Leverancier niet gevonden in database; controleer IBAN of aliassen.",
-    "needs_review": "Slechts 1 kenmerk gevonden; bevestig de leverancier handmatig.",
-    "missing_supplier_name": "Interne fout: leveranciersnaam ontbreekt.",
-    "missing_amount": "Bedrag ontbreekt of niet leesbaar in PDF.",
-    "amount_ambiguous": "Meerdere bedragen gevonden — selecteer het juiste bedrag.",
-    "amount_uncertain": "Bedrag niet met voldoende zekerheid uit de PDF af te leiden — controleer het totaal of vul handmatig in.",
-    "amount_failed": "Bedragextractie is mislukt; controleer de factuur handmatig.",
-    "credit_note_only": "Alleen creditnota's zonder bijbehorende factuur.",
-    "credit_exceeds_available_invoices": "Creditnota past niet bij beschikbare factuurbedragen.",
-    "credit_exceeds_invoice_total": "Creditnota's overschrijden het factuurbedrag.",
-    "credit_match_needs_review": "Creditnota-koppeling vereist handmatige controle.",
-    "credit_refund_required": "Credit overschrijdt factuurbedrag; terugbetaling vereist.",
-    "credit_settlement_manual_review": "Credit-verrekening vereist handmatige controle.",
-    "zero_amount": "Te betalen bedrag is nul na korting/credit.",
-    "negative_amount": "Te betalen bedrag is negatief.",
-    "missing_iban": "IBAN ontbreekt in PDF of niet ingevuld.",
-    "invalid_iban": "IBAN is ongeldig.",
-    "pdf_read_failed": "PDF kon niet worden gelezen (bestand beschadigd, versleuteld of geen geldige PDF).",
-    "pdf_no_text": "PDF bevat geen uitleesbare tekst (vaak een scan); los dit op in de brondocumenten of voeg tekst toe.",
-}
-
-WARNING_NL: dict[str, str] = {
-    "no_excl_vat_amount_discount_skipped": "Geen bedrag excl. BTW; korting niet toegepast.",
-    "iban_mismatch_supplier": "IBAN komt niet overeen met bekende leverancier — controleer naam en rekening.",
-    "supplier_term_not_applied": "Leverancier niet automatisch bevestigd → betaaltermijn niet toegepast.",
-    "missing_invoice_date": "Factuurdatum onbekend; vul handmatig in voor 'op uiterste datum'.",
-    "amount_low_confidence": "Bedrag is onduidelijk (mogelijk verkeerd) — controleer de factuur.",
-    "amount_tentative": "Voorlopig bedrag (hoogste betrouwbaarheid) — controleer vóór betaling.",
-    "amount_ambiguous": "Meerdere bedragen gevonden — selecteer het juiste bedrag.",
-    "amount_uncertain": "Bedrag niet met voldoende zekerheid uit de PDF af te leiden — controleer het totaal of vul handmatig in.",
-}
-
 _IBAN_REASON_CODES = frozenset({"missing_iban", "invalid_iban"})
 
 _SUPPLIER_NEEDS_ATTENTION = frozenset(
@@ -169,11 +97,11 @@ _SNAPSHOT_FIELDS = (
     "pdf_customer_number",
 )
 
-def _nl(code: str, mapping: dict[str, str]) -> str:
+def _diag_key(prefix: str, code: str) -> str:
     s = str(code or "").strip()
     if not s:
         return ""
-    return mapping.get(s, s)
+    return f"{prefix}.{s}"
 
 
 def _parse_warnings(pipe_str: str) -> list[str]:
@@ -201,15 +129,15 @@ def _matched_by_from_snapshot(snap: dict[str, Any]) -> list[str]:
         return []
     labels: list[str] = []
     if match_info.get("iban_match"):
-        labels.append("IBAN")
+        labels.append("iban")
     if match_info.get("customer_code_match"):
-        labels.append("Klantnummer")
+        labels.append("customer_number")
     if match_info.get("kvk_match"):
-        labels.append("KvK")
+        labels.append("kvk")
     if match_info.get("vat_match"):
-        labels.append("BTW")
+        labels.append("vat")
     if match_info.get("email_domain_match"):
-        labels.append("E-maildomein")
+        labels.append("email")
     return labels
 
 
@@ -450,16 +378,12 @@ def build_diagnostics(
     reason_code = str(dec.get("reason_code") or "").strip()
     decision_status = str(dec.get("status") or "").strip() or None
 
-    iban_warnings_nl = [_nl(k, WARNING_NL) for k in warning_keys if k == "iban_mismatch_supplier"]
+    iban_warnings_nl = [_diag_key("warning", k) for k in warning_keys if k == "iban_mismatch_supplier"]
 
     amount_block = build_amount_diag_block(
         snap,
         reason_code=reason_code,
         warning_keys=warning_keys,
-        error_reason_nl=ERROR_REASON_NL,
-        warning_nl=WARNING_NL,
-        amount_status_nl=AMOUNT_STATUS_NL,
-        amount_source_nl=AMOUNT_SOURCE_NL,
     )
     amount_needs = amount_block["needs_attention"]
 
@@ -527,7 +451,7 @@ def build_diagnostics(
             "matched_by": matched_by,
             "match_info_flags": match_info_flags,
             "needs_attention": supplier_needs,
-            "status_nl": _nl(match_status, MATCH_STATUS_NL) if match_status else "",
+            "status_nl": _diag_key("diag.match.status", match_status) if match_status else "",
             "detail_nl": _supplier_detail_nl(snap, match_status),
         },
         "amount": amount_block,
@@ -544,11 +468,11 @@ def build_diagnostics(
         "iban": iban_block,
         "general": {
             "load_error": load_error_s,
-            "load_error_nl": _nl(load_error_s, LOAD_ERROR_NL) if load_error_s else None,
+            "load_error_nl": _diag_key("diag.load.error", load_error_s) if load_error_s else None,
             "document_type": str(snap.get("type") or "").strip() or None,
             "decision_status": decision_status,
             "decision_reason_code": reason_code or None,
-            "decision_reason_nl": _nl(reason_code, ERROR_REASON_NL) if reason_code else None,
+            "decision_reason_nl": _diag_key("error.reason", reason_code) if reason_code else None,
             "decision_reason_detail": str(dec.get("reason_detail") or "").strip() or None,
         },
         "action_suggestions": action_suggestions,

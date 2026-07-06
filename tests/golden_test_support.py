@@ -37,7 +37,7 @@ GOLDEN_DIR = APP_BASE / "tests" / "golden_dataset"
 GOLDEN_PDFS_DIR = GOLDEN_DIR / "pdfs"
 CACHE_DIR = APP_BASE / "tests" / ".cache"
 # Bump when parser/golden contract changes so stale pickles are never reused.
-GOLDEN_PIPELINE_CACHE_VERSION = "v5-iban-context-primary-slash-customer"
+GOLDEN_PIPELINE_CACHE_VERSION = "v6-ocr-session-loader"
 MATCHED_CACHE_FILE = CACHE_DIR / "golden_matched_v1.pkl"
 PIPELINE_CACHE_FILE = CACHE_DIR / "golden_pipeline_v1.pkl"
 SNAPSHOT_PATH = APP_BASE / "tests" / "snapshots" / "phase_a_ranking_snapshot.json"

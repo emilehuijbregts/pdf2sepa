@@ -19,7 +19,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any, NamedTuple, Optional
 
-from PySide6.QtCore import Qt, QSize, QTimer
+from PySide6.QtCore import Qt, QSize, QTimer, QThread
 from PySide6.QtGui import QColor, QCursor, QFont, QIcon, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -48,6 +48,15 @@ from PySide6.QtWidgets import (
 )
 
 from logic.invoice_folder_loader import load_invoices_from_folder, strip_raw_text_from_invoices
+from logic.batch_load_pipeline import BatchLoadParams
+from logic.batch_load_types import (
+    BatchLoadResult,
+    IbanAmbiguityDialogSpec,
+    IbanRawUiAnswer,
+    IbanRawUiAnswers,
+    PreprocessCheckpoint,
+)
+from logic.iban_resolution_engine import apply_supplier_db_mutations
 from logic.invoice_parse_cache import ParsedInvoiceBatchCache, index_invoices_by_source_file
 from logic.decision_store import DecisionStore
 from logic.decision_store import UserApprovalStore
@@ -77,6 +86,8 @@ from logic.credit_profile_learning import (
     supplier_key_for_matched_invoice,
 )
 from ui.diagnostics_dialog import DiagnosticsDialog
+from ui.i18n import UiStrings, tr, tr_or_code
+from ui.loading_overlay import LoadingOverlay
 from ui.field_picker import (
     append_customer_absent_menu_action,
     build_field_candidate_menu,
@@ -110,8 +121,6 @@ from logic.payment_decisions import (
     EngineInputSchema,
     build_decision,
     build_engine_snapshot,
-    decision_reason_text_nl,
-    decision_status_label_nl,
     normalize_decision,
     now_utc_iso,
     stable_hash,
@@ -178,6 +187,7 @@ from parser.pdf_parser import extract_text_strict, format_remittance_text
 from parser.supplier_db import (
     CUSTOMER_NUMBER_MODE_NONE,
     SupplierDB,
+    SupplierDBSnapshot,
     customer_number_authoritative_value,
     customer_number_is_absent_or_none,
     customer_number_mode_from_profile,
@@ -196,6 +206,7 @@ from ui.settlement_expand import (
     breakdown_child_rows,
     header_supplier_label,
     mark_group_header_row,
+    settlement_group_is_expandable,
     settlement_row_kind,
     vm_from_group,
 )
@@ -208,6 +219,7 @@ from ui.settlement_table import (
     settlement_group_rows,
 )
 from ui.suppliers_dialog import SuppliersDialog
+from ui.workers.invoice_batch_load_worker import InvoiceBatchLoadWorker
 
 logger = logging.getLogger(__name__)
 
@@ -412,53 +424,44 @@ _MATCH_STATUS_TO_ENGINE_REASON: dict[str, str] = {
     "load_failed": "pdf_read_failed",
 }
 
-_ERROR_REASON_NL: dict[str, str] = {
-    "no_supplier_hint": "Geen leveranciersnaam herkend in PDF; voeg een alias toe of vul handmatig in.",
-    "unmatched_supplier": "Leverancier niet gevonden in database; controleer IBAN of aliassen.",
-    "needs_review": "Slechts 1 kenmerk gevonden; bevestig de leverancier handmatig.",
-    "missing_supplier_name": "Interne fout: leveranciersnaam ontbreekt.",
-    "missing_amount": "Bedrag ontbreekt of niet leesbaar in PDF.",
-    "amount_ambiguous": "Meerdere bedragen gevonden — selecteer het juiste bedrag.",
-    "amount_uncertain": "Bedrag niet met voldoende zekerheid uit de PDF af te leiden — controleer het totaal of vul handmatig in.",
-    "amount_failed": "Bedragextractie is mislukt; controleer de factuur handmatig.",
-    "credit_note_only": "Alleen creditnota’s zonder bijbehorende factuur.",
-    "credit_exceeds_available_invoices": "Creditnota past niet bij beschikbare factuurbedragen.",
-    "credit_exceeds_invoice_total": "Creditnota's overschrijden het factuurbedrag.",
-    "credit_refund_required": "Credit overschrijdt factuurbedrag; terugbetaling vereist.",
-    "credit_settlement_manual_review": "Credit-verrekening vereist handmatige controle.",
-    "unallocated_credit_not_payable": "Wordt niet betaald vanwege onmogelijke verrekening.",
-    "zero_amount": "Te betalen bedrag is nul na korting/credit.",
-    "negative_amount": "Te betalen bedrag is negatief.",
-    "missing_iban": "IBAN ontbreekt in PDF of niet ingevuld.",
-    "invalid_iban": "IBAN is ongeldig.",
-    "pdf_read_failed": "PDF kon niet worden gelezen (bestand beschadigd, versleuteld of geen geldige PDF).",
-    "pdf_no_text": "PDF bevat geen uitleesbare tekst (vaak een scan); los dit op in de brondocumenten of voeg tekst toe.",
-}
 
-_WARNING_NL: dict[str, str] = {
-    "no_excl_vat_amount_discount_skipped": "Geen bedrag excl. BTW; korting niet toegepast.",
-    "iban_mismatch_supplier": "IBAN komt niet overeen met bekende leverancier — controleer naam en rekening.",
-    "supplier_term_not_applied": "Leverancier niet automatisch bevestigd → betaaltermijn niet toegepast.",
-    "missing_invoice_date": "Factuurdatum onbekend; vul handmatig in voor ‘op uiterste datum’.",
-    "amount_low_confidence": "Bedrag is onduidelijk (mogelijk verkeerd) — controleer de factuur.",
-    "amount_tentative": "Voorlopig bedrag (hoogste betrouwbaarheid) — controleer vóór betaling.",
-    "amount_ambiguous": "Meerdere bedragen gevonden — selecteer het juiste bedrag.",
-    "amount_uncertain": "Bedrag niet met voldoende zekerheid uit de PDF af te leiden — controleer het totaal of vul handmatig in.",
-}
+def _decision_status_label(status: str) -> str:
+    return tr_or_code(f"decision.status.{status}", status)
+
+
+def _decision_reason_text(reason_code: str) -> str:
+    return tr_or_code(f"decision.reason.{reason_code}", reason_code)
+
 
 def _nl_error_reason(reason: str) -> str:
-    return _ERROR_REASON_NL.get(reason) or decision_reason_text_nl(reason) or reason
+    return tr_or_code(f"error.reason.{reason}", _decision_reason_text(reason))
 
-_SIGNAL_LABELS: dict[str, str] = {
-    "iban": "IBAN",
-    "customer_number": "klantnummer",
-    "invoice_number": "factuurnummer",
-    "supplier_hint": "naam uit factuurtekst",
-    "email_domain": "e-maildomein",
-    "kvk": "KvK",
-    "vat": "BTW-nummer",
-    "payment_term": "betalingstermijn",
+
+def _display_supplier_name(name: object) -> str:
+    s = str(name or "").strip()
+    if s == "unknown_supplier":
+        return tr("matching.fallback.unknown_supplier")
+    return s
+
+
+def _batch_error_message(code: str) -> str:
+    detail = tr(code) if UiStrings.has(code) else code
+    return tr("dialog.batch_load.failed.message", detail=detail)
+
+_SIGNAL_LABEL_KEYS: dict[str, str] = {
+    "iban": "matching.signal.iban",
+    "customer_number": "matching.signal.customer_number",
+    "invoice_number": "matching.signal.invoice_number",
+    "supplier_hint": "matching.signal.supplier_hint",
+    "email_domain": "matching.signal.email_domain",
+    "kvk": "matching.signal.kvk",
+    "vat": "matching.signal.vat",
+    "payment_term": "matching.signal.payment_term",
 }
+
+
+def _signal_label(key: str) -> str:
+    return tr(_SIGNAL_LABEL_KEYS.get(key, key))
 
 # For customer_number display and decisions: customer_number_result is ALWAYS
 # authoritative when present. Scalar customer_number is display-only fallback
@@ -488,46 +491,52 @@ def _customer_number_none_mode_from_parts(
 def _matches_completeness_text(inv: dict[str, Any]) -> str:
     missing: list[str] = []
     if not str(inv.get("invoice_number") or "").strip():
-        missing.append("factuurnummer")
+        missing.append(tr("matching.display.missing.invoice_number"))
     if not customer_number_is_absent_or_none(inv) and not customer_number_authoritative_value(inv):
-        missing.append("klantnummer")
+        missing.append(tr("matching.display.missing.customer_number"))
     if not str(inv.get("invoice_date") or "").strip():
-        missing.append("factuurdatum")
+        missing.append(tr("matching.display.missing.invoice_date"))
     if not str(inv.get("iban") or "").strip():
-        missing.append("IBAN")
-    return "Volledig ✓" if not missing else f"Mist: {', '.join(missing)}"
+        missing.append(tr("matching.display.missing.iban"))
+    if not missing:
+        return tr("matching.display.complete")
+    return tr("matching.display.missing_prefix", fields=", ".join(missing))
 
 def _core_matches_text(inv: dict[str, Any]) -> str:
     source = str(inv.get("supplier_match_source") or "").strip()
     core = inv.get("db_core_matches") or []
     core_clean = [str(x).strip() for x in core if str(x).strip()]
     mi = inv.get("match_info") if isinstance(inv.get("match_info"), dict) else {}
-    alias_note = " · naam herkend (geen kernkenmerk)" if mi.get("alias_match") else ""
+    alias_note = tr("matching.display.alias_note") if mi.get("alias_match") else ""
 
     db_only = inv.get("supplier_db_traits_not_on_invoice") or []
     db_only_clean = [str(x).strip() for x in db_only if str(x).strip()]
     db_note = ""
     if db_only_clean and len(core_clean) < 2:
-        db_note = f" · in DB: {', '.join(db_only_clean)} (niet op factuur)"
+        db_note = tr("matching.display.db_note", traits=", ".join(db_only_clean))
 
     if source == "db_match":
         if len(core_clean) >= 2:
-            return f"2/2 kernkenmerken ({', '.join(core_clean[:2])})"
+            return tr("matching.display.core_2of2", traits=", ".join(core_clean[:2]))
         if core_clean:
-            return f"1/2 kernkenmerken ({core_clean[0]}) · 2e kenmerk mist op factuur{db_note}{alias_note}"
-        return f"0/2 kernkenmerken{db_note}{alias_note}"
+            return tr(
+                "matching.display.core_1of2",
+                trait=core_clean[0],
+                db_note=db_note,
+                alias_note=alias_note,
+            )
+        return tr("matching.display.core_0of2", db_note=db_note, alias_note=alias_note)
 
-    # Voor nieuwe leveranciers: sterke fallback-signalen als voorlopige kernmatch.
     signals = inv.get("match_signals") or []
     signal_set = {str(s).strip() for s in signals if str(s).strip()}
     fallback_order = ["iban", "customer_number", "kvk", "vat", "email_domain"]
     provisional = [k for k in fallback_order if k in signal_set][:2]
-    provisional_labels = [_SIGNAL_LABELS.get(k, k) for k in provisional]
+    provisional_labels = [_signal_label(k) for k in provisional]
     if len(provisional_labels) >= 2:
-        return f"2/2 voorlopig ({' + '.join(provisional_labels)})"
+        return tr("matching.display.provisional_2of2", labels=" + ".join(provisional_labels))
     if provisional_labels:
-        return f"1/2 voorlopig ({provisional_labels[0]})"
-    return "0/2 voorlopig"
+        return tr("matching.display.provisional_1of2", label=provisional_labels[0])
+    return tr("matching.display.provisional_0of2")
 
 def _nl_payment_warning(warn: object | None) -> str:
     if not warn:
@@ -538,7 +547,7 @@ def _nl_payment_warning(warn: object | None) -> str:
         return ""
     out: list[str] = []
     for key in parts:
-        out.append(_WARNING_NL.get(key, key))
+        out.append(tr_or_code(f"warning.{key}", key))
     return " · ".join(out)
 
 def _pdf_basename_from_dict(d: dict[str, Any]) -> str:
@@ -878,35 +887,18 @@ def _merge_decision_trace_parsed_amount(existing: dict[str, Any] | None, ar: dic
     return base
 
 # Zichtbare uitleg voor Instellingen / SEPA (zelfde toon voor toekomstige velden).
-_UW_GEGEVENS_XML_HINT = (
-    "Deze gegevens (naam, IBAN en BIC) worden gebruikt voor het genereren van de SEPA XML. "
-    "Vul ze in via Instellingen."
-)
+_UW_GEGEVENS_XML_HINT_KEY = "dialog.settings.xml_hint"
 
 # (key, label, placeholder, inputMask of None). Alleen deze lijst uitbreiden voor nieuwe debtor-velden.
 DEBTOR_FORM_FIELDS: tuple[tuple[str, str, str, str | None], ...] = (
-    ("name", "Uw naam / bedrijfsnaam:", "Uw naam of bedrijfsnaam", None),
-    ("iban", "Uw IBAN:", "NL91 ABNA 0417 1643 00", None),
-    ("bic", "Uw BIC:", "ABNANL2A", ">XXXXXXXXxxx;_"),
-    (
-        "kvk",
-        "Uw KvK-nummer:",
-        "Alleen cijfers, 7 of 8 posities",
-        None,
-    ),
-    (
-        "vat",
-        "Uw BTW-nummer:",
-        "NL123456789B01, NL987654321B01",
-        None,
-    ),
+    ("name", "dialog.settings.debtor_name_label", "dialog.settings.debtor_name_placeholder", None),
+    ("iban", "dialog.settings.debtor_iban_label", "dialog.settings.debtor_iban_placeholder", None),
+    ("bic", "dialog.settings.debtor_bic_label", "dialog.settings.debtor_bic_placeholder", ">XXXXXXXXxxx;_"),
+    ("kvk", "dialog.settings.debtor_kvk_label", "dialog.settings.debtor_kvk_placeholder", None),
+    ("vat", "dialog.settings.debtor_vat_label", "dialog.settings.debtor_vat_placeholder", None),
 )
 
-_DEBTOR_KVK_VAT_TOOLTIP = (
-    "Wordt niet in de SEPA-XML gezet. Wel om uw eigen KvK/BTW op facturen uit te sluiten "
-    "bij het herkennen van leveranciers (wordt nooit als leverancier-KvK of -BTW gebruikt). "
-    "Meerdere BTW-nummers: comma-gescheiden."
-)
+_DEBTOR_KVK_VAT_TOOLTIP_KEY = "dialog.settings.kvk_vat_tooltip"
 
 def _normalize_debtor_field(key: str, value: str) -> str:
     if key == "name":
@@ -962,10 +954,10 @@ def _error_row_amount_str(inv: dict[str, Any]) -> str:
 
 def _term_status_label(trusted: bool | None, effective_days: int) -> str:
     if trusted is True:
-        return f"Termijn: {effective_days} dagen (toegepast)"
+        return tr("matching.display.term_applied", days=effective_days)
     if trusted is False:
-        return "Termijn niet toegepast (onzekere match)"
-    return "—"
+        return tr("matching.display.term_not_applied")
+    return tr("matching.display.term_unknown")
 
 def _parse_amount_str(raw: str) -> Decimal:
     s = (raw or "").strip().replace(",", ".")
@@ -1013,14 +1005,11 @@ class SettingsDialog(QDialog):
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Instellingen")
+        self.setWindowTitle(tr("dialog.settings.title"))
         self.setMinimumWidth(560)
         self.resize(560, 520)
         root = QVBoxLayout(self)
-        info = QLabel(
-            "Deze gegevens zijn nodig voor correcte SEPA-export. "
-            "KvK en BTW zijn alleen voor herkenning op facturen (eigen nummers worden nooit als leverancier gebruikt)."
-        )
+        info = QLabel(tr("dialog.settings.intro"))
         info.setWordWrap(True)
         root.addWidget(info)
         form = QFormLayout()
@@ -1033,17 +1022,17 @@ class SettingsDialog(QDialog):
         self._build_export_dir_row(form)
 
         bbox = QDialogButtonBox()
-        bbox.addButton("Opslaan", QDialogButtonBox.ButtonRole.AcceptRole)
-        bbox.addButton("Annuleer", QDialogButtonBox.ButtonRole.RejectRole)
+        bbox.addButton(tr("dialog.settings.save"), QDialogButtonBox.ButtonRole.AcceptRole)
+        bbox.addButton(tr("dialog.settings.cancel"), QDialogButtonBox.ButtonRole.RejectRole)
         bbox.accepted.connect(self._on_save)
         bbox.rejected.connect(self.reject)
         root.addWidget(bbox)
 
     def _build_form(self, form: QFormLayout) -> None:
         mw = self.parent()
-        for key, label_text, placeholder, mask in DEBTOR_FORM_FIELDS:
+        for key, label_key, placeholder_key, mask in DEBTOR_FORM_FIELDS:
             edit = QLineEdit()
-            edit.setPlaceholderText(placeholder)
+            edit.setPlaceholderText(tr(placeholder_key))
             edit.setMinimumWidth(300)
             if mask:
                 edit.setInputMask(mask)
@@ -1065,11 +1054,11 @@ class SettingsDialog(QDialog):
                 elif key == "vat":
                     edit.setText(mw.get_debtor_vat_display())
             if key in ("kvk", "vat"):
-                edit.setToolTip(_DEBTOR_KVK_VAT_TOOLTIP)
+                edit.setToolTip(tr(_DEBTOR_KVK_VAT_TOOLTIP_KEY))
             else:
-                edit.setToolTip(_UW_GEGEVENS_XML_HINT)
+                edit.setToolTip(tr(_UW_GEGEVENS_XML_HINT_KEY))
             self._field_edits[key] = edit
-            form.addRow(QLabel(label_text), edit)
+            form.addRow(QLabel(tr(label_key)), edit)
 
     def _build_user_data_dir_row(self, form: QFormLayout) -> None:
         mw = self.parent()
@@ -1084,21 +1073,18 @@ class SettingsDialog(QDialog):
         self._user_data_dir_edit.setReadOnly(True)
         self._user_data_dir_edit.setMinimumWidth(300)
         self._user_data_dir_edit.setText(str(ud_path) if ud_path else "")
-        self._user_data_dir_edit.setToolTip(
-            "Instellingen (settings.json) en leveranciersdatabase (suppliers.json). "
-            "Kies bijvoorbeeld een map op de server (UNC-pad)."
-        )
+        self._user_data_dir_edit.setToolTip(tr("dialog.settings.data_dir_tooltip"))
         self._user_data_dir_edit.setStyleSheet("background-color: palette(window);")
         container.addWidget(self._user_data_dir_edit)
 
-        btn = QPushButton("Kies map…")
+        btn = QPushButton(tr("dialog.settings.choose_folder"))
         btn.setFixedWidth(120)
         btn.clicked.connect(self._on_choose_user_data_dir)
         container.addWidget(btn)
 
         wrapper = QWidget()
         wrapper.setLayout(container)
-        form.addRow(QLabel("Gegevensmap:"), wrapper)
+        form.addRow(QLabel(tr("dialog.settings.data_dir_label")), wrapper)
 
     def _on_choose_user_data_dir(self) -> None:
         mw = self.parent()
@@ -1110,7 +1096,7 @@ class SettingsDialog(QDialog):
             else str(mw._user_data_dir)
         )
         path: Optional[str] = QFileDialog.getExistingDirectory(
-            self, "Selecteer gegevensmap (instellingen & leveranciers)", start
+            self, tr("file.pick_data_dir"), start
         )
         if not path:
             return
@@ -1131,25 +1117,25 @@ class SettingsDialog(QDialog):
         self._export_dir_edit.setReadOnly(True)
         self._export_dir_edit.setMinimumWidth(300)
         self._export_dir_edit.setText(str(export_path) if export_path else "")
-        self._export_dir_edit.setToolTip("Hier worden gegenereerde XML bestanden opgeslagen.")
+        self._export_dir_edit.setToolTip(tr("dialog.settings.export_dir_tooltip"))
         self._export_dir_edit.setStyleSheet("background-color: palette(window);")
         container.addWidget(self._export_dir_edit)
 
-        btn = QPushButton("Kies map…")
+        btn = QPushButton(tr("dialog.settings.choose_folder"))
         btn.setFixedWidth(120)
         btn.clicked.connect(self._on_choose_export_dir)
         container.addWidget(btn)
 
         wrapper = QWidget()
         wrapper.setLayout(container)
-        form.addRow(QLabel("Exportmap:"), wrapper)
+        form.addRow(QLabel(tr("dialog.settings.export_dir_label")), wrapper)
 
     def _on_choose_export_dir(self) -> None:
         mw = self.parent()
         if not isinstance(mw, MainWindow):
             return
         start = str(self._selected_export_dir) if self._selected_export_dir else str(mw._resolve_export_dir())
-        path: Optional[str] = QFileDialog.getExistingDirectory(self, "Selecteer exportmap", start)
+        path: Optional[str] = QFileDialog.getExistingDirectory(self, tr("file.pick_export_dir"), start)
         if not path:
             return
         selected = Path(path).resolve()
@@ -1168,18 +1154,16 @@ class SettingsDialog(QDialog):
         if not mw._apply_debtor_and_save(updates):
             QMessageBox.warning(
                 self,
-                "Instellingen",
-                "Uw gegevens konden niet worden opgeslagen. Controleer schrijfrechten op "
-                f"{mw._settings_path()}.",
+                tr("dialog.settings.title"),
+                tr("dialog.settings.debtor_save_failed", path=mw._settings_path()),
             )
             return
         if self._selected_export_dir is not None:
             if not mw._persist_export_dir(self._selected_export_dir):
                 QMessageBox.warning(
                     self,
-                    "Instellingen",
-                    "De exportmap kon niet worden opgeslagen. Controleer schrijfrechten in de "
-                    "gegevensmap (settings.json).",
+                    tr("dialog.settings.title"),
+                    tr("dialog.settings.export_dir_save_failed"),
                 )
                 return
         self.accept()
@@ -1196,7 +1180,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("PDF2SEPA Desktop Client")
+        self.setWindowTitle(tr("window.title"))
         self._user_data_dir: Path = read_user_data_root(APP_BASE)
         self._settings: dict[str, Any] = load_settings(str(self._settings_path()))
         self._ensure_debtor_dict()
@@ -1238,8 +1222,19 @@ class MainWindow(QMainWindow):
         self._engine_rerun_timer = QTimer(self)
         self._engine_rerun_timer.setSingleShot(True)
         self._engine_rerun_timer.timeout.connect(self._commit_pending_engine_updates)
+        self._batch_load_thread: QThread | None = None
+        self._batch_load_worker: InvoiceBatchLoadWorker | None = None
+        self._loading_overlay: LoadingOverlay | None = None
+        self._btn_folder: QPushButton | None = None
+        self._btn_reread: QPushButton | None = None
+        self._batch_progress_file = ""
+        self._batch_progress_stage = ""
+        self._batch_progress_done = 0
+        self._batch_progress_total = 0
         self._restore_selected_folder_from_settings()
         self._setup_ui()
+        overlay_parent = self.centralWidget() or self
+        self._loading_overlay = LoadingOverlay(overlay_parent)
         self._setup_shortcuts()
         self._restore_window_geometry()
 
@@ -1366,8 +1361,8 @@ class MainWindow(QMainWindow):
         self._reconcile_expanded_groups(prior_expanded, focus_doc_ids=focus_doc_ids)
         n_err = self._populate_from_engine_result(self._engine_result, self._matched_invoices)
         self._refresh_export_batch_status_label()
-        label = "Verrekening" if self._engine_result.uses_settlement else "Betalingen"
-        self._set_status(f"{label} bijgewerkt ({n_err} review-rijen).")
+        label_key = "status.settlement_label" if self._engine_result.uses_settlement else "status.payments_label"
+        self._set_status(tr("status.settlement_updated", label=tr(label_key), count=n_err))
 
     def _reconcile_expanded_groups(
         self,
@@ -1382,13 +1377,14 @@ class MainWindow(QMainWindow):
             str(g.get("group_id") or "")
             for g in self._engine_result.settlement_groups
             if str(g.get("group_id") or "").strip()
+            and settlement_group_is_expandable(vm_from_group(g), group=g)
         }
         self._expanded_settlement_groups = prior_expanded & new_gids
         if not focus_doc_ids:
             return
         for group in self._engine_result.settlement_groups:
             gid = str(group.get("group_id") or "").strip()
-            if not gid:
+            if not gid or not settlement_group_is_expandable(vm_from_group(group), group=group):
                 continue
             matched = False
             for doc in group.get("member_documents") or []:
@@ -1549,12 +1545,12 @@ class MainWindow(QMainWindow):
             return
         doc_id = self._document_id_for_table_row(row)
         if not doc_id:
-            QMessageBox.warning(self, "Bedrag aanpassen", "Geen document-ID gevonden voor deze rij.")
+            QMessageBox.warning(self, tr("dialog.adjust_amount.title"), tr("dialog.adjust_amount.no_doc_id"))
             return
 
         matched_inv = self._invoice_for_document_id(doc_id)
         if matched_inv is None:
-            QMessageBox.warning(self, "Bedrag aanpassen", f"Document '{doc_id}' niet gevonden in huidige batch.")
+            QMessageBox.warning(self, tr("dialog.adjust_amount.title"), tr("dialog.adjust_amount.doc_not_found", doc_id=doc_id))
             return
         doc_id = document_id({"raw": matched_inv})
 
@@ -1572,8 +1568,8 @@ class MainWindow(QMainWindow):
         is_credit = str(matched_inv.get("type") or "") == "credit_note"
         new_val, ok = QInputDialog.getDouble(
             self,
-            "Bedrag aanpassen",
-            f"Nieuw bruto bedrag voor {inv_no}:",
+            tr("dialog.adjust_amount.title"),
+            tr("dialog.adjust_amount.prompt", invoice_number=inv_no),
             value=current,
             min=0.0,
             max=999_999_999.99,
@@ -1636,7 +1632,7 @@ class MainWindow(QMainWindow):
 
         # Multiple credits — let user pick which one to reassign.
         from PySide6.QtWidgets import QMenu
-        pick_menu = QMenu("Kies credit", self)
+        pick_menu = QMenu(tr("menu.context.choose_credit"), self)
         for cl in credit_lines:
             amt = cl.amount_applied or cl.gross_amount
             label = f"{cl.invoice_number}  ({amt})" if amt else cl.invoice_number
@@ -1758,11 +1754,13 @@ class MainWindow(QMainWindow):
         # ── Supplier (snapshot only for invoice fields) ───────────────────────
         sup_text = ""
         if snapshot:
-            sup_text = str(snapshot.get("supplier_name") or snapshot.get("supplier_hint") or "")
+            sup_text = _display_supplier_name(
+                snapshot.get("supplier_name") or snapshot.get("supplier_hint") or ""
+            )
         if is_credit and detached and snapshot:
             inv_no = str(snapshot.get("invoice_number") or "").strip()
             if inv_no:
-                sup_text = f"{sup_text}  ·  {inv_no} (losgekoppeld)"
+                sup_text = f"{sup_text}  ·  {inv_no} {tr('matching.display.detached')}"
         sup_it = _ro(sup_text)
         sup_it.setData(_ROW_SETTLEMENT_ROW_KIND_ROLE, int(kind))
         sup_it.setData(_ROW_SETTLEMENT_DOC_TYPE_ROLE, doc_type)
@@ -1816,7 +1814,7 @@ class MainWindow(QMainWindow):
         from PySide6.QtGui import QPalette
 
         info_item = self._item_readonly("🔍")
-        info_item.setToolTip("Diagnostics — wat ging er goed of mis?")
+        info_item.setToolTip(tr("status.diagnostics_tooltip"))
         info_item.setForeground(QApplication.palette().color(QPalette.ColorRole.WindowText))
         self._table.setItem(row, int(PaymentColumn.INFO), info_item)
 
@@ -1898,7 +1896,7 @@ class MainWindow(QMainWindow):
             return
         rows = self._selected_table_rows()
         if not rows:
-            self._decision_inspector.setPlainText("Selecteer een rij om details te zien.")
+            self._decision_inspector.setPlainText(tr("status.decision_inspector_empty"))
             return
         r = rows[0]
         vm = self._resolve_row_vm(r)
@@ -2000,8 +1998,8 @@ class MainWindow(QMainWindow):
         except OSError:
             QMessageBox.warning(
                 dialog_parent,
-                "Instellingen",
-                "De gegevensmap kon niet worden aangemaakt.",
+                tr("dialog.settings.title"),
+                tr("dialog.settings.data_dir_create_failed"),
             )
             return False
         probe = new_r / ".pdf2sepa_write_test"
@@ -2011,8 +2009,8 @@ class MainWindow(QMainWindow):
         except OSError:
             QMessageBox.warning(
                 dialog_parent,
-                "Instellingen",
-                "Geen schrijfrecht op de gekozen gegevensmap.",
+                tr("dialog.settings.title"),
+                tr("dialog.settings.data_dir_no_write"),
             )
             return False
 
@@ -2025,10 +2023,8 @@ class MainWindow(QMainWindow):
         if new_settings.exists() or new_sup.exists():
             answer = QMessageBox.question(
                 dialog_parent,
-                "Gegevensmap",
-                "De gekozen map bevat al settings.json en/of suppliers.json.\n\n"
-                "Overschakelen en die bestanden gebruiken? "
-                "(Daarna worden de velden in dit venster alsnog naar die map opgeslagen.)",
+                tr("dialog.confirm.data_dir_switch.title"),
+                tr("dialog.confirm.data_dir_switch.message"),
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No,
             )
@@ -2037,8 +2033,8 @@ class MainWindow(QMainWindow):
             if not write_user_data_root(new_r, APP_BASE):
                 QMessageBox.warning(
                     dialog_parent,
-                    "Instellingen",
-                    "Kon het pad naar de gegevensmap niet bewaren (bootstrap-bestand).",
+                    tr("dialog.settings.title"),
+                    tr("dialog.settings.bootstrap_failed"),
                 )
                 return False
             self._user_data_dir = new_r
@@ -2052,8 +2048,8 @@ class MainWindow(QMainWindow):
             except OSError:
                 QMessageBox.warning(
                     dialog_parent,
-                    "Instellingen",
-                    "Kon settings.json niet naar de nieuwe gegevensmap kopiëren.",
+                    tr("dialog.settings.title"),
+                    tr("dialog.settings.copy_settings_failed"),
                 )
                 return False
         if old_sup.exists():
@@ -2062,15 +2058,15 @@ class MainWindow(QMainWindow):
             except OSError:
                 QMessageBox.warning(
                     dialog_parent,
-                    "Instellingen",
-                    "Kon suppliers.json niet naar de nieuwe gegevensmap kopiëren.",
+                    tr("dialog.settings.title"),
+                    tr("dialog.settings.copy_suppliers_failed"),
                 )
                 return False
         if not write_user_data_root(new_r, APP_BASE):
             QMessageBox.warning(
                 dialog_parent,
-                "Instellingen",
-                "Kon het pad naar de gegevensmap niet bewaren (bootstrap-bestand).",
+                tr("dialog.settings.title"),
+                tr("dialog.settings.bootstrap_failed"),
             )
             return False
         self._user_data_dir = new_r
@@ -2112,69 +2108,62 @@ class MainWindow(QMainWindow):
         tb_outer.setSpacing(8)
 
         self._filter_edit = QLineEdit()
-        self._filter_edit.setPlaceholderText("Filter op leverancier, omschrijving, PDF of klantcode…")
+        self._filter_edit.setPlaceholderText(tr("toolbar.filter_placeholder"))
         self._filter_edit.setMinimumWidth(220)
         self._filter_edit.textChanged.connect(self._on_filter_text_changed)
 
         row_main = QHBoxLayout()
         row_main.setSpacing(8)
 
-        btn_folder = QPushButton("Map selecteren")
+        btn_folder = QPushButton(tr("toolbar.select_folder"))
         btn_folder.clicked.connect(self._on_select_folder)
         _font_primary_button(btn_folder)
+        self._btn_folder = btn_folder
         row_main.addWidget(btn_folder, alignment=Qt.AlignmentFlag.AlignLeft)
-        btn_reread = QPushButton("PDF’s uitlezen")
+        btn_reread = QPushButton(tr("toolbar.load_pdfs"))
         btn_reread.clicked.connect(self._on_reread_pdfs)
         _font_primary_button(btn_reread)
+        self._btn_reread = btn_reread
         row_main.addWidget(btn_reread, alignment=Qt.AlignmentFlag.AlignLeft)
-        btn_xml = QPushButton("Maak XML bestand")
+        btn_xml = QPushButton(tr("toolbar.export_xml"))
         btn_xml.clicked.connect(self._on_make_xml)
         btn_xml.setDefault(True)
         _font_primary_button(btn_xml)
         row_main.addWidget(btn_xml, alignment=Qt.AlignmentFlag.AlignLeft)
         self._btn_xml = btn_xml
-        self._batch_status_label = QLabel("Batch status: VALID")
-        row_main.addWidget(self._batch_status_label, alignment=Qt.AlignmentFlag.AlignLeft)
 
         row_main.addSpacing(12)
 
         btn_add_row = QToolButton()
         btn_add_row.setText("+")
-        btn_add_row.setToolTip("Voeg rij toe")
+        btn_add_row.setToolTip(tr("toolbar.add_row_tooltip"))
         btn_add_row.clicked.connect(self._on_add_row)
         btn_add_row.setFixedWidth(34)
         row_main.addWidget(btn_add_row, alignment=Qt.AlignmentFlag.AlignLeft)
         btn_del_sel = QToolButton()
         btn_del_sel.setText("\u2212")
-        btn_del_sel.setToolTip("Verwijder geselecteerde rijen")
+        btn_del_sel.setToolTip(tr("toolbar.delete_rows_tooltip"))
         btn_del_sel.clicked.connect(self._on_delete_selected_rows)
         btn_del_sel.setFixedWidth(34)
         row_main.addWidget(btn_del_sel, alignment=Qt.AlignmentFlag.AlignLeft)
 
         row_main.addStretch(1)
 
-        btn_suppliers = QPushButton("Mijn leveranciers")
+        btn_suppliers = QPushButton(tr("dialog.suppliers.title"))
         btn_suppliers.clicked.connect(self._on_open_suppliers)
         row_main.addWidget(btn_suppliers, alignment=Qt.AlignmentFlag.AlignRight)
-        btn_sync_suppliers = QPushButton("Voeg toe / update")
-        btn_sync_suppliers.setToolTip(
-            "Schrijft de geselecteerde rijen naar de leveranciersdatabase "
-            "(naam, IBAN, klantcode, korting)."
-        )
+        btn_sync_suppliers = QPushButton(tr("toolbar.sync_suppliers"))
+        btn_sync_suppliers.setToolTip(tr("toolbar.sync_suppliers_tooltip"))
         btn_sync_suppliers.clicked.connect(self._on_sync_button_clicked)
         row_main.addWidget(btn_sync_suppliers, alignment=Qt.AlignmentFlag.AlignRight)
-        self._btn_create_profile = QPushButton("Profiel aanmaken")
-        self._btn_create_profile.setToolTip(
-            "Stap 1: Voeg toe / update (leverancier in database).\n"
-            "Stap 2: Kies het juiste bedrag (klik op ? of Diagnostics).\n"
-            "Stap 3: Bevestig factuurnummer/klantnummer en leer extractieprofiel."
-        )
+        self._btn_create_profile = QPushButton(tr("toolbar.create_profile"))
+        self._btn_create_profile.setToolTip(tr("toolbar.create_profile_tooltip"))
         self._btn_create_profile.clicked.connect(self._on_create_profile_for_selection)
         self._btn_create_profile.setEnabled(False)
         row_main.addWidget(self._btn_create_profile, alignment=Qt.AlignmentFlag.AlignRight)
         btn_settings = QPushButton()
-        btn_settings.setToolTip(_UW_GEGEVENS_XML_HINT)
-        btn_settings.setAccessibleName("Instellingen")
+        btn_settings.setToolTip(tr(_UW_GEGEVENS_XML_HINT_KEY))
+        btn_settings.setAccessibleName(tr("toolbar.settings_accessible"))
         gear = QIcon.fromTheme("preferences-system")
         if not gear.isNull():
             btn_settings.setIcon(gear)
@@ -2195,22 +2184,22 @@ class MainWindow(QMainWindow):
         layout.addWidget(toolbar)
 
         headers = [
-            "Leverancier",
-            "IBAN",
-            "Bedrag",
-            "Klantcode",
-            "Omschrijving",
-            "PDF",
-            "Korting",
-            "Factuurdatum",
-            "Betaaldatum",
-            "Betaaltermijn",
-            "Kernmatches",
-            "Matches compleet",
-            "Status",
-            "Foutmelding",
-            "Info",
-            "Verrekening",
+            tr("table.header.supplier"),
+            tr("table.header.iban"),
+            tr("table.header.amount"),
+            tr("table.header.customer_code"),
+            tr("table.header.description"),
+            tr("table.header.pdf"),
+            tr("table.header.discount"),
+            tr("table.header.invoice_date"),
+            tr("table.header.execution_date"),
+            tr("table.header.term"),
+            tr("table.header.core_matches"),
+            tr("table.header.matches_complete"),
+            tr("table.header.status"),
+            tr("table.header.error"),
+            tr("table.header.info"),
+            tr("table.header.settlement"),
         ]
         self._table = QTableWidget(0, len(headers))
         self._table.setHorizontalHeaderLabels(headers)
@@ -2270,7 +2259,7 @@ class MainWindow(QMainWindow):
         self._decision_inspector.setReadOnly(True)
         self._decision_inspector.setMinimumWidth(240)
         self._decision_inspector.setVisible(False)
-        self._decision_inspector.setToolTip("Beslissingsinspecteur: selecteer een rij.")
+        self._decision_inspector.setToolTip(tr("status.decision_inspector_tooltip"))
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.addWidget(self._table)
@@ -2285,7 +2274,7 @@ class MainWindow(QMainWindow):
         self._payment_sources = []
         self._refresh_initial_table_and_status()
 
-        self._status_label.setWordWrap(True)
+        self._status_label.setWordWrap(False)
         layout.addWidget(self._status_label)
 
     def get_debtor_name(self) -> str:
@@ -2365,8 +2354,88 @@ class MainWindow(QMainWindow):
         raw: str = str(self._settings.get("export_dir") or "exports")
         return resolve_settings_path(raw, base_dir=self._user_data_dir)
 
-    def _set_status(self, text: str) -> None:
-        self._status_label.setText(text)
+    def _collect_export_batch_previews(self) -> list[dict[str, Any]] | None:
+        """Export-preview rijen; ``None`` bij hash-integriteitsfout."""
+        previews: list[dict[str, Any]] = []
+        for r in range(self._table.rowCount()):
+            if self._is_row_blank(r) or self._is_settlement_child_row(r):
+                continue
+            try:
+                self._assert_row_hash_integrity(r)
+            except RuntimeError:
+                return None
+            dec = self._decision_for_row(r)
+            try:
+                p = self._payment_dict_from_row(r)
+                p["decision"] = dec
+                previews.append(p)
+            except ValueError:
+                continue
+        return previews
+
+    def _validate_current_export_batch(self):
+        previews = self._collect_export_batch_previews()
+        if previews is None:
+            return None
+        exportable = exportable_payments_from_decisions(previews)
+        if not exportable:
+            return None
+        return validate_export_batch(exportable)
+
+    def _count_status_pdf(self) -> int:
+        if self._is_loading_batch and self._batch_progress_total > 0:
+            return self._batch_progress_total
+        if self._batch_progress_total > 0:
+            return self._batch_progress_total
+        return len(self._matched_invoices)
+
+    def _count_status_issues(self) -> int:
+        n = 0
+        for r in range(self._table.rowCount()):
+            if self._is_row_blank(r) or self._is_settlement_child_row(r):
+                continue
+            if self._cell_text(r, PaymentColumn.ERROR).strip():
+                n += 1
+                continue
+            if self._decision_for_row(r).get("status") == DECISION_NEEDS_REVIEW:
+                n += 1
+        return n
+
+    @staticmethod
+    def _blocked_export_issue_count(gate) -> int:
+        s = gate.summary
+        return (
+            int(s.get("ambiguous_count", 0))
+            + int(s.get("failed_count", 0))
+            + int(s.get("invalid_amount_count", 0))
+        )
+
+    def _build_status_bar(self) -> str:
+        pdf_n = self._count_status_pdf()
+        pdf_part = f"📄 {pdf_n} PDF's"
+
+        if self._is_loading_batch:
+            return f"{pdf_part} • ⏳ bezig"
+
+        gate = self._validate_current_export_batch()
+        if gate is not None and gate.status == "blocked":
+            err_n = self._blocked_export_issue_count(gate)
+            if err_n <= 0:
+                err_n = self._count_status_issues()
+            return f"⛔ Export geblokkeerd • {err_n} fouten"
+
+        issues = self._count_status_issues()
+        if issues > 0:
+            return f"{pdf_part} • ⚠️ {issues} issues"
+
+        if pdf_n > 0:
+            return f"{pdf_part} • 🟢 gereed"
+
+        return pdf_part
+
+    def _set_status(self, text: str = "") -> None:
+        _ = text
+        self._status_label.setText(self._build_status_bar())
 
     @staticmethod
     def _item_editable(text: str) -> QTableWidgetItem:
@@ -2560,12 +2629,6 @@ class MainWindow(QMainWindow):
 
     def _refresh_initial_table_and_status(self) -> None:
         self._table.setRowCount(0)
-        folder_txt = str(self._selected_folder) if self._selected_folder else "—"
-        export_path = self._resolve_export_dir()
-        self._set_status(
-            f"Geen facturen geladen. Laatste map: {folder_txt}. "
-            f"Kies een map of klik ‘PDF’s uitlezen’. Exportmap: {export_path}"
-        )
         self._refresh_export_batch_status_label()
 
     def _on_open_suppliers(self) -> None:
@@ -2625,19 +2688,14 @@ class MainWindow(QMainWindow):
             pdf_iban = info["pdf_iban"]
             n = len(info["invoices"])
 
-            answer = QMessageBox.question(
-                self,
-                "IBAN-afwijking gedetecteerd",
-                f"Leverancier: {supplier_name}\n"
-                f"Aantal facturen: {n}\n\n"
-                f"Database IBAN:\t{db_iban}\n"
-                f"Factuur IBAN:\t{pdf_iban}\n\n"
-                "De database-IBAN wordt standaard gebruikt (aanbevolen).\n"
-                "Wil je de database bijwerken naar het factuur-IBAN?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.No,
+            spec = IbanAmbiguityDialogSpec(
+                ambiguity_index=0,
+                supplier_name=supplier_name,
+                db_iban=db_iban,
+                pdf_iban=pdf_iban,
+                count=n,
             )
-            if answer == QMessageBox.StandardButton.Yes:
+            if self._render_iban_dialog(spec):
                 db.update_supplier(supplier_name, iban=pdf_iban)
                 for inv in info["invoices"]:
                     generic = field_result_from_legacy_dict(
@@ -3108,8 +3166,8 @@ class MainWindow(QMainWindow):
             # #endregion
             return
 
-        progress = QProgressDialog("Leveranciers opnieuw koppelen…", None, 0, 0, self)
-        progress.setWindowTitle("Laden")
+        progress = QProgressDialog(tr("status.rematch_suppliers"), None, 0, 0, self)
+        progress.setWindowTitle(tr("status.progress_title"))
         progress.setMinimumDuration(200)
         progress.setValue(0)
         QApplication.processEvents()
@@ -3199,6 +3257,258 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
 
+    def _set_batch_load_ui_busy(self, busy: bool) -> None:
+        for btn in (self._btn_folder, self._btn_reread):
+            if btn is not None:
+                btn.setEnabled(not busy)
+
+    def _build_batch_load_params(
+        self,
+        *,
+        parse_pdfs: bool,
+        warm_invoices: list[dict] | None = None,
+    ) -> BatchLoadParams | None:
+        folder = self._selected_folder
+        if folder is None or not folder.is_dir():
+            return None
+        debtor_iban, debtor_kvk, internal_vat_fingerprint = self._debtor_parse_context()
+        warm_tuple = tuple(warm_invoices) if warm_invoices is not None else None
+        return BatchLoadParams(
+            folder=folder,
+            parse_pdfs=parse_pdfs,
+            debtor_iban=debtor_iban,
+            debtor_kvk=debtor_kvk,
+            debtor_vat=internal_vat_fingerprint,
+            debtor_name=self.get_debtor_name() or None,
+            supplier_db_snapshot=SupplierDBSnapshot.from_path(self._supplier_db_path()),
+            session_date=self._session_date,
+            batch_key=self._batch_key(),
+            amount_override_session=self._session_amount_override_session(),
+            override_store_path=str(self._override_store.path),
+            warm_invoices=warm_tuple,
+        )
+
+    def _render_iban_dialog(self, spec: IbanAmbiguityDialogSpec) -> bool:
+        answer = QMessageBox.question(
+            self,
+            tr(f"{spec.key}.title"),
+            tr(
+                f"{spec.key}.message",
+                supplier_name=spec.supplier_name,
+                db_iban=spec.db_iban,
+                pdf_iban=spec.pdf_iban,
+                count=spec.count,
+            ),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        return answer == QMessageBox.StandardButton.Yes
+
+    def _collect_iban_raw_answers(self, checkpoint: PreprocessCheckpoint) -> IbanRawUiAnswers:
+        specs = checkpoint.iban_dialog_specs
+        if not specs:
+            return IbanRawUiAnswers()
+        answers: list[IbanRawUiAnswer] = []
+        for spec in specs:
+            clicked_yes = self._render_iban_dialog(spec)
+            answers.append(IbanRawUiAnswer(ambiguity_index=spec.ambiguity_index, clicked_yes=clicked_yes))
+        return IbanRawUiAnswers(answers=tuple(answers))
+
+    def _cleanup_batch_load(self) -> None:
+        self._is_loading_batch = False
+        self._set_batch_load_ui_busy(False)
+        if self._loading_overlay is not None:
+            self._loading_overlay.hide_overlay()
+        if self._batch_load_thread is not None:
+            self._batch_load_thread.quit()
+            self._batch_load_thread.wait(5000)
+            self._batch_load_thread = None
+        self._batch_load_worker = None
+        self._set_status()
+
+    def _on_batch_load_progress(self, done: int, total: int, filename: str, stage: str) -> None:
+        overlay = self._loading_overlay
+        if overlay is None:
+            return
+        if stage in ("parsing_pdf", "listing_pdfs") and total > 0:
+            self._batch_progress_done = done
+            self._batch_progress_total = total
+        overlay.update_progress(done, total, filename, stage)
+        self._set_status()
+
+    def _on_batch_preprocess_finished(self, checkpoint: PreprocessCheckpoint) -> None:
+        folder = self._selected_folder
+        if folder is not None and folder.is_dir():
+            debtor_iban, debtor_kvk, internal_vat_fingerprint = self._debtor_parse_context()
+            self._parsed_batch_cache.store(
+                folder,
+                list(checkpoint.v0.invoices),
+                debtor_iban=debtor_iban,
+                debtor_kvk=debtor_kvk,
+                debtor_vat=internal_vat_fingerprint,
+            )
+        raw_answers = self._collect_iban_raw_answers(checkpoint)
+        worker = self._batch_load_worker
+        if worker is None:
+            self._cleanup_batch_load()
+            return
+        worker.resolve_requested.emit(checkpoint, raw_answers)
+
+    def _apply_batch_load_result_atomic(self, result: BatchLoadResult) -> int:
+        matched = list(result.v2.invoices)
+        engine_result = result.engine_result
+        self._matched_invoices = matched
+        self._engine_cache.invalidate("reload")
+        self._expanded_settlement_groups = set()
+        self._engine_result = engine_result
+        self._init_expand_state_for_engine(engine_result)
+        self._decision_table_fingerprint = None
+        n_err_rows = self._populate_from_engine_result(engine_result, matched)
+        initial_run_id = str(uuid.uuid4())
+        decision_map: dict[str, dict[str, Any]] = {}
+        for r in range(self._table.rowCount()):
+            if self._is_row_blank(r) or self._is_settlement_child_row(r):
+                continue
+            decision_map[self._row_id(r)] = self._row_decision(r)
+        decision_map = self._normalize_decision_map_row_ids(decision_map)
+        batch_key = stable_hash(
+            {
+                "folder": str(self._selected_folder.resolve()) if self._selected_folder else "",
+                "suppliers_path": self._supplier_db_path(),
+            }
+        )
+        persisted = self._approval_store.load_batch(batch_key)
+        if persisted:
+            for r in range(self._table.rowCount()):
+                if self._is_row_blank(r):
+                    continue
+                rid = self._row_id(r)
+                dec = persisted.get(rid) or persisted.get(self._legacy_row_id(r))
+                if isinstance(dec, dict):
+                    decision_map[rid] = dec
+                    self._set_row_decision(r, dec)
+        run = self._decision_store.begin_run(
+            run_id=initial_run_id,
+            input_snapshot_hash=stable_hash(
+                {"matched_count": len(matched), "session_date": self._session_date.isoformat()}
+            ),
+            decision_map=decision_map,
+        )
+        self._decision_store.commit_run(run.run_id)
+        self._pinned_run_id = run.run_id
+        self._active_run_id = run.run_id
+        self._decision_table_fingerprint = None
+        self._sync_decision_store_from_table(force=True)
+        # #region agent log
+        try:
+            import json as _json, time as _time
+            with open("/Users/eh/Documents/Cursor/PDF2SEPA/.cursor/debug-c00626.log", "a", encoding="utf-8") as _f:
+                _f.write(_json.dumps({"sessionId": "c00626", "hypothesisId": "B", "location": "main_window.py:_apply_batch_load_result_atomic", "message": "about to apply_row_colors", "data": {"row_count": self._table.rowCount()}, "timestamp": int(_time.time() * 1000), "runId": "pre-fix"}) + "\n")
+        except Exception:
+            pass
+        # #endregion
+        self._apply_row_colors()
+        n_pdf = result.n_raw
+        n_pay = self._count_payment_header_rows()
+        for name, count in (("Map: " + self._selected_folder.name, n_pdf),) if self._selected_folder else ():
+            logger.info("bron %r: %d pdf-facturen", name, count)
+        logger.info("betalingsregels: %d, foutregels: %d", n_pay, n_err_rows)
+        self._update_load_status_after_load(n_pdf=n_pdf, n_payments=n_pay, n_error_rows=n_err_rows)
+        apply_supplier_db_mutations(SupplierDB(path=self._supplier_db_path()), result.v2.pending_db_mutations)
+        return n_err_rows
+
+    def _on_batch_load_finished(self, result: BatchLoadResult) -> None:
+        try:
+            self._apply_batch_load_result_atomic(result)
+        except Exception as exc:
+            logger.exception("batch load apply failed")
+            # #region agent log
+            try:
+                import json as _json, time as _time
+                with open("/Users/eh/Documents/Cursor/PDF2SEPA/.cursor/debug-c00626.log", "a", encoding="utf-8") as _f:
+                    _f.write(_json.dumps({"sessionId": "c00626", "hypothesisId": "A", "location": "main_window.py:_on_batch_load_finished", "message": "batch apply exception", "data": {"exc_type": type(exc).__name__, "exc_msg": str(exc)}, "timestamp": int(_time.time() * 1000), "runId": "pre-fix"}) + "\n")
+            except Exception:
+                pass
+            # #endregion
+            QMessageBox.warning(
+                self,
+                tr("dialog.batch_load.failed.title"),
+                tr("error.batch.apply_failed", detail=str(exc)),
+            )
+        finally:
+            self._cleanup_batch_load()
+
+    def _on_batch_load_error(self, message: str) -> None:
+        logger.error("batch load error: %s", message)
+        QMessageBox.warning(
+            self,
+            tr("dialog.batch_load.failed.title"),
+            _batch_error_message(message),
+        )
+        self._cleanup_batch_load()
+
+    def _start_batch_load(self, *, parse_pdfs: bool) -> None:
+        if self._batch_load_thread is not None:
+            return
+        warm: list[dict] | None = None
+        if not parse_pdfs:
+            warm = self._load_parsed_invoices_warm()
+            if warm is None:
+                QMessageBox.warning(
+                    self,
+                    tr("dialog.batch_load.no_cache.title"),
+                    tr("dialog.batch_load.no_cache.message"),
+                )
+                return
+        params = self._build_batch_load_params(parse_pdfs=parse_pdfs, warm_invoices=warm)
+        if params is None:
+            return
+        self._is_loading_batch = True
+        self._set_batch_load_ui_busy(True)
+        label = tr("overlay.title.parse_pdfs") if parse_pdfs else tr("overlay.title.rematch")
+        self._batch_progress_done = 0
+        self._batch_progress_total = 0
+        self._set_status()
+        if self._loading_overlay is not None:
+            self._loading_overlay.show_overlay(label)
+        worker = InvoiceBatchLoadWorker()
+        worker.set_preprocess_params(params)
+        thread = QThread(self)
+        worker.moveToThread(thread)
+        worker.progress.connect(self._on_batch_load_progress_value)
+        worker.current_file.connect(self._on_batch_load_progress_file)
+        worker.current_stage.connect(self._on_batch_load_progress_stage)
+        worker.preprocess_finished.connect(self._on_batch_preprocess_finished)
+        worker.finished.connect(self._on_batch_load_finished)
+        worker.error.connect(self._on_batch_load_error)
+        thread.started.connect(worker.start_preprocess)
+        self._batch_load_worker = worker
+        self._batch_load_thread = thread
+        self._batch_progress_file = ""
+        self._batch_progress_stage = ""
+        thread.start()
+
+    def _on_batch_load_progress_value(self, done: int, total: int) -> None:
+        self._on_batch_load_progress(done, total, self._batch_progress_file, self._batch_progress_stage)
+
+    def _on_batch_load_progress_file(self, filename: str) -> None:
+        self._batch_progress_file = filename
+        self._on_batch_load_progress(
+            self._batch_progress_done,
+            self._batch_progress_total,
+            filename,
+            self._batch_progress_stage,
+        )
+
+    def _on_batch_load_progress_stage(self, stage: str) -> None:
+        self._batch_progress_stage = stage
+        self._on_batch_load_progress(
+            self._batch_progress_done,
+            self._batch_progress_total,
+            self._batch_progress_file,
+            stage,
+        )
+
     def _load_payments_from_sources(self, *, parse_pdfs: bool = True) -> None:
         _dbg_log(
             hypothesis_id="A",
@@ -3209,204 +3519,9 @@ class MainWindow(QMainWindow):
                 "parse_pdfs": bool(parse_pdfs),
             },
         )
-        self._is_loading_batch = True
         if parse_pdfs:
-            cleared = len(self._session_amount_overrides)
             self._clear_session_amount_overrides()
-        progress: QProgressDialog | None = None
-        try:
-            per_source_counts: list[tuple[str, int]] = []
-            if parse_pdfs:
-                progress = QProgressDialog("PDF's uitlezen (OCR)…", None, 0, 0, self)
-                progress.setWindowTitle("Laden")
-                progress.setMinimumDuration(300)
-                progress.setValue(0)
-                QApplication.processEvents()
-                all_raw = self._load_parsed_invoices_cold()
-                if self._selected_folder:
-                    per_source_counts.append(
-                        (f"Map: {self._selected_folder.name}", len(all_raw))
-                    )
-            else:
-                progress = QProgressDialog("Betalingen herberekenen…", None, 0, 0, self)
-                progress.setWindowTitle("Laden")
-                progress.setMinimumDuration(200)
-                progress.setValue(0)
-                QApplication.processEvents()
-                warm = self._load_parsed_invoices_warm()
-                if warm is None:
-                    QMessageBox.warning(
-                        self,
-                        "Laden",
-                        "Geen geparste facturen in cache. Klik eerst op ‘PDF’s uitlezen’.",
-                    )
-                    return
-                all_raw = warm
-                if self._selected_folder:
-                    per_source_counts.append(
-                        (f"Map: {self._selected_folder.name}", len(all_raw))
-                    )
-
-            all_raw, n_dupes = self._deduplicate_invoices(all_raw)
-            if n_dupes:
-                logger.info("Duplicaten overgeslagen: %d", n_dupes)
-
-            db = SupplierDB(path=self._supplier_db_path())
-            matched = match_suppliers(all_raw, db)
-            if batch_requires_settlement(matched):
-                matched = enrich_credit_documents(matched)
-            strip_raw_text_from_invoices(matched)
-            _agent_log(
-                "H1",
-                "main_window.py:_load_payments_from_sources",
-                "matched invoices summary",
-                {
-                    "count": int(len(matched)),
-                    "sample": [
-                        {
-                            "supplier_name": str(inv.get("supplier_name") or ""),
-                            "match_status": str(inv.get("match_status") or ""),
-                            "db_core_match_count": int(inv.get("db_core_match_count") or 0),
-                            "invoice_number": str(inv.get("invoice_number") or ""),
-                            "invoice_date_present": bool(str(inv.get("invoice_date") or "").strip()),
-                            "iban_present": bool(str(inv.get("iban") or "").strip()),
-                        }
-                        for inv in matched[:8]
-                        if isinstance(inv, dict)
-                    ],
-                },
-            )
-            self._resolve_iban_mismatches(matched, db)
-            self._matched_invoices = matched
-            self._engine_cache.invalidate("reload")
-            self._expanded_settlement_groups = set()
-            engine_result = self._compute_engine_result(matched)
-            self._engine_result = engine_result
-            self._init_expand_state_for_engine(engine_result)
-            self._decision_table_fingerprint = None
-            n_err_rows = self._populate_from_engine_result(engine_result, matched)
-            _dbg_log(
-                hypothesis_id="A",
-                location="main_window.py:_load_payments_from_sources:post_populate",
-                message="table populated",
-                data={
-                    "rowCount": int(self._table.rowCount()),
-                    "n_err_rows": int(n_err_rows),
-                    "suppress_item_changed": bool(self._suppress_table_item_changed),
-                    "tableSignalsBlocked": bool(self._table.signalsBlocked()),
-                },
-            )
-            initial_run_id = str(uuid.uuid4())
-            decision_map: dict[str, dict[str, Any]] = {}
-            for r in range(self._table.rowCount()):
-                if self._is_row_blank(r) or self._is_settlement_child_row(r):
-                    continue
-                decision_map[self._row_id(r)] = self._row_decision(r)
-            decision_map = self._normalize_decision_map_row_ids(decision_map)
-
-            # Apply persisted approvals for this batch before committing the initial run.
-            batch_key = stable_hash(
-                {
-                    "folder": str(self._selected_folder.resolve()) if self._selected_folder else "",
-                    "suppliers_path": self._supplier_db_path(),
-                }
-            )
-            persisted = self._approval_store.load_batch(batch_key)
-            _dbg_log(
-                hypothesis_id="C",
-                location="main_window.py:_load_payments_from_sources:persisted",
-                message="loaded persisted approvals",
-                data={"count": int(len(persisted))},
-            )
-            _dbg_a6(
-                hypothesis_id="UI1",
-                location="main_window.py:_load_payments_from_sources:persisted",
-                message="loaded persisted approvals (a6 session)",
-                data={
-                    "batch_key": batch_key,
-                    "count": int(len(persisted)),
-                    "user_data_dir": str(self._user_data_dir),
-                },
-            )
-            if persisted:
-                for r in range(self._table.rowCount()):
-                    if self._is_row_blank(r):
-                        continue
-                    rid = self._row_id(r)
-                    dec = persisted.get(rid) or persisted.get(self._legacy_row_id(r))
-                    if isinstance(dec, dict):
-                        decision_map[rid] = dec
-                        self._set_row_decision(r, dec)
-            run = self._decision_store.begin_run(
-                run_id=initial_run_id,
-                input_snapshot_hash=stable_hash({"matched_count": len(matched), "session_date": self._session_date.isoformat()}),
-                decision_map=decision_map,
-            )
-            self._decision_store.commit_run(run.run_id)
-            self._pinned_run_id = run.run_id
-            self._active_run_id = run.run_id
-            self._decision_table_fingerprint = None
-            self._sync_decision_store_from_table(force=True)
-            self._apply_row_colors()
-            try:
-                targets = {"aluned 502601306.pdf", "bauder 24065433.pdf"}
-                rows: list[dict[str, Any]] = []
-                for rr in range(self._table.rowCount()):
-                    if self._is_row_blank(rr):
-                        continue
-                    pdf = str(self._cell_text(rr, PaymentColumn.PDF) or "").strip()
-                    if pdf.casefold() not in targets:
-                        continue
-                    dec = self._decision_for_row(rr) or {}
-                    rows.append(
-                        {
-                            "row": int(rr),
-                            "row_id": self._row_id(rr),
-                            "pdf": pdf,
-                            "status_cell": str(self._cell_text(rr, PaymentColumn.STATUS) or ""),
-                            "decision_status": str(dec.get("status") or ""),
-                            "reason_code": str(dec.get("reason_code") or ""),
-                            "requires_rerun": bool(dec.get("requires_rerun")) if isinstance(dec, dict) else None,
-                        }
-                    )
-                _dbg_a6(
-                    hypothesis_id="UI2",
-                    location="main_window.py:_load_payments_from_sources:post_commit",
-                    message="resolved UI rows for target PDFs after apply_row_colors",
-                    data={"rows": rows},
-                )
-            except Exception:
-                pass
-            try:
-                reasons: dict[str, int] = {}
-                for _rid, _dec in decision_map.items():
-                    rc = str((_dec or {}).get("reason_code") or "")
-                    reasons[rc] = reasons.get(rc, 0) + 1
-                _dbg_log(
-                    hypothesis_id="A",
-                    location="main_window.py:_load_payments_from_sources:committed",
-                    message="initial run committed",
-                    data={"reason_counts": reasons, "active_run_id_set": bool(self._active_run_id)},
-                )
-            except Exception:
-                pass
-
-            n_pdf = len(all_raw)
-            n_pay = self._count_payment_header_rows()
-            for name, count in per_source_counts:
-                logger.info("bron %r: %d pdf-facturen", name, count)
-            logger.info("betalingsregels: %d, foutregels: %d", n_pay, n_err_rows)
-            self._update_load_status_after_load(
-                n_pdf=n_pdf, n_payments=n_pay, n_error_rows=n_err_rows
-            )
-        finally:
-            # Only now allow itemChanged to trigger pending validation.
-            self._is_loading_batch = False
-            try:
-                if progress is not None:
-                    progress.close()
-            except Exception:
-                pass
+        self._start_batch_load(parse_pdfs=parse_pdfs)
 
     def _update_load_status_after_load(
         self,
@@ -3415,12 +3530,10 @@ class MainWindow(QMainWindow):
         n_payments: int,
         n_error_rows: int,
     ) -> None:
-        folder_txt = str(self._selected_folder) if self._selected_folder else "—"
-        export_path = self._resolve_export_dir()
-        self._set_status(
-            f"PDF’s: {n_pdf}, betalingsregels: {n_payments}, foutregels: {n_error_rows}. "
-            f"Map: {folder_txt}. Exportmap: {export_path}"
-        )
+        _ = (n_payments, n_error_rows)
+        if n_pdf > 0:
+            self._batch_progress_total = n_pdf
+        self._set_status()
 
     def _discount_for_payment(self, invoices: list[dict], payment: dict) -> str:
         """Zoek kortingpercentage uit brondict op leverancier/factuurnummer."""
@@ -3592,8 +3705,8 @@ class MainWindow(QMainWindow):
         if not picker_eligible(snap, field_id=field_id):
             QMessageBox.information(
                 self,
-                spec.menu_empty_title_nl,
-                spec.menu_no_candidates_nl,
+                tr(spec.menu_empty_title_key),
+                tr(spec.menu_no_candidates_key),
             )
             return
         if field_id == "amount":
@@ -3601,8 +3714,8 @@ class MainWindow(QMainWindow):
             if not opts:
                 QMessageBox.information(
                     self,
-                    spec.menu_empty_title_nl,
-                    "De parserkandidaten hebben geen bruikbare metadata (verwacht dicts).",
+                    tr(spec.menu_empty_title_key),
+                    tr("dialog.field_picker.no_metadata"),
                 )
                 return
             menu = build_field_candidate_menu(
@@ -3628,8 +3741,8 @@ class MainWindow(QMainWindow):
             if field_id == "iban" and not opts:
                 QMessageBox.information(
                     self,
-                    spec.menu_empty_title_nl,
-                    "Geen geldige IBAN-kandidaten om uit te kiezen.",
+                    tr(spec.menu_empty_title_key),
+                    tr("dialog.field_picker.no_valid_iban"),
                 )
                 return
             menu = build_field_candidate_menu(
@@ -4002,19 +4115,16 @@ class MainWindow(QMainWindow):
             reason = self._row_profile_block_reason(row)
             QMessageBox.warning(
                 self,
-                "Profiel opslaan",
-                self._PROFILE_BLOCK_TOOLTIPS.get(
-                    reason or "",
-                    reason or "Niet beschikbaar voor deze rij.",
-                ),
+                tr("dialog.profile.save_title"),
+                self._profile_block_tooltip(reason or ""),
             )
             return
         source_file = self._resolve_row_source_file(row)
         if not source_file:
             QMessageBox.warning(
                 self,
-                "Profiel opslaan",
-                "PDF-bestand niet gevonden. Selecteer de factuurmap opnieuw of herlaad de batch.",
+                tr("dialog.profile.save_title"),
+                tr("dialog.profile.pdf_not_found"),
             )
             return
         snap = self._get_row_invoice_diagnostics_snapshot(row)
@@ -4027,8 +4137,8 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             QMessageBox.warning(
                 self,
-                "Profiel opslaan",
-                f"PDF kon niet worden gelezen:\n{exc}",
+                tr("dialog.profile.save_title"),
+                tr("dialog.profile.pdf_read_failed", detail=exc),
             )
             return
         db = SupplierDB(path=self._supplier_db_path())
@@ -4058,7 +4168,7 @@ class MainWindow(QMainWindow):
         )
         self._mark_row_pending_engine_update(row, "profile_confirmed")
         self._refresh_export_batch_status_label()
-        QMessageBox.information(self, "Profiel opslaan", result.message)
+        QMessageBox.information(self, tr("dialog.profile.save_title"), result.message)
 
     def _row_credit_profile_block_reason(self, row: int) -> str | None:
         credit = self._credit_note_for_row(row)
@@ -4093,32 +4203,32 @@ class MainWindow(QMainWindow):
             reason = self._row_credit_profile_block_reason(row)
             QMessageBox.warning(
                 self,
-                "Creditprofiel opslaan",
-                reason or "Niet beschikbaar voor deze rij.",
+                tr("dialog.profile.credit_save_title"),
+                self._profile_block_tooltip(reason or ""),
             )
             return
         credit = self._credit_note_for_row(row)
         if not isinstance(credit, dict):
             QMessageBox.warning(
                 self,
-                "Creditprofiel opslaan",
-                "Geen creditnota gevonden voor deze rij.",
+                tr("dialog.profile.credit_save_title"),
+                tr("dialog.profile.credit_not_found_detail"),
             )
             return
         supplier_key = supplier_key_for_matched_invoice(credit)
         if not supplier_key:
             QMessageBox.warning(
                 self,
-                "Creditprofiel opslaan",
-                "Supplier key ontbreekt; bevestig eerst de leverancier.",
+                tr("dialog.profile.credit_save_title"),
+                tr("dialog.profile.supplier_key_missing_detail"),
             )
             return
         source_file = self._resolve_row_source_file(row)
         if not source_file:
             QMessageBox.warning(
                 self,
-                "Creditprofiel opslaan",
-                "PDF-bestand niet gevonden. Selecteer de factuurmap opnieuw of herlaad de batch.",
+                tr("dialog.profile.credit_save_title"),
+                tr("dialog.profile.pdf_not_found"),
             )
             return
         confirmed = self._confirmed_dict_from_selected(row, selected_by_field)
@@ -4127,8 +4237,8 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             QMessageBox.warning(
                 self,
-                "Creditprofiel opslaan",
-                f"PDF kon niet worden gelezen:\n{exc}",
+                tr("dialog.profile.credit_save_title"),
+                tr("dialog.profile.pdf_read_failed", detail=exc),
             )
             return
         db = SupplierDB(path=self._supplier_db_path())
@@ -4151,7 +4261,7 @@ class MainWindow(QMainWindow):
             credit["supplier_key"] = supplier_key
         self._mark_row_pending_engine_update(row, "credit_profile_saved")
         self._refresh_export_batch_status_label()
-        QMessageBox.information(self, "Creditprofiel opslaan", result.message)
+        QMessageBox.information(self, tr("dialog.profile.credit_save_title"), result.message)
 
     def _apply_resolved_field_result_to_row(
         self,
@@ -4202,9 +4312,9 @@ class MainWindow(QMainWindow):
                 amt_it.setData(_ROW_AMOUNT_RESULT_ROLE, deepcopy(field_snap))
                 src = str(field_snap.get("source") or "").strip().lower()
                 if src == "profile":
-                    amt_it.setToolTip("Bevestigd via extractieprofiel")
+                    amt_it.setToolTip(tr("tooltip.amount.profile_confirmed"))
                 elif src in {"manual", "user_picked", "user", "picked"}:
-                    amt_it.setToolTip("Handmatig gekozen uit parserkandidaten")
+                    amt_it.setToolTip(tr("tooltip.amount.manual_pick"))
                 else:
                     amt_it.setToolTip("")
                 err_prev = self._table.item(row, PaymentColumn.ERROR)
@@ -4470,14 +4580,20 @@ class MainWindow(QMainWindow):
             return str(trace.get("supplier_match_status") or "").strip()
         return ""
 
-    _PROFILE_BLOCK_TOOLTIPS: dict[str, str] = {
-        "no_snapshot": "Geen factuurgegevens op deze rij — herlaad de batch.",
-        "match_not_eligible": "Leverancier eerst bevestigen: Voeg toe / update (zonder PDF's opnieuw in te lezen).",
-        "amount_unresolved": "Kies eerst het juiste bedrag (klik op ? in kolom Bedrag).",
-        "already_profile": "Extractieprofiel is al compleet voor deze leverancier.",
-        "no_source_file": "PDF-pad ontbreekt — selecteer de factuurmap.",
-        "pdf_not_found": "PDF-bestand niet gevonden in de geselecteerde map.",
+    _PROFILE_BLOCK_TOOLTIP_KEYS: dict[str, str] = {
+        "no_snapshot": "dialog.profile.block.no_snapshot",
+        "match_not_eligible": "dialog.profile.block.match_not_eligible",
+        "amount_unresolved": "dialog.profile.block.amount_unresolved",
+        "already_profile": "dialog.profile.block.already_profile",
+        "no_source_file": "dialog.profile.block.no_source_file",
+        "pdf_not_found": "dialog.profile.block.pdf_not_found",
     }
+
+    def _profile_block_tooltip(self, reason: str) -> str:
+        key = self._PROFILE_BLOCK_TOOLTIP_KEYS.get(reason)
+        if key:
+            return tr(key)
+        return reason or tr("dialog.profile.unavailable")
 
     def _row_amount_resolved(self, row: int) -> bool:
         """True als de rij een parseerbaar bedrag heeft (geen '?')."""
@@ -4537,10 +4653,7 @@ class MainWindow(QMainWindow):
         rows = self._selected_table_rows()
         if len(rows) != 1:
             btn.setEnabled(False)
-            btn.setToolTip(
-                "Selecteer precies één rij.\n"
-                "Stap 1: Voeg toe / update → Stap 2: bedrag kiezen → Stap 3: profiel aanmaken."
-            )
+            btn.setToolTip(tr("toolbar.create_profile_select_one"))
             return
         row = rows[0]
         reason = self._row_profile_block_reason(row)
@@ -4569,39 +4682,34 @@ class MainWindow(QMainWindow):
             btn.setEnabled(True)
             stored = self._stored_profile_for_row(row)
             missing = profile_field_keys_missing(stored)
-            tip_parts = [
-                "Bevestig bedrag, factuurnummer en klantnummer; sla extractieprofiel op.",
-            ]
+            tip_parts = [tr("toolbar.create_profile_tip_confirm")]
             if not self._row_amount_resolved(row):
-                tip_parts.insert(
-                    0,
-                    "Tip: kies eerst het juiste bedrag (klik op ?) of vul het in de dialog.",
-                )
+                tip_parts.insert(0, tr("toolbar.create_profile_tip_amount"))
             if missing:
-                btn.setText("Profiel aanvullen")
-                tip_parts.append("Ontbrekend in profiel: " + ", ".join(missing) + ".")
+                btn.setText(tr("toolbar.create_profile_complete"))
+                tip_parts.append(tr("toolbar.create_profile_tip_missing", fields=", ".join(missing)))
             else:
-                btn.setText("Profiel aanmaken")
+                btn.setText(tr("toolbar.create_profile"))
             btn.setToolTip("\n".join(tip_parts))
             return
         btn.setEnabled(False)
-        extra = self._PROFILE_BLOCK_TOOLTIPS.get(reason, reason)
-        btn.setToolTip(f"Profiel aanmaken (nog niet mogelijk): {extra}")
+        extra = self._profile_block_tooltip(reason)
+        btn.setToolTip(tr("toolbar.create_profile_blocked", reason=extra))
 
     def _on_create_profile_for_selection(self) -> None:
         rows = self._selected_table_rows()
         if not rows:
             QMessageBox.information(
                 self,
-                "Profiel aanmaken",
-                "Selecteer eerst één rij in de tabel.",
+                tr("dialog.profile.create_title"),
+                tr("dialog.profile.select_one_row"),
             )
             return
         if len(rows) > 1:
             QMessageBox.information(
                 self,
-                "Profiel aanmaken",
-                "Selecteer precies één rij.",
+                tr("dialog.profile.create_title"),
+                tr("dialog.profile.select_exactly_one"),
             )
             return
         row = rows[0]
@@ -4609,8 +4717,8 @@ class MainWindow(QMainWindow):
         if reason is not None:
             QMessageBox.warning(
                 self,
-                "Profiel aanmaken",
-                self._PROFILE_BLOCK_TOOLTIPS.get(reason, reason),
+                tr("dialog.profile.create_title"),
+                self._profile_block_tooltip(reason),
             )
             return
         self._on_profile_confirm_row(row)
@@ -4728,16 +4836,16 @@ class MainWindow(QMainWindow):
             reason = self._row_profile_block_reason(row)
             QMessageBox.warning(
                 self,
-                "Factuurgegevens bevestigen",
-                self._PROFILE_BLOCK_TOOLTIPS.get(reason or "", reason or "Niet beschikbaar voor deze rij."),
+                tr("dialog.profile_confirm.title"),
+                self._profile_block_tooltip(reason or ""),
             )
             return
         source_file = self._resolve_row_source_file(row)
         if not source_file:
             QMessageBox.warning(
                 self,
-                "Factuurgegevens bevestigen",
-                "PDF-bestand niet gevonden. Selecteer de factuurmap opnieuw of herlaad de batch.",
+                tr("dialog.profile_confirm.title"),
+                tr("dialog.profile.pdf_not_found"),
             )
             return
         snap = self._get_row_invoice_diagnostics_snapshot(row)
@@ -4763,8 +4871,8 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             QMessageBox.warning(
                 self,
-                "Factuurgegevens bevestigen",
-                f"PDF kon niet worden gelezen:\n{exc}",
+                tr("dialog.profile_confirm.title"),
+                tr("dialog.profile.pdf_read_failed", detail=exc),
             )
             return
         db = SupplierDB(path=self._supplier_db_path())
@@ -4792,7 +4900,7 @@ class MainWindow(QMainWindow):
         )
         self._mark_row_pending_engine_update(row, "profile_confirmed")
         self._refresh_export_batch_status_label()
-        QMessageBox.information(self, "Factuurgegevens bevestigen", result.message)
+        QMessageBox.information(self, tr("dialog.profile_confirm.title"), result.message)
 
     def _minimal_diagnostics_snapshot_from_row(self, row: int) -> dict:
         snap: dict[str, Any] = {}
@@ -4872,8 +4980,8 @@ class MainWindow(QMainWindow):
             logger.exception("Diagnostics openen mislukt (rij %s)", row)
             QMessageBox.warning(
                 self,
-                "Diagnostics",
-                f"Kon diagnostics niet openen:\n{exc}",
+                tr("diagnostics.section.general"),
+                tr("dialog.diagnostics.open_failed", detail=exc),
             )
 
     def _decision_trace_debug_enabled(self) -> bool:
@@ -4939,6 +5047,7 @@ class MainWindow(QMainWindow):
         invoice_diagnostics_snapshot: dict | None = None,
         settlement_badge: str = "",
         settlement_group_id: str = "",
+        settlement_group_expandable: bool = False,
         settlement_status_engine: str = "",
         document_id_for_row: str = "",
     ) -> None:
@@ -5055,16 +5164,16 @@ class MainWindow(QMainWindow):
         inv_it = self._item_date_cell(inv_disp, inv_sort)
         inv_it.setData(_ROW_INVOICE_DATE_SOURCE_ROLE, invoice_date_source)
         if invoice_date_source == "manual" and invoice_date.strip():
-            inv_it.setToolTip("Handmatig ingesteld — factuurdatum")
+            inv_it.setToolTip(tr("tooltip.invoice_date.manual"))
         elif invoice_date_source == "parsed":
-            inv_it.setToolTip("Uit PDF geëxtraheerd")
+            inv_it.setToolTip(tr("tooltip.invoice_date.from_pdf"))
         self._table.setItem(r, PaymentColumn.INVOICE_DATE, inv_it)
 
         ex_disp, ex_sort = self._table_date_display_and_sort(execution_date)
         ex_it = self._item_date_cell(ex_disp, ex_sort)
         ex_it.setData(_ROW_DATE_MODE_ROLE, date_mode)
         if date_mode == "manual":
-            ex_it.setToolTip("Handmatig ingesteld — betaaldatum")
+            ex_it.setToolTip(tr("tooltip.execution_date.manual"))
         self._table.setItem(r, PaymentColumn.EXECUTION_DATE, ex_it)
 
         # Allow manual entry of supplier payment term even for rows that need review
@@ -5092,7 +5201,7 @@ class MainWindow(QMainWindow):
         err_item.setToolTip(self._compose_error_tooltip(error_msg=error_msg, decision_trace=decision_trace))
         self._table.setItem(r, PaymentColumn.ERROR, err_item)
         info_item = self._item_readonly("🔍")
-        info_item.setToolTip("Diagnostics — wat ging er goed of mis?")
+        info_item.setToolTip(tr("status.diagnostics_tooltip"))
         self._table.setItem(r, PaymentColumn.INFO, info_item)
         sett_item = self._item_readonly(settlement_badge or "—")
         if settlement_group_id:
@@ -5101,7 +5210,8 @@ class MainWindow(QMainWindow):
                 _ROW_SETTLEMENT_STATUS_ROLE,
                 settlement_status_engine or settlement_badge,
             )
-            mark_group_header_row(self._table, r, settlement_group_id)
+            if settlement_group_expandable:
+                mark_group_header_row(self._table, r, settlement_group_id)
         self._table.setItem(r, PaymentColumn.SETTLEMENT, sett_item)
         self._set_row_decision(r, decision if isinstance(decision, dict) else self._missing_decision_payload(r))
 
@@ -5239,8 +5349,8 @@ class MainWindow(QMainWindow):
                     )
                 pdf = _pdf_basename_from_dict(p)
                 wr = p.get("warning")
-                tr = p.get("supplier_term_trusted")
-                trusted: bool | None = bool(tr) if tr is not None else None
+                term_trusted_raw = p.get("supplier_term_trusted")
+                trusted: bool | None = bool(term_trusted_raw) if term_trusted_raw is not None else None
                 eff_term = int(p.get("supplier_payment_term_days_effective") or 0)
                 inv_d = str(p.get("invoice_date") or "").strip()
                 inv_src = str(p.get("invoice_date_source") or "missing")
@@ -5265,8 +5375,13 @@ class MainWindow(QMainWindow):
                 gid = str(group.get("group_id") or p.get("settlement_group_id") or "")
                 expanded = gid in self._expanded_settlement_groups
                 supplier_label = str(p.get("supplier_name", ""))
+                group_expandable = False
                 if engine_result is not None and group:
-                    supplier_label = header_supplier_label(vm_from_group(group), expanded)
+                    vm = vm_from_group(group)
+                    group_expandable = settlement_group_is_expandable(vm, group=group)
+                    supplier_label = header_supplier_label(
+                        vm, expanded, expandable=group_expandable, group=group
+                    )
                 group_badge = ""
                 group_status_engine = ""
                 if engine_result is not None and group:
@@ -5326,9 +5441,10 @@ class MainWindow(QMainWindow):
                         else str(p.get("settlement_status") or "")
                     ),
                     settlement_group_id=gid,
+                    settlement_group_expandable=group_expandable,
                     settlement_status_engine=group_status_engine,
                 )
-                if engine_result is not None and group:
+                if engine_result is not None and group and group_expandable:
                     self._append_settlement_breakdown_rows(group)
             needs_review_invs = [
                 (inv, r)
@@ -5441,6 +5557,14 @@ class MainWindow(QMainWindow):
                 src_e = str(inv.get("invoice_date_source") or "missing")
                 base_err = _nl_error_reason(reason)
                 sig_info = f"{_core_matches_text(inv)} | {_matches_completeness_text(inv)}"
+                # #region agent log
+                try:
+                    import json as _json, time as _time
+                    with open("/Users/eh/Documents/Cursor/PDF2SEPA/.cursor/debug-c00626.log", "a", encoding="utf-8") as _f:
+                        _f.write(_json.dumps({"sessionId": "c00626", "hypothesisId": "A", "location": "main_window.py:_populate_table_from_load:other_errors", "message": "tr shadow check before term_hint", "data": {"tr_type": type(tr).__name__, "tr_value": str(tr)[:40], "reason": reason}, "timestamp": int(_time.time() * 1000), "runId": "pre-fix"}) + "\n")
+                except Exception:
+                    pass
+                # #endregion
                 self._append_table_row(
                     _error_row_supplier(inv),
                     iban_disp_e,
@@ -5460,7 +5584,7 @@ class MainWindow(QMainWindow):
                     invoice_number_meta=inv_meta_e,
                     invoice_date=inv_de,
                     execution_date=self._session_date.isoformat(),
-                    term_hint="—",
+                    term_hint=tr("matching.display.term_unknown"),
                     date_mode="direct",
                     invoice_date_source=src_e,
                     amount_result_snapshot=ar_snap
@@ -5512,8 +5636,8 @@ class MainWindow(QMainWindow):
         if folder is None or not folder.is_dir():
             QMessageBox.warning(
                 self,
-                "PDF’s",
-                "Geen geldige factuurmap. Kies eerst een map via ‘Map selecteren’.",
+                tr("toolbar.load_pdfs"),
+                tr("dialog.pdfs.no_valid_folder"),
             )
             return
         self._selected_folder = folder
@@ -5525,8 +5649,8 @@ class MainWindow(QMainWindow):
         if not target_rows:
             QMessageBox.information(
                 self,
-                "Korting toepassen",
-                "Selecteer eerst één of meer rijen.",
+                tr("menu.context.apply_discount"),
+                tr("dialog.discount.no_selection"),
             )
             return
         updated = 0
@@ -5628,14 +5752,9 @@ class MainWindow(QMainWindow):
                 },
             )
         self._refresh_filter_and_sort_after_row_change()
-        extra = ""
-        if skipped and skipped == skipped_no_excl and updated == 0:
-            extra = " (Geen bedrag excl. BTW gevonden → korting niet toepasbaar.)"
-        self._set_status(
-            f"Korting toegepast op {updated} rij(en) zonder facturen opnieuw te laden."
-            + (f" Overgeslagen: {skipped}." if skipped else "")
-            + extra
-        )
+        extra = tr("status.discount_no_excl_extra") if skipped and skipped == skipped_no_excl and updated == 0 else ""
+        skipped_suffix = tr("status.discount_skipped_suffix", skipped=skipped) if skipped else ""
+        self._set_status(tr("status.discount_applied", updated=updated, skipped=skipped_suffix, extra=extra))
 
     def _on_add_row(self) -> None:
         self._suppress_table_item_changed = True
@@ -5647,12 +5766,12 @@ class MainWindow(QMainWindow):
             "",
             "",
             "0",
-            "handmatig",
+            tr("matching.display.manual_row"),
             "",
             invoice_number_meta="",
             invoice_date="",
             execution_date=self._session_date.isoformat(),
-            term_hint="—",
+            term_hint=tr("matching.display.term_unknown"),
             date_mode="direct",
             invoice_date_source="missing",
             decision=build_decision(
@@ -5683,35 +5802,35 @@ class MainWindow(QMainWindow):
             if col == int(PaymentColumn.AMOUNT) and self._cell_text(row, PaymentColumn.AMOUNT).strip() == "?":
                 snap = self._amount_result_snapshot_for_row(row)
                 if picker_eligible(snap, field_id="amount"):
-                    act_amt = menu.addAction("Kies bedrag…")
+                    act_amt = menu.addAction(tr("menu.context.choose_amount"))
                     act_amt.triggered.connect(
                         lambda checked=False, r=row: self._show_field_candidate_menu(r, "amount")
                     )
             if col == int(PaymentColumn.CUSTOMER_CODE) and self._field_picker_eligible(
                 row, "customer_number"
             ):
-                act_cust = menu.addAction("Kies klantnummer…")
+                act_cust = menu.addAction(tr("menu.context.choose_customer"))
                 act_cust.triggered.connect(
                     lambda checked=False, r=row: self._show_field_candidate_menu(
                         r, "customer_number"
                     )
                 )
             if col == int(PaymentColumn.IBAN) and self._field_picker_eligible(row, "iban"):
-                act_iban = menu.addAction("Kies IBAN…")
+                act_iban = menu.addAction(tr("menu.context.choose_iban"))
                 act_iban.triggered.connect(
                     lambda checked=False, r=row: self._show_field_candidate_menu(r, "iban")
                 )
             if col in (int(PaymentColumn.DESCRIPTION), int(PaymentColumn.SUPPLIER)) and self._field_picker_eligible(
                 row, "invoice_number"
             ):
-                act_inv = menu.addAction("Kies factuur-/polisnummer…")
+                act_inv = menu.addAction(tr("menu.context.choose_invoice"))
                 act_inv.triggered.connect(
                     lambda checked=False, r=row: self._show_field_candidate_menu(
                         r, "invoice_number"
                     )
                 )
             if status == DECISION_NEEDS_REVIEW:
-                action_confirm = menu.addAction("Bevestig factuur")
+                action_confirm = menu.addAction(tr("menu.context.confirm_invoice"))
                 action_confirm.triggered.connect(lambda: self._confirm_review_rows([row]))
                 selected = self._selected_table_rows()
                 review_selected = [
@@ -5719,13 +5838,13 @@ class MainWindow(QMainWindow):
                     if self._decision_for_row(r).get("status") == DECISION_NEEDS_REVIEW
                 ]
                 if len(review_selected) > 1:
-                    action_all = menu.addAction(f"Bevestig alle geselecteerde ({len(review_selected)})")
+                    action_all = menu.addAction(tr("menu.context.confirm_all_selected", count=len(review_selected)))
                     action_all.triggered.connect(lambda: self._confirm_review_rows(review_selected))
             if self._row_can_profile_confirm(row):
-                action_profile = menu.addAction("Bevestig factuurgegevens…")
+                action_profile = menu.addAction(tr("menu.context.confirm_profile"))
                 action_profile.triggered.connect(lambda: self._on_profile_confirm_row(row))
             if status == DECISION_EXCLUDED and reason0 == REASON_USER_MARKED_ERROR:
-                action_restore = menu.addAction("Herstel naar OK")
+                action_restore = menu.addAction(tr("menu.context.restore_ok"))
                 action_restore.triggered.connect(lambda: self._restore_rows_from_error([row]))
                 selected = self._selected_table_rows()
                 fout_selected = [
@@ -5736,41 +5855,41 @@ class MainWindow(QMainWindow):
                     )
                 ]
                 if len(fout_selected) > 1:
-                    action_all_restore = menu.addAction(f"Herstel alle geselecteerde ({len(fout_selected)})")
+                    action_all_restore = menu.addAction(tr("menu.context.restore_all_selected", count=len(fout_selected)))
                     action_all_restore.triggered.connect(lambda: self._restore_rows_from_error(fout_selected))
             else:
-                action_fout = menu.addAction("Markeer als fout")
+                action_fout = menu.addAction(tr("menu.context.mark_error"))
                 action_fout.triggered.connect(lambda: self._mark_rows_as_error([row]))
             if not (status == DECISION_EXCLUDED and reason0 == REASON_USER_MARKED_ERROR):
-                menu.addAction("Betaal direct (sessiedatum)").triggered.connect(
+                menu.addAction(tr("menu.context.pay_direct")).triggered.connect(
                     lambda: self._apply_pay_direct_rows(self._selected_table_rows() or [row])
                 )
-                menu.addAction("Betaal op uiterste betaaldatum").triggered.connect(
+                menu.addAction(tr("menu.context.pay_due")).triggered.connect(
                     lambda: self._apply_pay_due_rows(self._selected_table_rows() or [row])
                 )
-                menu.addAction("Korting toepassen op geselecteerde rij(en)").triggered.connect(
+                menu.addAction(tr("menu.context.apply_discount")).triggered.connect(
                     lambda: self._on_reapply_discounts(self._selected_table_rows() or [row])
                 )
         credit = self._credit_note_for_row(row)
         if credit is not None:
             menu.addSeparator()
-            act_detach = menu.addAction("Loskoppelen")
+            act_detach = menu.addAction(tr("menu.context.detach"))
             act_detach.triggered.connect(lambda checked=False, c=credit: self._on_detach_credit_override(c))
-            act_reassign = menu.addAction("Opnieuw koppelen…")
+            act_reassign = menu.addAction(tr("menu.context.reassign"))
             act_reassign.triggered.connect(lambda checked=False, c=credit: self._on_reassign_credit_override(c))
-            act_reset = menu.addAction("Reset override")
+            act_reset = menu.addAction(tr("menu.context.reset_override"))
             act_reset.triggered.connect(lambda checked=False, c=credit: self._on_reset_credit_override(c))
         kind = settlement_row_kind(self._table.item(row, PaymentColumn.SUPPLIER))
         if kind == SettlementRowKind.INVOICE_CHILD:
             inv_label = self._cell_text(row, PaymentColumn.SUPPLIER).strip()
             if inv_label and inv_label not in ("Facturen",):
                 menu.addSeparator()
-                act_link = menu.addAction("Koppel credit…")
+                act_link = menu.addAction(tr("menu.context.link_credit"))
                 act_link.triggered.connect(lambda checked=False, r=row: self._on_link_credit_to_invoice_row(r))
         doc_id_row = self._document_id_for_table_row(row)
         if doc_id_row and self._invoice_for_document_id(doc_id_row) is not None:
             menu.addSeparator()
-            act_amt = menu.addAction("Bedrag aanpassen…")
+            act_amt = menu.addAction(tr("menu.context.adjust_amount"))
             act_amt.triggered.connect(lambda checked=False, r=row: self._on_adjust_amount_override(r))
         if not menu.isEmpty():
             menu.exec(self._table.viewport().mapToGlobal(pos))
@@ -5789,7 +5908,7 @@ class MainWindow(QMainWindow):
             it.setData(Qt.ItemDataRole.UserRole, sess)
             it.setToolTip("")
         self._suppress_table_item_changed = False
-        self._set_status(f"{len(rows)} rij(en): betalingsmodus direct (sessiedatum).")
+        self._set_status(tr("status.pay_direct", count=len(rows)))
         self._refresh_export_batch_status_label()
 
     def _apply_pay_due_rows(self, rows: list[int]) -> None:
@@ -5825,12 +5944,11 @@ class MainWindow(QMainWindow):
         if missing:
             QMessageBox.warning(
                 self,
-                "Factuurdatum ontbreekt",
-                "Voor ‘op uiterste betaaldatum’ is een factuurdatum verplicht.\n"
-                f"Rij(en): {', '.join(str(x) for x in sorted(set(missing)))}",
+                tr("dialog.invoice_date_missing.title"),
+                tr("dialog.invoice_date_missing.message", rows=", ".join(str(x) for x in sorted(set(missing)))),
             )
         else:
-            self._set_status(f"{len(rows)} rij(en): modus uiterste betaaldatum toegepast.")
+            self._set_status(tr("status.pay_due", count=len(rows)))
         self._refresh_export_batch_status_label()
 
     def _confirm_review_rows(self, rows: list[int]) -> None:
@@ -5863,17 +5981,15 @@ class MainWindow(QMainWindow):
                     amount_hints.append(r + 1)
             extra = ""
             if amount_hints:
-                extra = (
-                    "\n\nVoor bedrag '?': klik op de cel Bedrag en kies het juiste totaal, "
-                    "of open Info (🔍) → Bedrag kiezen. Daarna eventueel «Profiel aanmaken»."
-                )
+                extra = tr("dialog.approve.amount_hint")
             QMessageBox.warning(
                 self,
-                "Goedkeuren niet mogelijk",
-                "Eén of meer rijen zijn nog niet exporteerbaar.\n\n"
-                "Corrigeer eerst de velden (bijv. IBAN, bedrag, betaaldatum) en probeer opnieuw.\n"
-                f"Rij(en): {', '.join(str(x) for x in sorted(set(invalid_rows)))}"
-                f"{extra}",
+                tr("dialog.approve.blocked_title"),
+                tr(
+                    "dialog.approve.blocked_message",
+                    rows=", ".join(str(x) for x in sorted(set(invalid_rows))),
+                    extra=extra,
+                ),
             )
             return
 
@@ -5919,7 +6035,7 @@ class MainWindow(QMainWindow):
             self._approval_store.upsert_batch(batch_key, approved_map)
 
             self._apply_row_colors()
-            self._set_status(f"{len(approved_map)} rij(en) handmatig goedgekeurd.")
+            self._set_status(tr("status.approved", count=len(approved_map)))
             self._refresh_export_batch_status_label()
         finally:
             self._suppress_table_item_changed = prev_suppress
@@ -5969,7 +6085,7 @@ class MainWindow(QMainWindow):
             # Restoring is a user action; rerun engine validation for this row.
             self._mark_row_pending_engine_update(r, "restored_from_user_error")
         self._apply_row_colors()
-        self._set_status(f"{len(rows)} rij(en) hersteld naar OK.")
+        self._set_status(tr("status.restored", count=len(rows)))
         self._refresh_export_batch_status_label()
 
     def _strip_iban_mismatch_warning_row(self, r: int) -> None:
@@ -6008,7 +6124,7 @@ class MainWindow(QMainWindow):
             run_id="post-fix",
         )
         # #endregion
-        self._set_status("Leverancier opslaan…")
+        self._set_status(tr("status.supplier_saving"))
         QApplication.processEvents()
         try:
             self._on_sync_selected_to_suppliers()
@@ -6025,8 +6141,8 @@ class MainWindow(QMainWindow):
             # #endregion
             QMessageBox.critical(
                 self,
-                "Leveranciers",
-                f"Fout bij «Voeg toe / update»:\n\n{exc}",
+                tr("dialog.suppliers.msgbox_title"),
+                tr("dialog.suppliers.sync_error", detail=exc),
             )
 
     def _on_sync_selected_to_suppliers(self) -> None:
@@ -6044,8 +6160,8 @@ class MainWindow(QMainWindow):
         if not rows:
             QMessageBox.information(
                 self,
-                "Leveranciers",
-                "Selecteer eerst één of meer rijen in de tabel.",
+                tr("dialog.suppliers.msgbox_title"),
+                tr("dialog.suppliers.select_rows"),
             )
             return
         db = SupplierDB(path=self._supplier_db_path())
@@ -6114,11 +6230,10 @@ class MainWindow(QMainWindow):
                 changed = True
             else:
                 failed += 1
-        msg = f"Verwerkt: {ok} leverancier(s) toegevoegd of bijgewerkt."
-        if failed:
-            msg += f" Overgeslagen (ontbrekende naam/IBAN of niet opgeslagen): {failed}."
+        failed_suffix = tr("status.supplier_sync_failed_suffix", failed=failed) if failed else ""
+        msg = tr("status.supplier_sync_result", ok=ok, failed_suffix=failed_suffix)
         self._set_status(msg)
-        QMessageBox.information(self, "Leveranciers", msg)
+        QMessageBox.information(self, tr("dialog.suppliers.msgbox_title"), msg)
         QApplication.processEvents()
         if changed and self._selected_folder:
 
@@ -6133,8 +6248,8 @@ class MainWindow(QMainWindow):
                     logger.exception("reload after supplier sync failed")
                     QMessageBox.warning(
                         self,
-                        "Leveranciers",
-                        f"Leverancier opgeslagen, maar herberekenen mislukt:\n{exc}",
+                        tr("dialog.suppliers.msgbox_title"),
+                        tr("dialog.suppliers.reload_failed", detail=exc),
                     )
 
             QTimer.singleShot(0, _reload_after_sync)
@@ -6216,6 +6331,11 @@ class MainWindow(QMainWindow):
         self._settings["window_y"] = geo.y()
         self._save_column_widths()
         save_settings(self._settings, str(self._settings_path()))
+
+    def resizeEvent(self, event) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        if self._loading_overlay is not None and self._loading_overlay.isVisible():
+            self._loading_overlay.fit_to_parent()
 
     def closeEvent(self, event) -> None:
         self._save_window_geometry()
@@ -6341,17 +6461,14 @@ class MainWindow(QMainWindow):
     def _on_about(self) -> None:
         QMessageBox.about(
             self,
-            "Over PDF2SEPA",
-            f"<h2>PDF2SEPA</h2>"
-            f"<p>Versie {self.APP_VERSION}</p>"
-            f"<p>Converteer PDF-facturen naar SEPA XML (pain.001.001.09) "
-            f"voor ING Mijn Zakelijk.</p>",
+            tr("app.about.title"),
+            tr("app.about.html", version=self.APP_VERSION),
         )
 
     def _on_select_folder(self) -> None:
         start = str(self._selected_folder) if self._selected_folder else ""
         path: Optional[str] = QFileDialog.getExistingDirectory(
-            self, "Selecteer map met facturen", start
+            self, tr("file.pick_invoice_folder"), start
         )
         if not path:
             return
@@ -6409,12 +6526,12 @@ class MainWindow(QMainWindow):
 
     def _set_row_decision(self, row: int, decision: dict[str, Any], *, note: str | None = None) -> None:
         dec = normalize_decision(decision)
-        status_label = decision_status_label_nl(dec["status"])
+        status_label = _decision_status_label(dec["status"])
         reason_code = str(dec.get("reason_code") or "").strip() or REASON_MISSING_DECISION_IN_STORE
         reason_detail = dec.get("reason_detail")
         detail_s = str(reason_detail).strip() if reason_detail is not None else ""
         raw_line = f"{reason_code} — {detail_s}" if detail_s else reason_code
-        nl_line = decision_reason_text_nl(reason_code)
+        nl_line = _decision_reason_text(reason_code)
         if not nl_line.strip():
             nl_line = "—"
         # For clean UX: when a row is exportable/OK, keep the "foutmelding" column empty.
@@ -7044,7 +7161,7 @@ class MainWindow(QMainWindow):
             else:
                 item.setData(Qt.ItemDataRole.UserRole, None)
             if t:
-                item.setToolTip("Handmatig ingesteld — factuurdatum")
+                item.setToolTip(tr("tooltip.invoice_date.manual"))
             else:
                 item.setToolTip("")
         elif col == PaymentColumn.EXECUTION_DATE:
@@ -7054,7 +7171,7 @@ class MainWindow(QMainWindow):
                 item.setData(Qt.ItemDataRole.UserRole, iso)
             else:
                 item.setData(Qt.ItemDataRole.UserRole, None)
-            item.setToolTip("Handmatig ingesteld — betaaldatum")
+            item.setToolTip(tr("tooltip.execution_date.manual"))
         elif col == PaymentColumn.AMOUNT:
             if self._is_settlement_child_row(row) and self._document_id_for_table_row(row):
                 self._apply_child_row_amount_override(row, item)
@@ -7154,6 +7271,11 @@ class MainWindow(QMainWindow):
         gid = str(gid_it.data(_ROW_SETTLEMENT_GROUP_ID_ROLE) or "") if gid_it else ""
         if not gid:
             return False
+        group = self._settlement_group_for_row(row)
+        if group is not None:
+            vm = vm_from_group(group)
+            if not settlement_group_is_expandable(vm, group=group):
+                return False
         if gid in self._expanded_settlement_groups:
             self._expanded_settlement_groups.discard(gid)
         else:
@@ -7262,7 +7384,7 @@ class MainWindow(QMainWindow):
         self._table.setItem(
             row,
             PaymentColumn.STATUS,
-            self._item_readonly(decision_status_label_nl(DECISION_EXCLUDED)),
+            self._item_readonly(_decision_status_label(DECISION_EXCLUDED)),
         )
         self._table.setItem(row, PaymentColumn.ERROR, err)
         self._update_row_render_hash(row)
@@ -7342,27 +7464,15 @@ class MainWindow(QMainWindow):
 
     def _refresh_export_batch_status_label(self) -> None:
         """Batch-export preview: zelfde rijen als export vóór dialogs (geen fout/needs_review)."""
-        previews: list[dict[str, Any]] = []
-        for r in range(self._table.rowCount()):
-            if self._is_row_blank(r) or self._is_settlement_child_row(r):
-                continue
-            try:
-                self._assert_row_hash_integrity(r)
-            except RuntimeError as e:
-                self._set_status(f"Fout: {e}")
-                return
-            dec = self._decision_for_row(r)
-            try:
-                p = self._payment_dict_from_row(r)
-                p["decision"] = dec
-                previews.append(p)
-            except ValueError:
-                continue
+        previews = self._collect_export_batch_previews()
+        if previews is None:
+            self._btn_xml.setEnabled(False)
+            self._set_status()
+            return
         exportable = exportable_payments_from_decisions(previews)
         result = validate_export_batch(exportable)
-        label_map = {"valid": "VALID", "warning": "WARNING", "blocked": "BLOCKED"}
-        self._batch_status_label.setText(f"Batch status: {label_map[result.status]}")
         self._btn_xml.setEnabled(result.status != "blocked")
+        self._set_status()
 
     def _payment_dict_from_row(
         self, row: int, *, require_resolved_amount: bool = True
@@ -7440,12 +7550,12 @@ class MainWindow(QMainWindow):
                 "ok",
                 "confirmed",
                 "reviewed",
-                "handmatig",
+                tr("matching.display.manual_row"),
                 "needs_review",
                 "needs review",
-                decision_status_label_nl(DECISION_INCLUDED).lower(),
-                decision_status_label_nl(DECISION_NEEDS_REVIEW).lower(),
-                decision_status_label_nl(DECISION_EXCLUDED).lower(),
+                _decision_status_label(DECISION_INCLUDED).lower(),
+                _decision_status_label(DECISION_NEEDS_REVIEW).lower(),
+                _decision_status_label(DECISION_EXCLUDED).lower(),
             }
         )
         for r in range(self._table.rowCount()):
@@ -7465,22 +7575,22 @@ class MainWindow(QMainWindow):
 
     def _validate_single_payment_row(self, p: dict[str, Any]) -> Optional[str]:
         if not str(p.get("supplier_name") or "").strip():
-            return "leverancier is leeg"
+            return tr("validation.row.supplier_empty")
         iban_n = clean_iban(str(p.get("iban") or ""))
         if not iban_n or not is_plausible_iban(iban_n):
-            return "IBAN ontbreekt of is ongeldig"
+            return tr("validation.row.iban_invalid")
         try:
             amt = amount_to_decimal(p["amount"])
         except (KeyError, TypeError, ValueError):
-            return "bedrag is ongeldig"
+            return tr("validation.row.amount_invalid")
         if amt <= Decimal("0.00"):
-            return "bedrag moet groter zijn dan nul"
+            return tr("validation.row.amount_zero")
         ex = str(p.get("execution_date") or "").strip()
         if not ex or not is_valid_iso_date_str(ex):
-            return "betaaldatum ontbreekt of ongeldig (dd-mm-jjjj of jjjj-mm-dd)"
+            return tr("validation.row.execution_date_invalid")
         mode = str(p.get("date_mode") or "direct")
         if mode == "due" and not (p.get("invoice_date") and str(p.get("invoice_date")).strip()):
-            return "factuurdatum verplicht voor ‘op uiterste betaaldatum’"
+            return tr("validation.row.invoice_date_required")
         return None
 
     def _finalize_payment_for_export(self, p: dict[str, Any]) -> None:
@@ -7501,13 +7611,13 @@ class MainWindow(QMainWindow):
                 raise ValueError("due-modus zonder geldige factuurdatum")
             p["execution_date"] = ex
 
-    def _build_export_batch_summary_nl(self, payments: list[dict[str, Any]]) -> str:
+    def _build_export_batch_summary(self, payments: list[dict[str, Any]]) -> str:
         from collections import defaultdict
 
         groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
         for p in payments:
             groups[str(p.get("execution_date") or "").strip()].append(p)
-        lines: list[str] = ["Je staat op het punt te exporteren:", ""]
+        lines: list[str] = [tr("dialog.export.summary_intro"), ""]
         all_decs: list[Decimal] = []
         grand_n = 0
         for ex in sorted(groups.keys()):
@@ -7531,12 +7641,19 @@ class MainWindow(QMainWindow):
                 else ex
             )
             if ex == self._session_date.isoformat():
-                label = f"{label} (sessie)"
-            lines.append(f"{label}: €{amt_nl} — {len(plist)} betaling(en)")
+                label = tr("dialog.export.summary_date_session", date_label=label)
+            lines.append(
+                tr(
+                    "dialog.export.summary_date_line",
+                    date_label=label,
+                    amount=amt_nl,
+                    count=len(plist),
+                )
+            )
         grand = sum_decimals(all_decs)
         grand_s = format_eur_xml(grand).replace(".", ",")
         lines.append("")
-        lines.append(f"Totaal: €{grand_s} — {grand_n} betaling(en)")
+        lines.append(tr("dialog.export.summary_total", amount=grand_s, count=grand_n))
         return "\n".join(lines)
 
     def _validate_debtor(self) -> Optional[str]:
@@ -7544,12 +7661,12 @@ class MainWindow(QMainWindow):
         return validate_debtor_for_export(self._settings["debtor"])
 
     def _on_make_xml(self) -> None:
-        self._set_status("XML generatie gestart …")
+        self._set_status(tr("status.export_started"))
         QApplication.processEvents()
 
         err_debt = self._validate_debtor()
         if err_debt:
-            self._set_status(f"Fout: {err_debt}")
+            self._set_status(tr("status.error_prefix", detail=err_debt))
             return
 
         self._clear_row_validation_marks()
@@ -7567,12 +7684,12 @@ class MainWindow(QMainWindow):
             try:
                 p = self._payment_dict_from_row(r)
             except ValueError:
-                invalid.append((r, "ongeldig bedrag"))
+                invalid.append((r, tr("validation.row.invalid_amount_export")))
                 continue
             p["decision"] = dec
             mode = str(p.get("date_mode") or "direct")
             if mode == "due" and not (p.get("invoice_date") and str(p.get("invoice_date")).strip()):
-                invalid.append((r, "factuurdatum verplicht voor ‘op uiterste betaaldatum’"))
+                invalid.append((r, tr("validation.row.invoice_date_required")))
                 continue
             try:
                 self._finalize_payment_for_export(p)
@@ -7589,13 +7706,13 @@ class MainWindow(QMainWindow):
             for r, msg in invalid:
                 self._set_row_validation(r, "fout", msg)
             if len(invalid) == 1:
-                self._set_status(f"Fout: rij {invalid[0][0] + 1}: {invalid[0][1]}")
+                self._set_status(tr("status.error_row_single", row=invalid[0][0] + 1, message=invalid[0][1]))
             else:
-                self._set_status(f"Fout: {len(invalid)} rijen ongeldig (zie Foutmelding-kolom)")
+                self._set_status(tr("status.error_rows_multiple", count=len(invalid)))
             return
 
         if self._engine_result is None:
-            self._set_status("Fout: geen engine resultaat — laad eerst facturen")
+            self._set_status(tr("status.no_engine_result"))
             return
 
         if self._engine_result.uses_settlement:
@@ -7609,10 +7726,10 @@ class MainWindow(QMainWindow):
             if export_errors:
                 QMessageBox.critical(
                     self,
-                    "Export geblokkeerd",
-                    "Verrekening validatie:\n\n" + "\n".join(export_errors[:12]),
+                    tr("dialog.export.blocked_title"),
+                    tr("dialog.export.blocked_settlement", errors="\n".join(export_errors[:12])),
                 )
-                self._set_status("Export geblokkeerd (settlement validatie).")
+                self._set_status(tr("status.export_blocked_settlement"))
                 return
 
         if row_payment_pairs:
@@ -7635,37 +7752,35 @@ class MainWindow(QMainWindow):
                 settlement_groups_to_sepa_rows(export_input.groups)
             )
             if not payment_dicts:
-                self._set_status("Fout: geen exporteerbare verrekeningsgroepen")
+                self._set_status(tr("status.no_settlement_groups"))
                 return
         else:
             payment_dicts = exportable_payments_from_decisions([p for _r, p in row_payment_pairs])
             if not payment_dicts:
-                self._set_status("Fout: geen betalingsregels om te exporteren")
+                self._set_status(tr("status.no_payment_rows"))
                 return
 
         duplicates = self._check_duplicate_payments(payment_dicts)
         if duplicates:
             lines: list[str] = []
             for sup, inv, amt, ts in duplicates[:10]:
-                lines.append(f"  {sup}  |  {inv}  |  EUR {_format_amount_nl(amt)}  (export {ts})")
+                lines.append(tr("dialog.export.duplicate_line", supplier=sup, invoice=inv, amount=_format_amount_nl(amt), timestamp=ts))
             if len(duplicates) > 10:
-                lines.append(f"  … en nog {len(duplicates) - 10} andere")
+                lines.append(tr("dialog.export.duplicate_more", count=len(duplicates) - 10))
             detail = "\n".join(lines)
             dup_answer = QMessageBox.warning(
                 self,
-                "Mogelijke dubbele betalingen",
-                f"{len(duplicates)} factuur/facturen zijn al eerder geëxporteerd:\n\n"
-                f"{detail}\n\n"
-                "Wil je toch doorgaan?",
+                tr("dialog.export.duplicate_title"),
+                tr("dialog.export.duplicate_message", count=len(duplicates), detail=detail),
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No,
             )
             if dup_answer != QMessageBox.StandardButton.Yes:
-                self._set_status("XML export geannuleerd (dubbele betalingen).")
+                self._set_status(tr("status.export_cancelled_duplicates"))
                 return
 
         total_amount = sum_decimals([amount_to_decimal(p.get("amount")) for p in payment_dicts])
-        summary = self._build_export_batch_summary_nl(payment_dicts)
+        summary = self._build_export_batch_summary(payment_dicts)
         weekend_hits: set[str] = set()
         for p in payment_dicts:
             exd = parse_iso_date(str(p.get("execution_date") or ""))
@@ -7678,25 +7793,24 @@ class MainWindow(QMainWindow):
             ]
             QMessageBox.warning(
                 self,
-                "Betaaldatum weekend",
-                "Eén of meer betaaldatums vallen in het weekend; de bank kan deze verschuiven.\n\n"
-                + "\n".join(nl_labels),
+                tr("dialog.export.weekend_title"),
+                tr("dialog.export.weekend_message", dates="\n".join(nl_labels)),
             )
         confirm = QMessageBox.question(
             self,
-            "Bevestig XML export",
-            f"{summary}\n\nDoorgaan?",
+            tr("dialog.export.confirm_title"),
+            tr("dialog.export.confirm_message", summary=summary),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.Yes,
         )
         if confirm != QMessageBox.StandardButton.Yes:
-            self._set_status("XML export geannuleerd.")
+            self._set_status(tr("status.export_cancelled"))
             return
 
         batch_gate = validate_export_batch(payment_dicts)
         if batch_gate.status == "blocked":
             msg = format_batch_export_blocked_message(batch_gate)
-            QMessageBox.critical(self, "Export geblokkeerd", msg)
+            QMessageBox.critical(self, tr("dialog.export.blocked_title"), msg)
             self._set_status(msg)
             return
 
@@ -7718,16 +7832,20 @@ class MainWindow(QMainWindow):
                 run_id=self._pinned_run_id,
             )
         except ValueError as e:
-            self._set_status(f"Fout: {e}")
+            self._set_status(tr("status.error_prefix", detail=e))
             return
         except OSError as e:
-            self._set_status(f"Fout: kan bestand niet schrijven ({e})")
+            self._set_status(tr("status.write_error", detail=e))
             return
 
         name = Path(abspath).name
         self._set_status(
-            f"XML succesvol aangemaakt: {name}\n"
-            f"{len(payment_dicts)} betaling(en), totaal EUR {_format_amount_nl(total_amount)}."
+            tr(
+                "status.export_success",
+                filename=name,
+                count=len(payment_dicts),
+                total=_format_amount_nl(total_amount),
+            )
         )
         self._log_export(abspath, payment_dicts, total_amount)
 

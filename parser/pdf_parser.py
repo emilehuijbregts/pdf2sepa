@@ -4416,14 +4416,18 @@ def extract_text_from_images(file_path: str) -> str:
     return combined
 
 
-def extract_ocr_supplement_text(file_path: str) -> str:
+def extract_ocr_supplement_text(
+    file_path: str,
+    *,
+    image_text: str | None = None,
+    raster_text: str | None = None,
+) -> str:
     """Tekst uit embedded afbeeldingen + raster van pagina(’s) (footer in kleine afbeelding/OCR)."""
+    img = image_text if image_text is not None else (extract_text_from_images(file_path) or "")
+    raster = raster_text if raster_text is not None else (extract_text_force_raster_ocr(file_path, max_pages=1) or "")
     parts: list[str] = []
     seen: set[str] = set()
-    for chunk in (
-        extract_text_from_images(file_path) or "",
-        extract_text_force_raster_ocr(file_path, max_pages=1) or "",
-    ):
+    for chunk in (img, raster):
         c = str(chunk or "").strip()
         if not c or c in seen:
             continue
@@ -4473,7 +4477,12 @@ def extract_text_force_raster_ocr(file_path: str, *, max_pages: int = 1) -> str:
     except Exception:
         return _extract_text_pdfplumber_raster(file_path, max_pages=page_limit)
 
-def extract_ibans_from_images(file_path: str) -> list[str]:
+def extract_ibans_from_images(
+    file_path: str,
+    *,
+    image_text: str | None = None,
+    raster_text: str | None = None,
+) -> list[str]:
     """Extract validated SEPA IBANs via OCR (embedded images, daarna pagina-raster)."""
     base = Path(str(file_path or "")).name
     logger.info("OCR_IBAN_ATTEMPTED: %s", base)
@@ -4487,12 +4496,14 @@ def extract_ibans_from_images(file_path: str) -> list[str]:
                 ordered.append(iban)
 
     try:
-        img_text = extract_text_from_images(file_path) or ""
+        img_text = image_text if image_text is not None else (extract_text_from_images(file_path) or "")
         _collect(img_text)
 
         if not ordered:
-            raster_text = extract_text_force_raster_ocr(file_path, max_pages=2) or ""
-            _collect(raster_text)
+            raster = raster_text if raster_text is not None else (
+                extract_text_force_raster_ocr(file_path, max_pages=2) or ""
+            )
+            _collect(raster)
     except Exception:
         logger.info("OCR_IBAN_FAILED: exception during OCR for %s", base, exc_info=True)
         return ordered

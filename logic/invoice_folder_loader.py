@@ -7,13 +7,14 @@ import re
 import time
 from pathlib import Path
 
+from logic.pdf_ocr_session import (
+    PdfOcrSession,
+    has_reliable_text_layer_iban,
+    needs_supplement_ocr,
+)
 from parser.pdf_parser import (
-    extract_ibans_from_images,
     extract_invoice_date,
     extract_invoice_data,
-    extract_ocr_supplement_text,
-    extract_text_force_raster_ocr,
-    extract_text_from_images,
     extract_text_strict,
 )
 from logic.invoice_parse_cache import list_invoice_pdf_paths
@@ -184,34 +185,56 @@ def load_invoice_from_pdf_path(
     except Exception:
         return _invoice_load_error_dict(path, "read_failed")
 
-    ocr_supplement = ""
-    ocr_supplement_error: str | None = None
-    try:
-        ocr_supplement = extract_ocr_supplement_text(str(path)) or ""
-    except Exception as exc:
-        ocr_supplement_error = f"{type(exc).__name__}"
-
     pdf_text_layer = text or ""
-    sup_stripped = (ocr_supplement or "").strip()
+    ocr_session = PdfOcrSession(str(path))
+    ocr_supplement_error: str | None = None
+    sup_stripped = ""
+
+    # Phase 1: text-layer-only parse (no supplement OCR yet).
+    data: dict | None = None
+    if pdf_text_layer.strip():
+        try:
+            data = extract_invoice_data(
+                pdf_text_layer,
+                ocr_text=None,
+                debtor_iban=debtor_iban,
+                debtor_kvk=debtor_kvk,
+                debtor_vat=debtor_vat,
+                debtor_name=debtor_name,
+            )
+        except Exception:
+            return _invoice_load_error_dict(path, "read_failed")
+
+    run_supplement = needs_supplement_ocr(data, pdf_text_layer)
+    if run_supplement:
+        try:
+            sup_stripped = ocr_session.supplement_text().strip()
+        except Exception as exc:
+            ocr_supplement_error = f"{type(exc).__name__}"
 
     if not pdf_text_layer.strip() and not sup_stripped:
         return _invoice_load_error_dict(path, "no_text")
 
-    # Image-only PDFs have no text layer; parse from OCR when available.
-    parse_primary = pdf_text_layer if pdf_text_layer.strip() else sup_stripped
-    ocr_text = sup_stripped if pdf_text_layer.strip() else None
-
-    try:
-        data = extract_invoice_data(
-            parse_primary,
-            ocr_text=ocr_text,
-            debtor_iban=debtor_iban,
-            debtor_kvk=debtor_kvk,
-            debtor_vat=debtor_vat,
-            debtor_name=debtor_name,
-        )
-    except Exception:
-        return _invoice_load_error_dict(path, "read_failed")
+    if run_supplement:
+        if pdf_text_layer.strip():
+            parse_primary = pdf_text_layer
+            ocr_text = sup_stripped if sup_stripped else None
+        else:
+            parse_primary = sup_stripped
+            ocr_text = None
+        try:
+            data = extract_invoice_data(
+                parse_primary,
+                ocr_text=ocr_text,
+                debtor_iban=debtor_iban,
+                debtor_kvk=debtor_kvk,
+                debtor_vat=debtor_vat,
+                debtor_name=debtor_name,
+            )
+        except Exception:
+            return _invoice_load_error_dict(path, "read_failed")
+    else:
+        parse_primary = pdf_text_layer
 
     data["source_file"] = str(path.resolve())
     # Contract: keep raw_text as primary PDF text layer (no OCR amounts noise).
@@ -309,10 +332,7 @@ def load_invoice_from_pdf_path(
         data["ocr_hint_attempted"] = True
         data["ocr_hint_error"] = None
         try:
-            # OCR can be flaky depending on runtime deps; try twice without delays.
-            ocr_text_hint = extract_text_from_images(str(path)) or ""
-            if not ocr_text_hint.strip():
-                ocr_text_hint = extract_text_from_images(str(path)) or ""
+            ocr_text_hint = sup_stripped or ocr_session.image_text()
             hint = _supplier_hint_from_ocr_text(ocr_text_hint)
             if hint:
                 data["supplier_hint"] = hint
@@ -323,8 +343,13 @@ def load_invoice_from_pdf_path(
     else:
         skipped_ocr_hint = True
 
-    data["ocr_iban_attempted"] = True
-    data["ocr_iban_error"] = None
+    if has_reliable_text_layer_iban(data, pdf_text_layer):
+        skipped_ocr_iban = True
+        data["ocr_iban_attempted"] = False
+        data["ocr_iban_error"] = None
+    else:
+        data["ocr_iban_attempted"] = True
+        data["ocr_iban_error"] = None
     try:
         from parser.iban_candidates import (
             extract_iban_result,
@@ -332,9 +357,9 @@ def load_invoice_from_pdf_path(
             merge_ocr_into_iban_result,
         )
 
-        ocr_ibans = extract_ibans_from_images(str(path)) or []
-        if not ocr_ibans:
-            ocr_ibans = extract_ibans_from_images(str(path)) or []
+        ocr_ibans: list[str] = []
+        if not skipped_ocr_iban:
+            ocr_ibans = ocr_session.ibans_from_images() or []
         if ocr_ibans:
             existing_ir = data.get("iban_result")
             if isinstance(existing_ir, dict):
@@ -377,9 +402,9 @@ def load_invoice_from_pdf_path(
     if need_ocr_ident:
         try:
             ocr_ident_attempted = True
-            ocr_text_ident = sup_stripped or extract_text_from_images(str(path)) or ""
+            ocr_text_ident = sup_stripped or ocr_session.image_text() or ""
             if not str(data.get("vat_number") or "").strip() or not str(data.get("kvk_number") or "").strip() or not current_email_dom or current_email_dom in pre_email_blocklist:
-                raster_extra = extract_text_force_raster_ocr(str(path), max_pages=1) or ""
+                raster_extra = ocr_session.raster_text(max_pages=1) or ""
                 if raster_extra.strip() and raster_extra.strip() not in ocr_text_ident:
                     ocr_text_ident = f"{ocr_text_ident.rstrip()}\n{raster_extra.strip()}".strip()
             ocr_ident_text_len = int(len(ocr_text_ident or ""))
@@ -553,11 +578,11 @@ def load_invoice_from_pdf_path(
                         suspicious_due = True
                         break
         if suspicious_due:
-            ocr_text_date = (sup_stripped or extract_text_from_images(str(path)) or text or "")
+            ocr_text_date = (sup_stripped or ocr_session.image_text() or text or "")
             ocr_date, ocr_src = extract_invoice_date(ocr_text_date)
             if (not ocr_date) or int(len(ocr_text_date)) < 120:
                 # Stronger fallback: force raster OCR of first page for header blocks.
-                raster_text = extract_text_force_raster_ocr(str(path), max_pages=1) or ""
+                raster_text = ocr_session.raster_text(max_pages=1) or ""
                 if len(raster_text) > len(ocr_text_date):
                     ocr_text_date = raster_text
                     ocr_date, ocr_src = extract_invoice_date(ocr_text_date)
@@ -639,6 +664,8 @@ def load_invoice_from_pdf_path(
             )
     except Exception:
         pass
+
+    data["_ocr_image_text"] = ocr_session.image_text() if ocr_session.touched else ""
     return data
 
 

@@ -67,3 +67,15 @@ class TestCreditClassifierNegative:
     def test_loose_credit_without_context(self):
         r = classify_credit_document("We offer store credit for future purchases")
         assert r.is_credit is False
+
+    def test_te_betalen_with_due_date_not_credit(self):
+        """Due dates like 19-02-2026 must not trigger negative-amount signals."""
+        text = (
+            "S for Software\n"
+            "Factuur\n"
+            "Te betalen € 121,00 (voor 19-02-2026) Factuurdatum 05-02-2026\n"
+        )
+        r = classify_credit_document(text)
+        assert r.is_credit is False
+        assert "negative_total_label" not in r.signals
+        assert "negative_amount_line" not in r.signals

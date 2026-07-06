@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from logic.field_diagnostics import translate_context_hint, translate_extraction_method
+from ui.i18n import tr, tr_or_code
 from parser.field_model import FieldId
 
 REVIEW_FIELD_IDS: tuple[FieldId, ...] = (
@@ -19,31 +19,20 @@ REVIEW_FIELD_IDS: tuple[FieldId, ...] = (
     "email_domain",
 )
 
-_AMOUNT_SOURCE_NL: dict[str, str] = {
-    "total_label_payable": "Totaal te betalen",
-    "total_label_invoice": "Factuurbedrag",
-    "total_label_generic": "Totaal",
-    "total_label_excl": "Totaal excl. BTW",
-    "total_line_hint": "Totaalregel (fallback)",
-    "fallback_last_token": "Laatste bedrag in PDF",
-    "INCL_CONFLICT": "Meerdere incl.-bedragen",
-    "CONFLICTING_HIGH_CONFIDENCE": "Conflicterende totalen",
-}
-
 
 @dataclass(frozen=True)
 class FieldReviewSpec:
     field_id: FieldId
     result_snapshot_key: str
     legacy_value_key: str
-    menu_empty_title_nl: str
-    menu_no_candidates_nl: str
+    menu_empty_title_key: str
+    menu_no_candidates_key: str
     pick_pending_reason: str
 
 
 CUSTOMER_ABSENT_PICK_SOURCE = "USER_ABSENT_CUSTOMER"
 CUSTOMER_ABSENT_STATE = "NOT_PRESENT_SUPPLIER_LEVEL"
-CUSTOMER_ABSENT_MENU_LABEL_NL = "— Geen klantnummer (leverancier heeft geen klantcode)"
+CUSTOMER_ABSENT_MENU_LABEL_KEY = "field.customer.absent.label"
 
 
 def make_customer_absent_pick_candidate() -> dict[str, Any]:
@@ -53,7 +42,7 @@ def make_customer_absent_pick_candidate() -> dict[str, Any]:
         "source": CUSTOMER_ABSENT_PICK_SOURCE,
         "confidence": 100,
         "context": "",
-        "label": "Geen klantnummer",
+        "label": tr("field.customer.absent.short"),
         "absent": True,
     }
 
@@ -72,64 +61,64 @@ FIELD_REVIEW_SPECS: dict[FieldId, FieldReviewSpec] = {
         field_id="amount",
         result_snapshot_key="amount_result",
         legacy_value_key="amount",
-        menu_empty_title_nl="Bedrag kiezen",
-        menu_no_candidates_nl="Er zijn geen parser-kandidaten om uit te kiezen.",
+        menu_empty_title_key="field.amount.menu_empty",
+        menu_no_candidates_key="field.amount.menu_no_candidates",
         pick_pending_reason="amount_picked",
     ),
     "invoice_number": FieldReviewSpec(
         field_id="invoice_number",
         result_snapshot_key="invoice_number_result",
         legacy_value_key="invoice_number",
-        menu_empty_title_nl="Factuur-/polisnummer",
-        menu_no_candidates_nl="Geen meerdere parser-kandidaten om uit te kiezen.",
+        menu_empty_title_key="field.invoice_number.menu_empty",
+        menu_no_candidates_key="field.invoice_number.menu_no_candidates",
         pick_pending_reason="invoice_number_picked",
     ),
     "customer_number": FieldReviewSpec(
         field_id="customer_number",
         result_snapshot_key="customer_number_result",
         legacy_value_key="customer_number",
-        menu_empty_title_nl="Klantnummer",
-        menu_no_candidates_nl="Geen meerdere parser-kandidaten om uit te kiezen.",
+        menu_empty_title_key="field.customer_number.menu_empty",
+        menu_no_candidates_key="field.customer_number.menu_no_candidates",
         pick_pending_reason="customer_number_picked",
     ),
     "iban": FieldReviewSpec(
         field_id="iban",
         result_snapshot_key="iban_result",
         legacy_value_key="iban",
-        menu_empty_title_nl="IBAN kiezen",
-        menu_no_candidates_nl="Geen meerdere IBAN-kandidaten om uit te kiezen.",
+        menu_empty_title_key="field.iban.menu_empty",
+        menu_no_candidates_key="field.iban.menu_no_candidates",
         pick_pending_reason="iban_picked",
     ),
     "vat_number": FieldReviewSpec(
         field_id="vat_number",
         result_snapshot_key="vat_number_result",
         legacy_value_key="vat_number",
-        menu_empty_title_nl="BTW-nummer kiezen",
-        menu_no_candidates_nl="Geen meerdere parser-kandidaten om uit te kiezen.",
+        menu_empty_title_key="field.vat_number.menu_empty",
+        menu_no_candidates_key="field.vat_number.menu_no_candidates",
         pick_pending_reason="vat_number_picked",
     ),
     "kvk_number": FieldReviewSpec(
         field_id="kvk_number",
         result_snapshot_key="kvk_number_result",
         legacy_value_key="kvk_number",
-        menu_empty_title_nl="KvK-nummer kiezen",
-        menu_no_candidates_nl="Geen meerdere parser-kandidaten om uit te kiezen.",
+        menu_empty_title_key="field.kvk_number.menu_empty",
+        menu_no_candidates_key="field.kvk_number.menu_no_candidates",
         pick_pending_reason="kvk_number_picked",
     ),
     "invoice_date": FieldReviewSpec(
         field_id="invoice_date",
         result_snapshot_key="invoice_date_result",
         legacy_value_key="invoice_date",
-        menu_empty_title_nl="Factuurdatum kiezen",
-        menu_no_candidates_nl="Geen meerdere parser-kandidaten om uit te kiezen.",
+        menu_empty_title_key="field.invoice_date.menu_empty",
+        menu_no_candidates_key="field.invoice_date.menu_no_candidates",
         pick_pending_reason="invoice_date_picked",
     ),
     "email_domain": FieldReviewSpec(
         field_id="email_domain",
         result_snapshot_key="email_domain_result",
         legacy_value_key="email_domain",
-        menu_empty_title_nl="E-maildomein kiezen",
-        menu_no_candidates_nl="Geen meerdere parser-kandidaten om uit te kiezen.",
+        menu_empty_title_key="field.email_domain.menu_empty",
+        menu_no_candidates_key="field.email_domain.menu_no_candidates",
         pick_pending_reason="email_domain_picked",
     ),
 }
@@ -137,7 +126,9 @@ FIELD_REVIEW_SPECS: dict[FieldId, FieldReviewSpec] = {
 
 def nl_amount_candidate_source(source: str) -> str:
     s = str(source or "").strip()
-    return _AMOUNT_SOURCE_NL.get(s, s.replace("_", " ").title() if s else "Bedrag")
+    if not s:
+        return tr("field.amount.source._default")
+    return tr_or_code(f"field.amount.source.{s}", s.replace("_", " ").title() if s else tr("field.amount.source._default"))
 
 
 def amount_candidate_type_hint_nl(cand: dict[str, Any]) -> str:
@@ -146,11 +137,11 @@ def amount_candidate_type_hint_nl(cand: dict[str, Any]) -> str:
     if t == "incl":
         return ""
     if t == "excl":
-        return " [excl. BTW]"
+        return tr("field.amount.type.excl")
     if t == "vat":
-        return " [BTW]"
+        return tr("field.amount.type.vat")
     if t == "unknown":
-        return " [type onbekend]"
+        return tr("field.amount.type.unknown")
     return f" [{t}]" if t else ""
 
 
@@ -174,17 +165,13 @@ def format_amount_candidate_menu_label(
     return label
 
 
-_IBAN_SOURCE_NL: dict[str, str] = {
-    "pdf_text": "PDF-tekst",
-    "ocr": "OCR",
-    "USER_PICKED": "Handmatige keuze",
-}
-
-
 def format_iban_candidate_menu_label(cand: dict[str, Any]) -> str:
     val = str(cand.get("value") or "").strip()
     src = str(cand.get("source") or cand.get("label") or "kandidaat").strip()
-    src_nl = _IBAN_SOURCE_NL.get(src, src.replace("_", " ").title() if src else "IBAN")
+    src_nl = tr_or_code(
+        f"field.iban.source.{src}",
+        src.replace("_", " ").title() if src else "IBAN",
+    )
     conf = cand.get("confidence")
     text = f"{val} — {src_nl}"
     if conf is not None:
@@ -202,62 +189,74 @@ def format_ident_candidate_menu_label(cand: dict[str, Any]) -> str:
     return text
 
 
+def _display_diag_text(value: str | None, *, fallback_key: str = "") -> str:
+    s = str(value or "").strip()
+    if not s:
+        return tr(fallback_key) if fallback_key else ""
+    if s.count(".") >= 2:
+        return tr_or_code(s, tr(fallback_key) if fallback_key else s)
+    return s
+
+
 def candidate_menu_tooltip(cand: dict[str, Any], *, max_len: int = 200) -> str:
     parts: list[str] = []
     ctx = str(cand.get("context") or "").strip()
     if ctx:
-        parts.append(f"PDF-context: {ctx}")
+        parts.append(tr("field.tooltip.pdf_context", context=ctx))
 
-    extraction_method = str(
-        cand.get("extraction_method_nl") or cand.get("extraction_method") or ""
-    ).strip()
-    if extraction_method:
+    extraction_method = str(cand.get("extraction_method") or "").strip()
+    extraction_method_nl = str(cand.get("extraction_method_nl") or "").strip()
+    if extraction_method_nl:
+        parts.append(tr("field.tooltip.method", method=_display_diag_text(extraction_method_nl)))
+    elif extraction_method:
         parts.append(
-            f"Methode: {translate_extraction_method(extraction_method)}"
-            if extraction_method == str(cand.get("extraction_method") or "").strip()
-            else f"Methode: {extraction_method}"
+            tr(
+                "field.tooltip.method",
+                method=tr_or_code(
+                    f"field.extraction_method.{extraction_method}",
+                    tr("field.extraction_method._default"),
+                ),
+            )
         )
 
     label_reason = str(cand.get("label_reason_nl") or cand.get("label_reason") or "").strip()
     if label_reason:
-        parts.append(f"Uitleg: {label_reason}")
+        parts.append(tr("field.tooltip.explanation", reason=label_reason))
 
     context_hint = str(cand.get("context_hint_nl") or cand.get("context_hint") or "").strip()
     if context_hint:
-        parts.append(
-            f"Locatie: {translate_context_hint(context_hint)}"
-            if context_hint == str(cand.get("context_hint") or "").strip()
-            else f"Locatie: {context_hint}"
-        )
+        if context_hint.count(".") >= 2:
+            hint_text = _display_diag_text(context_hint, fallback_key="field.context_hint._default")
+        else:
+            hint_text = tr_or_code(
+                f"field.context_hint.{context_hint}",
+                tr("field.context_hint._default"),
+            )
+        parts.append(tr("field.tooltip.location", hint=hint_text))
 
     parse_path = str(cand.get("parse_path") or "").strip()
     if parse_path:
-        parts.append(f"Parsepad: {parse_path}")
+        parts.append(tr("field.tooltip.parse_path", path=parse_path))
 
     raw_detected = cand.get("raw_detected")
     if raw_detected is not None and str(raw_detected).strip():
-        parts.append(f"Originele waarde: {str(raw_detected).strip()}")
+        parts.append(tr("field.tooltip.raw_detected", value=str(raw_detected).strip()))
 
     normalized_iso = cand.get("normalized_iso")
     if normalized_iso is not None and str(normalized_iso).strip():
-        parts.append(f"Genormaliseerde waarde: {str(normalized_iso).strip()}")
+        parts.append(tr("field.tooltip.normalized", value=str(normalized_iso).strip()))
 
-    score_lines = cand.get("score_breakdown_nl")
-    if isinstance(score_lines, list):
-        clean_lines = [str(line).strip() for line in score_lines if str(line).strip()]
-        if clean_lines:
-            parts.append("Score-opbouw: " + "; ".join(clean_lines[:4]))
-    else:
-        sb = cand.get("score_breakdown")
-        if isinstance(sb, dict) and sb:
-            items = []
-            for k, v in sb.items():
-                ks = str(k).strip()
-                if not ks:
-                    continue
-                items.append(f"{ks}={v}")
-            if items:
-                parts.append("Score-opbouw: " + ", ".join(items[:6]))
+    score_breakdown = cand.get("score_breakdown")
+    if isinstance(score_breakdown, dict) and score_breakdown:
+        items = []
+        for k, v in score_breakdown.items():
+            ks = str(k).strip()
+            if not ks:
+                continue
+            label = tr_or_code(f"field.score_label.{ks}", tr("field.score_label._default"))
+            items.append(f"{label}={v}")
+        if items:
+            parts.append(tr("field.tooltip.score_breakdown", lines=", ".join(items[:6])))
 
     tip = "\n".join(parts).strip()
     if len(tip) > max_len:

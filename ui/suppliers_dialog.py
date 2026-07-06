@@ -21,6 +21,8 @@ from PySide6.QtWidgets import (
 
 from logic.payment_amounts import normalize_supplier_vat_rate_pct
 from parser.supplier_db import SupplierDB
+from ui.i18n import tr
+
 
 def _discount_edit_text(discount_val: object) -> str:
     try:
@@ -56,7 +58,7 @@ class SuppliersDialog(QDialog):
     def __init__(self, db_path: str, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._db = SupplierDB(path=db_path)
-        self.setWindowTitle("Mijn leveranciers")
+        self.setWindowTitle(tr("dialog.suppliers.title"))
         self.setMinimumSize(880, 680)
         self._editing_original_name: str | None = None
         self._suppress_list_signal = False
@@ -64,15 +66,19 @@ class SuppliersDialog(QDialog):
         root = QHBoxLayout(self)
 
         left = QVBoxLayout()
-        left.addWidget(QLabel("Leveranciers"))
+        left.addWidget(QLabel(tr("dialog.suppliers.list_title")))
+        self._search_edit = QLineEdit()
+        self._search_edit.setPlaceholderText("🔍 Zoek leverancier...")
+        self._search_edit.textChanged.connect(self._apply_supplier_search_filter)
+        left.addWidget(self._search_edit)
         self._list = QListWidget()
         self._list.currentTextChanged.connect(self._on_list_changed)
         left.addWidget(self._list, stretch=1)
         left_btns = QHBoxLayout()
-        self._btn_new = QPushButton("Nieuw")
+        self._btn_new = QPushButton(tr("dialog.suppliers.new"))
         self._btn_new.clicked.connect(self._on_new)
         left_btns.addWidget(self._btn_new)
-        self._btn_delete_supplier = QPushButton("Verwijder leverancier")
+        self._btn_delete_supplier = QPushButton(tr("dialog.suppliers.delete_supplier"))
         self._btn_delete_supplier.clicked.connect(self._on_delete)
         left_btns.addWidget(self._btn_delete_supplier)
         left_btns.addStretch(1)
@@ -90,33 +96,33 @@ class SuppliersDialog(QDialog):
 
         _fm = self.fontMetrics()
         _titles = (
-            "Naam:",
-            "IBAN:",
-            "Korting %:",
-            "Betaaltermijn (dagen):",
-            "BTW-tarief (korting):",
+            tr("dialog.suppliers.label.name"),
+            tr("dialog.suppliers.label.iban"),
+            tr("dialog.suppliers.label.discount"),
+            tr("dialog.suppliers.label.term"),
+            tr("dialog.suppliers.label.vat_rate"),
         )
         _label_col_w = max(int(_fm.horizontalAdvance(t)) for t in _titles) + 14
 
         self._name_edit = QLineEdit()
-        self._name_edit.setPlaceholderText("Officiële naam")
+        self._name_edit.setPlaceholderText(tr("dialog.suppliers.name_placeholder"))
         self._name_edit.setFixedWidth(420)
 
         self._iban_edit = QLineEdit()
-        self._iban_edit.setPlaceholderText("NL…")
+        self._iban_edit.setPlaceholderText(tr("dialog.suppliers.iban_placeholder"))
         self._iban_edit.setFixedWidth(420)
 
         self._discount_edit = QLineEdit()
-        self._discount_edit.setPlaceholderText("0 of 2,5")
+        self._discount_edit.setPlaceholderText(tr("dialog.suppliers.discount_placeholder"))
         self._discount_edit.setFixedWidth(120)
 
         self._term_edit = QLineEdit()
-        self._term_edit.setPlaceholderText("0, 7, 14, 30 …")
+        self._term_edit.setPlaceholderText(tr("dialog.suppliers.term_placeholder"))
         self._term_edit.setFixedWidth(170)
 
         self._vat_rate_combo = QComboBox()
-        self._vat_rate_combo.addItem("21% (standaard)", 21)
-        self._vat_rate_combo.addItem("0%", 0)
+        self._vat_rate_combo.addItem(tr("dialog.suppliers.vat_rate_21"), 21)
+        self._vat_rate_combo.addItem(tr("dialog.suppliers.vat_rate_0"), 0)
         self._vat_rate_combo.setFixedWidth(240)
 
         _basis_fields: list[QWidget] = [
@@ -131,11 +137,11 @@ class SuppliersDialog(QDialog):
             w.setFixedHeight(_row_h)
 
         _rows: list[tuple[str, QWidget]] = [
-            ("Naam:", self._name_edit),
-            ("IBAN:", self._iban_edit),
-            ("Korting %:", self._discount_edit),
-            ("Betaaltermijn (dagen):", self._term_edit),
-            ("BTW-tarief (korting):", self._vat_rate_combo),
+            (tr("dialog.suppliers.label.name"), self._name_edit),
+            (tr("dialog.suppliers.label.iban"), self._iban_edit),
+            (tr("dialog.suppliers.label.discount"), self._discount_edit),
+            (tr("dialog.suppliers.label.term"), self._term_edit),
+            (tr("dialog.suppliers.label.vat_rate"), self._vat_rate_combo),
         ]
         for row, (title, field) in enumerate(_rows):
             label = QLabel(title)
@@ -156,7 +162,6 @@ class SuppliersDialog(QDialog):
                 alignment=Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
             )
 
-        # Ensure the basis block always has enough vertical room for all 5 rows.
         _m = basis_grid.contentsMargins()
         _basis_expected_h = (
             len(_rows) * _row_h
@@ -167,59 +172,56 @@ class SuppliersDialog(QDialog):
         basis.setFixedHeight(int(_basis_expected_h))
         basis_grid.setColumnStretch(1, 1)
         right.addWidget(basis, alignment=Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
-        # Ruimte tussen basisvelden en de lijsten eronder
         right.addSpacing(46)
 
         alias_lo, self._alias_list = _list_widget_with_buttons(
-            title="Aliassen",
-            add_label="Alias toevoegen",
+            title=tr("dialog.suppliers.aliases_title"),
+            add_label=tr("dialog.suppliers.alias_add"),
             on_add=self._on_alias_add,
         )
         right.addLayout(alias_lo)
 
         cc_lo, self._customer_code_list = _list_widget_with_buttons(
-            title="Klantcodes / lidnummers",
-            add_label="Code toevoegen",
+            title=tr("dialog.suppliers.customer_codes_title"),
+            add_label=tr("dialog.suppliers.code_add"),
             on_add=self._on_customer_code_add,
         )
         right.addLayout(cc_lo)
 
         vat_lo, self._vat_list = _list_widget_with_buttons(
-            title="BTW-nummers (voor automatische match)",
-            add_label="BTW toevoegen",
+            title=tr("dialog.suppliers.vat_title"),
+            add_label=tr("dialog.suppliers.vat_add"),
             on_add=self._on_vat_add,
         )
         right.addLayout(vat_lo)
 
         kvk_lo, self._kvk_list = _list_widget_with_buttons(
-            title="KvK-nummers (voor automatische match)",
-            add_label="KvK toevoegen",
+            title=tr("dialog.suppliers.kvk_title"),
+            add_label=tr("dialog.suppliers.kvk_add"),
             on_add=self._on_kvk_add,
         )
         right.addLayout(kvk_lo)
 
         dom_lo, self._domain_list = _list_widget_with_buttons(
-            title="E-maildomeinen (voor automatische match)",
-            add_label="Domein toevoegen",
+            title=tr("dialog.suppliers.domain_title"),
+            add_label=tr("dialog.suppliers.domain_add"),
             on_add=self._on_domain_add,
         )
         right.addLayout(dom_lo)
 
         btn_row = QHBoxLayout()
-        self._btn_save = QPushButton("Opslaan")
+        self._btn_save = QPushButton(tr("dialog.suppliers.save"))
         self._btn_save.clicked.connect(self._on_save)
         btn_row.addWidget(self._btn_save)
-        self._btn_remove_list_item = QPushButton("Verwijder")
-        self._btn_remove_list_item.setToolTip(
-            "Verwijdert het geselecteerde item uit de lijst waarin je een rij hebt geselecteerd."
-        )
+        self._btn_remove_list_item = QPushButton(tr("dialog.suppliers.remove_item"))
+        self._btn_remove_list_item.setToolTip(tr("dialog.suppliers.remove_item_tooltip"))
         self._btn_remove_list_item.clicked.connect(self._on_remove_selected_from_lists)
         btn_row.addWidget(self._btn_remove_list_item)
         btn_row.addStretch(1)
         right.addLayout(btn_row)
 
         bbox = QDialogButtonBox()
-        bbox.addButton("Sluiten", QDialogButtonBox.ButtonRole.AcceptRole)
+        bbox.addButton(tr("dialog.suppliers.close"), QDialogButtonBox.ButtonRole.AcceptRole)
         bbox.accepted.connect(self.accept)
         right.addWidget(bbox)
         root.addLayout(right, stretch=3)
@@ -235,19 +237,32 @@ class SuppliersDialog(QDialog):
             key=str.casefold,
         )
 
+    def _apply_supplier_search_filter(self, _text: str = "") -> None:
+        needle = (self._search_edit.text() or "").strip().casefold()
+        for i in range(self._list.count()):
+            item = self._list.item(i)
+            if item is None:
+                continue
+            item.setHidden(bool(needle) and needle not in item.text().casefold())
+
     def _reload_list(self, select_name: str | None, *, select_first_if_none: bool = True) -> None:
         self._suppress_list_signal = True
         self._list.clear()
         for n in self._supplier_names_sorted():
             self._list.addItem(n)
         self._suppress_list_signal = False
+        self._apply_supplier_search_filter()
         if select_name:
             items = self._list.findItems(select_name, Qt.MatchFlag.MatchExactly)
             if items:
                 self._list.setCurrentItem(items[0])
                 return
         if select_first_if_none and self._list.count():
-            self._list.setCurrentRow(0)
+            for i in range(self._list.count()):
+                item = self._list.item(i)
+                if item is not None and not item.isHidden():
+                    self._list.setCurrentRow(i)
+                    break
 
     def _on_list_changed(self, text: str) -> None:
         if self._suppress_list_signal:
@@ -300,8 +315,6 @@ class SuppliersDialog(QDialog):
         self._clear_form()
         self._editing_original_name = name_key
         self._name_edit.setText(name_key)
-        # Allow correcting supplier names (rename). We keep the original name key
-        # in `_editing_original_name` and handle rename safely on save.
         self._name_edit.setReadOnly(False)
         for s in self._db.get_all():
             if str(s.get("name") or "").strip() != name_key.strip():
@@ -342,7 +355,11 @@ class SuppliersDialog(QDialog):
         return self._current_list_strings(self._alias_list)
 
     def _on_alias_add(self) -> None:
-        text, ok = QInputDialog.getText(self, "Alias", "Nieuwe alias:")
+        text, ok = QInputDialog.getText(
+            self,
+            tr("dialog.suppliers.input.alias_title"),
+            tr("dialog.suppliers.input.alias_prompt"),
+        )
         if ok and text.strip():
             self._alias_list.addItem(text.strip())
 
@@ -350,22 +367,38 @@ class SuppliersDialog(QDialog):
         return self._current_list_strings(self._customer_code_list)
 
     def _on_customer_code_add(self) -> None:
-        text, ok = QInputDialog.getText(self, "Klantcode", "Nieuwe klantcode of lidnummer:")
+        text, ok = QInputDialog.getText(
+            self,
+            tr("dialog.suppliers.input.code_title"),
+            tr("dialog.suppliers.input.code_prompt"),
+        )
         if ok and text.strip():
             self._customer_code_list.addItem(text.strip())
 
     def _on_vat_add(self) -> None:
-        text, ok = QInputDialog.getText(self, "BTW-nummer", "NL123456789B01")
+        text, ok = QInputDialog.getText(
+            self,
+            tr("dialog.suppliers.input.vat_title"),
+            tr("dialog.suppliers.input.vat_prompt"),
+        )
         if ok and text.strip():
             self._vat_list.addItem(text.strip().upper())
 
     def _on_kvk_add(self) -> None:
-        text, ok = QInputDialog.getText(self, "KvK-nummer", "7 of 8 cijfers")
+        text, ok = QInputDialog.getText(
+            self,
+            tr("dialog.suppliers.input.kvk_title"),
+            tr("dialog.suppliers.input.kvk_prompt"),
+        )
         if ok and text.strip():
             self._kvk_list.addItem(text.strip())
 
     def _on_domain_add(self) -> None:
-        text, ok = QInputDialog.getText(self, "E-maildomein", "bijv. leverancier.nl")
+        text, ok = QInputDialog.getText(
+            self,
+            tr("dialog.suppliers.input.domain_title"),
+            tr("dialog.suppliers.input.domain_prompt"),
+        )
         if ok and text.strip():
             d = text.strip().lower().lstrip("@")
             self._domain_list.addItem(d)
@@ -384,26 +417,37 @@ class SuppliersDialog(QDialog):
                 return
         QMessageBox.information(
             self,
-            "Verwijderen uit lijst",
-            "Selecteer eerst een regel in een lijst (Aliassen, Klantcodes, BTW, KvK of E-maildomeinen).\n\n"
-            "Wil je de hele leverancier verwijderen, gebruik dan ‘Verwijder leverancier’ links.",
+            tr("dialog.suppliers.remove_list_item.title"),
+            tr("dialog.suppliers.remove_list_item.message"),
         )
 
     def _on_save(self) -> None:
         name = (self._name_edit.text() or "").strip()
         if not name:
-            QMessageBox.warning(self, "Leveranciers", "Vul een naam in.")
+            QMessageBox.warning(
+                self,
+                tr("dialog.suppliers.msgbox_title"),
+                tr("dialog.suppliers.validation.name_required"),
+            )
             return
         iban = (self._iban_edit.text() or "").strip()
         try:
             discount = self._parse_discount()
         except ValueError:
-            QMessageBox.warning(self, "Leveranciers", "Ongeldige korting.")
+            QMessageBox.warning(
+                self,
+                tr("dialog.suppliers.msgbox_title"),
+                tr("dialog.suppliers.validation.invalid_discount"),
+            )
             return
         try:
             term_days = self._parse_term_days()
         except ValueError:
-            QMessageBox.warning(self, "Leveranciers", "Ongeldige betaaltermijn (geheel aantal dagen).")
+            QMessageBox.warning(
+                self,
+                tr("dialog.suppliers.msgbox_title"),
+                tr("dialog.suppliers.validation.invalid_term"),
+            )
             return
 
         aliases = self._current_aliases_list()
@@ -435,13 +479,17 @@ class SuppliersDialog(QDialog):
             if after == before:
                 QMessageBox.information(
                     self,
-                    "Leveranciers",
-                    "Kon niet toevoegen (bestaat mogelijk al).",
+                    tr("dialog.suppliers.msgbox_title"),
+                    tr("dialog.suppliers.add_failed"),
                 )
                 return
             self._reload_list(select_name=name)
             self._load_supplier_into_form(name)
-            QMessageBox.information(self, "Leveranciers", f"Leverancier '{name}' toegevoegd.")
+            QMessageBox.information(
+                self,
+                tr("dialog.suppliers.msgbox_title"),
+                tr("dialog.suppliers.added", name=name),
+            )
             return
 
         original = self._editing_original_name
@@ -450,8 +498,8 @@ class SuppliersDialog(QDialog):
             if not renamed:
                 QMessageBox.warning(
                     self,
-                    "Leveranciers",
-                    "Naam wijzigen mislukt. Bestaat er al een leverancier met deze naam?",
+                    tr("dialog.suppliers.msgbox_title"),
+                    tr("dialog.suppliers.rename_failed"),
                 )
                 return
             self._editing_original_name = name
@@ -473,26 +521,42 @@ class SuppliersDialog(QDialog):
             email_domains=email_domains,
             overwrite_email_domains=True,
         )
-        QMessageBox.information(self, "Leveranciers", "Opgeslagen.")
+        QMessageBox.information(
+            self,
+            tr("dialog.suppliers.msgbox_title"),
+            tr("dialog.suppliers.saved"),
+        )
         self._reload_list(select_name=self._editing_original_name)
 
     def _on_delete(self) -> None:
         key = self._editing_original_name
         if not key:
-            QMessageBox.information(self, "Leveranciers", "Selecteer eerst een leverancier.")
+            QMessageBox.information(
+                self,
+                tr("dialog.suppliers.msgbox_title"),
+                tr("dialog.suppliers.select_first"),
+            )
             return
         if (
             QMessageBox.question(
                 self,
-                "Leveranciers",
-                f"Leverancier '{key}' verwijderen?",
+                tr("dialog.suppliers.msgbox_title"),
+                tr("dialog.suppliers.delete_confirm", name=key),
             )
             != QMessageBox.StandardButton.Yes
         ):
             return
         if self._db.delete_supplier(key):
-            QMessageBox.information(self, "Leveranciers", "Verwijderd.")
+            QMessageBox.information(
+                self,
+                tr("dialog.suppliers.msgbox_title"),
+                tr("dialog.suppliers.deleted"),
+            )
             self._reload_list(select_name=None, select_first_if_none=False)
             self._on_new()
         else:
-            QMessageBox.warning(self, "Leveranciers", "Verwijderen mislukt.")
+            QMessageBox.warning(
+                self,
+                tr("dialog.suppliers.msgbox_title"),
+                tr("dialog.suppliers.delete_failed"),
+            )

@@ -2,25 +2,35 @@
 
 from __future__ import annotations
 
-_BADGE_NL = {
-    "ok": "OK",
-    "zero_amount": "Volledig verrekend",
-    "manual_review": "Controle credit",
-    "refund_required": "Terugbetaling",
-    "detached": "Losgekoppeld",
+from ui.i18n import tr
+
+_BADGE_KEYS = {
+    "ok": "settlement.badge.ok",
+    "zero_amount": "settlement.badge.zero_amount",
+    "manual_review": "settlement.badge.manual_review",
+    "refund_required": "settlement.badge.refund_required",
+    "detached": "settlement.badge.detached",
 }
 
 
+def settlement_badge_label(status: str) -> str:
+    key = _BADGE_KEYS.get(str(status or "").strip())
+    if key:
+        return tr(key)
+    return str(status or "")
+
+
 def settlement_badge_nl(status: str) -> str:
-    return _BADGE_NL.get(str(status or "").strip(), str(status or ""))
+    """Backward-compatible alias for settlement_badge_label."""
+    return settlement_badge_label(status)
 
 
 def settlement_badge_for_group(group: dict) -> str:
     """Render-only badge; detached = credit-only manual_review group."""
     status = str(group.get("settlement_status") or "").strip()
     if status == "manual_review" and _is_credit_only_group(group):
-        return settlement_badge_nl("detached")
-    return settlement_badge_nl(status)
+        return settlement_badge_label("detached")
+    return settlement_badge_label(status)
 
 
 def _is_credit_only_group(group: dict) -> bool:

@@ -6,7 +6,8 @@ from enum import IntEnum
 from typing import Any
 
 from logic.credit_settlement import document_id
-from ui.settlement_badges import settlement_badge_nl
+from ui.i18n import tr
+from ui.settlement_badges import settlement_badge_label
 from ui.settlement_view import SettlementGroupVM, settlement_group_vm_from_engine
 
 _QT_USER_ROLE = 256
@@ -53,6 +54,26 @@ def expand_indicator(expanded: bool) -> str:
     return "▼" if expanded else "▶"
 
 
+def settlement_group_is_expandable(
+    vm: SettlementGroupVM,
+    *,
+    group: dict[str, Any] | None = None,
+) -> bool:
+    """True when expanding reveals a multi-document breakdown worth showing."""
+    doc_count = len(vm.invoices) + len(vm.credits)
+    if doc_count >= 2:
+        return True
+    if any(str(a.status or "").startswith("unallocated_") for a in vm.allocations):
+        return True
+    if _settlement_warning_message(vm) is not None:
+        return True
+    if group is not None:
+        members = group.get("member_documents") or []
+        if len(members) >= 2:
+            return True
+    return False
+
+
 def _format_money_nl(value: str) -> str:
     try:
         from logic.payment_amounts import amount_to_decimal, format_eur_xml
@@ -71,8 +92,12 @@ def _settlement_warning_message(vm: SettlementGroupVM) -> str | None:
         credit_no = unallocated.credit_number
         balance = unallocated.remaining_balance or unallocated.amount_applied
         if credit_no and balance:
-            return f"Credit {credit_no} niet toegewezen ({_format_money_nl(balance)})"
-        return "Credit niet toegewezen"
+            return tr(
+                "settlement.warning.credit_unassigned",
+                credit_number=credit_no,
+                balance=_format_money_nl(balance),
+            )
+        return tr("settlement.warning.credit_unassigned_generic")
     unresolved = next(
         (
             c
@@ -85,8 +110,12 @@ def _settlement_warning_message(vm: SettlementGroupVM) -> str | None:
         credit_no = unresolved.invoice_number
         balance = unresolved.remaining_balance
         if credit_no and balance:
-            return f"Credit {credit_no} niet volledig verrekend ({_format_money_nl(balance)})"
-        return "Credit niet volledig verrekend"
+            return tr(
+                "settlement.warning.credit_partial",
+                credit_number=credit_no,
+                balance=_format_money_nl(balance),
+            )
+        return tr("settlement.warning.credit_partial_generic")
     return None
 
 
@@ -275,7 +304,17 @@ def apply_child_row_items(table, row: int, spec: dict[str, Any], settlement_col:
     table.setItem(row, settlement_col, sett_item)
 
 
-def header_supplier_label(vm: SettlementGroupVM, expanded: bool) -> str:
+def header_supplier_label(
+    vm: SettlementGroupVM,
+    expanded: bool,
+    *,
+    expandable: bool | None = None,
+    group: dict[str, Any] | None = None,
+) -> str:
+    if expandable is None:
+        expandable = settlement_group_is_expandable(vm, group=group)
+    if not expandable:
+        return vm.supplier_name
     return f"{expand_indicator(expanded)} {vm.supplier_name}"
 
 

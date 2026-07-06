@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from ui.i18n import tr
 from logic.diagnostics import (
     build_diagnostics,
     build_invoice_diagnostics_snapshot,
@@ -208,7 +209,8 @@ def test_overlay_field_result_clears_stale_customer_scalar_on_absent() -> None:
     assert "customer_number" not in merged
     assert merged["customer_number_result"]["source"] == "USER_ABSENT_CUSTOMER"
     diag = build_diagnostics(merged)
-    assert diag["customer_number"]["value_display"] == "Geen klantnummer"
+    assert diag["customer_number"]["value_display"] == "diag.ident.status.no_customer_number"
+    assert tr(diag["customer_number"]["value_display"]) == "Geen klantnummer"
 
 
 def test_build_ident_field_diag_block_absent_ignores_stale_scalar() -> None:
@@ -230,7 +232,8 @@ def test_build_ident_field_diag_block_absent_ignores_stale_scalar() -> None:
         },
         "customer_number",
     )
-    assert block["value_display"] == "Geen klantnummer"
+    assert block["value_display"] == "diag.ident.status.no_customer_number"
+    assert tr(block["value_display"]) == "Geen klantnummer"
     assert block["candidates"] == []
     assert "WRONG" not in str(block.get("value") or "")
 
@@ -515,7 +518,8 @@ def test_invoice_number_diagnostics_prefers_profile_value_over_stale_candidates(
     diag = build_diagnostics(snap)
     inv_diag = diag["invoice_number"]
     assert inv_diag["value"] == "8035714"
-    assert inv_diag["status_nl"] == "Via extractieprofiel"
+    assert inv_diag["status_nl"] == "diag.ident.status.via_profile"
+    assert tr(inv_diag["status_nl"]) == "Via extractieprofiel"
     assert len(inv_diag["candidates"]) == 1
     assert inv_diag["candidates"][0]["value"] == "8035714"
     assert inv_diag["candidates"][0].get("is_resolved") is True
@@ -584,7 +588,7 @@ def test_matched_by_from_match_info_when_no_db_core() -> None:
     inv["match_info"] = {"iban_match": True, "kvk_match": True}
     snap = build_invoice_diagnostics_snapshot(inv)
     diag = build_diagnostics(snap)
-    assert diag["supplier"]["matched_by"] == ["IBAN", "KvK"]
+    assert diag["supplier"]["matched_by"] == ["iban", "kvk"]
 
 
 def test_map_field_candidate_for_diag_includes_explainability_fields() -> None:
@@ -607,12 +611,16 @@ def test_map_field_candidate_for_diag_includes_explainability_fields() -> None:
         },
         field_id="invoice_number",
     )
-    assert mapped["source_nl"] == "Waarde op dezelfde regel als label"
-    assert mapped["extraction_method_nl"] == "Gevonden naast herkenbaar label"
+    assert mapped["source_nl"] == "field.source_label.label_block_same_line"
+    assert tr(mapped["source_nl"]) == "Waarde op dezelfde regel als label"
+    assert mapped["extraction_method_nl"] == "field.extraction_method.label_match"
+    assert tr(mapped["extraction_method_nl"]) == "Gevonden naast herkenbaar label"
     assert mapped["label_source"] == "Factuurnummer"
     assert mapped["match_type"] == "label"
-    assert mapped["context_hint_nl"] == "header van document"
+    assert mapped["context_hint_nl"] == "field.context_hint.header"
+    assert tr(mapped["context_hint_nl"]) == "header van document"
     assert mapped["score_breakdown_nl"]
+    assert mapped["score_breakdown_nl"][0].startswith("field.score_label.")
     assert mapped["raw_detected"] == "26FC 000498"
     assert mapped["normalized_iso"] == "26FC000498"
 
