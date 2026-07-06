@@ -470,6 +470,11 @@ def build_diagnostics(
             "load_error": load_error_s,
             "load_error_nl": _diag_key("diag.load.error", load_error_s) if load_error_s else None,
             "document_type": str(snap.get("type") or "").strip() or None,
+            "document_type_source": _document_type_source(snap),
+            "document_type_needs_review": _document_type_needs_review(snap),
+            "invoice_profile_score": _document_type_profile_score(snap, "invoice_profile_score"),
+            "credit_profile_score": _document_type_profile_score(snap, "credit_profile_score"),
+            "can_set_document_type": _can_set_document_type(snap),
             "decision_status": decision_status,
             "decision_reason_code": reason_code or None,
             "decision_reason_nl": _diag_key("error.reason", reason_code) if reason_code else None,
@@ -494,3 +499,54 @@ def _invoice_date_block(snap: dict[str, Any]) -> dict[str, Any]:
             block = dict(block)
             block["value_display"] = nl
     return block
+
+
+def _document_type_resolution(snap: dict[str, Any]) -> dict[str, Any]:
+    raw = snap.get("document_type_resolution")
+    return raw if isinstance(raw, dict) else {}
+
+
+def _document_type_source(snap: dict[str, Any]) -> str | None:
+    resolution = _document_type_resolution(snap)
+    source = str(resolution.get("source") or "").strip()
+    if source:
+        return source
+    credit_detection = snap.get("credit_detection")
+    if isinstance(credit_detection, dict):
+        cd_source = str(credit_detection.get("type_source") or "").strip()
+        if cd_source:
+            return cd_source
+    return None
+
+
+def _document_type_needs_review(snap: dict[str, Any]) -> bool:
+    resolution = _document_type_resolution(snap)
+    if resolution.get("needs_review"):
+        return True
+    credit_detection = snap.get("credit_detection")
+    if isinstance(credit_detection, dict) and credit_detection.get("needs_review"):
+        return True
+    return False
+
+
+def _document_type_profile_score(snap: dict[str, Any], key: str) -> float | None:
+    resolution = _document_type_resolution(snap)
+    if key in resolution and resolution.get(key) is not None:
+        try:
+            return float(resolution[key])
+        except (TypeError, ValueError):
+            return None
+    credit_detection = snap.get("credit_detection")
+    if isinstance(credit_detection, dict) and credit_detection.get(key) is not None:
+        try:
+            return float(credit_detection[key])
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def _can_set_document_type(snap: dict[str, Any]) -> bool:
+    match_status = str(snap.get("match_status") or "").strip()
+    if match_status not in ("confirmed", "needs_review"):
+        return False
+    return bool(str(snap.get("supplier_key") or "").strip())

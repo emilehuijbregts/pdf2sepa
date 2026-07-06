@@ -8,6 +8,8 @@ on:
 jobs:
   build:
     runs-on: windows-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout
@@ -34,7 +36,17 @@ jobs:
 
       - name: Build with PyInstaller
         shell: pwsh
-        run: pyinstaller packaging/pdf2sepa.spec
+        run: pyinstaller --distpath packaging/dist --workpath packaging/build packaging/pdf2sepa.spec
+
+      - name: Build updater
+        shell: pwsh
+        run: pyinstaller --distpath packaging/dist --workpath packaging/build packaging/pdf2sepa_updater.spec
+
+      - name: Bundle updater into app
+        shell: pwsh
+        run: |
+          Copy-Item packaging\dist\PDF2SEPAUpdater.exe packaging\dist\PDF2SEPA\PDF2SEPAUpdater.exe -Force
+          Write-Host "Copied PDF2SEPAUpdater.exe into app bundle"
 
       - name: Verify build output
         shell: pwsh
@@ -57,8 +69,43 @@ jobs:
           Compress-Archive -Path packaging\dist\PDF2SEPA\* -DestinationPath PDF2SEPA.zip -Force
           Write-Host "Created PDF2SEPA.zip ($((Get-Item PDF2SEPA.zip).Length) bytes)"
 
+      - name: Generate latest.json
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}" -replace '^v', ''
+          $hash = (Get-FileHash PDF2SEPA.zip -Algorithm SHA256).Hash.ToLower()
+          $url = "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/PDF2SEPA.zip"
+          @{
+            version = $version
+            url = $url
+            sha256 = $hash
+          } | ConvertTo-Json | Set-Content latest.json -Encoding utf8
+          Get-Content latest.json
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup -y --no-progress
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}" -replace '^v', ''
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" packaging\installer.iss /DMyAppVersion=$version
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: PDF2SEPA-Windows-build
-          path: PDF2SEPA.zip
+          path: |
+            PDF2SEPA.zip
+            latest.json
+            packaging/output/PDF2SEPA-Setup-*.exe
+
+      - name: Publish GitHub Release
+        if: ${{ !contains(github.ref_name, '-test') }}
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            PDF2SEPA.zip
+            latest.json
+            packaging/output/PDF2SEPA-Setup-*.exe

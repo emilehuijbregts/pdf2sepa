@@ -24,6 +24,9 @@ workpath = os.path.join(SPECPATH, "build")
 
 project_root = Path(SPECPATH).resolve().parent
 entry_script = project_root / "main.py"
+_icon_dir = project_root / "packaging" / "icons"
+_icon_png = _icon_dir / "app_icon.png"
+_icon_ico = _icon_dir / "app_icon.ico"
 
 # ---------------------------------------------------------------------------
 # Customer / dev data — NEVER bundle (installer manages %LOCALAPPDATA%/PDF2SEPA/data)
@@ -70,13 +73,17 @@ hiddenimports += collect_submodules("pdfminer")
 # lxml — native extension
 binaries += collect_dynamic_libs("lxml")
 
+# App icon (window + Windows .exe)
+if _icon_png.is_file():
+    datas += [(str(_icon_png), "icons")]
+
 # ---------------------------------------------------------------------------
 # App-engine data (shipped config, NOT customer data) — phase 2
 # Path resolution in frozen mode still needs a follow-up code change.
 # ---------------------------------------------------------------------------
-# _engine_bundle = project_root / "data" / "strategy_engine_bundle.json"
-# if _engine_bundle.is_file():
-#     datas += [(str(_engine_bundle), "data")]
+_engine_bundle = project_root / "data" / "strategy_engine_bundle.json"
+if _engine_bundle.is_file():
+    datas += [(str(_engine_bundle), "data")]
 
 # ---------------------------------------------------------------------------
 # Tesseract OCR (Windows binaries) — phase 2
@@ -139,6 +146,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=str(_icon_ico) if _icon_ico.is_file() else None,
 )
 
 coll = COLLECT(

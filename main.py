@@ -3,20 +3,24 @@
 import logging
 import sys
 from logging.handlers import RotatingFileHandler
-from pathlib import Path
 
-APP_BASE = Path(__file__).resolve().parent
-LOG_DIR = APP_BASE / "logs"
+from logic.runtime_paths import app_root, data_dir, deps_dir, log_dir, tesseract_path
+from version import __version__
 
 # Make sure local vendored deps are available (for dev runs).
-DEPS = APP_BASE / ".deps"
-if DEPS.exists() and str(DEPS) not in sys.path:
-    sys.path.insert(0, str(DEPS))
+_deps = deps_dir()
+if _deps.exists() and str(_deps) not in sys.path:
+    sys.path.insert(0, str(_deps))
 
 
-def _configure_logging() -> None:
-    LOG_DIR.mkdir(exist_ok=True)
-    log_file = LOG_DIR / "pdf2sepa.log"
+def _configure_logging() -> logging.Logger:
+    logger = logging.getLogger("pdf2sepa")
+    try:
+        log_dir().mkdir(parents=True, exist_ok=True)
+    except OSError:
+        pass
+
+    log_file = log_dir() / "pdf2sepa.log"
 
     file_handler = RotatingFileHandler(
         log_file, maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8"
@@ -37,10 +41,17 @@ def _configure_logging() -> None:
     root.setLevel(logging.DEBUG)
     root.addHandler(file_handler)
     root.addHandler(console_handler)
+    return logger
 
 
 def main() -> None:
-    _configure_logging()
+    logger = _configure_logging()
+    logger.info("PDF2SEPA %s", __version__)
+    logger.info("App root: %s", app_root())
+    logger.info("Data path (canonical): %s", data_dir())
+    logger.info("Log path: %s", log_dir())
+    logger.info("Tesseract path: %s", tesseract_path())
+
     from main_window import main as run_desktop
 
     run_desktop()

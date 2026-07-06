@@ -17,6 +17,9 @@ tests/.cache/
 htmlcov/
 dist/
 build/
+packaging/build/
+packaging/dist/
+packaging/output/
 *.egg-info/
 
 # OS / IDE

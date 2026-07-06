@@ -10,6 +10,11 @@ from typing import Any
 
 from logic.amount_override_apply import apply_amount_overrides
 from logic.amount_override_store import AmountOverrideSession, amount_override_session_fingerprint
+from logic.document_type_apply import resolve_document_types
+from logic.document_type_override_store import (
+    DocumentTypeOverrideSession,
+    document_type_override_session_fingerprint,
+)
 from logic.batch_load_types import (
     BatchLoadResult,
     MatchedInvoiceBatch,
@@ -47,7 +52,8 @@ class BatchLoadParams:
     session_date: date
     batch_key: str
     amount_override_session: AmountOverrideSession | None
-    override_store_path: str
+    document_type_override_session: DocumentTypeOverrideSession | None
+    override_store: CreditOverrideStore
     warm_invoices: tuple[dict, ...] | None = None
     cancel_check: Callable[[], bool] | None = None
 
@@ -59,7 +65,7 @@ def _load_override_session(params: BatchLoadParams, invoices: tuple[dict, ...]) 
             credit_ids.add(document_id({"raw": inv}))
     if not credit_ids:
         return None
-    store = CreditOverrideStore(Path(params.override_store_path))
+    store = params.override_store
     return store.load_applicable_session(params.batch_key, credit_ids)
 
 
@@ -121,6 +127,21 @@ def _load_cold_invoices(params: BatchLoadParams, progress_cb: ProgressCallback |
     return invoices
 
 
+def apply_match_postprocess(
+    matched_list: list[dict],
+    *,
+    document_type_override_session: DocumentTypeOverrideSession | None = None,
+    strip_raw_text: bool = True,
+) -> list[dict]:
+    """Resolve document types and optionally enrich credits after supplier matching."""
+    resolved = resolve_document_types(matched_list, document_type_override_session)
+    if batch_requires_settlement(resolved):
+        resolved = enrich_credit_documents(resolved)
+    if strip_raw_text:
+        strip_raw_text_from_invoices(resolved)
+    return resolved
+
+
 def run_preprocess(params: BatchLoadParams, progress_cb: ProgressCallback | None = None) -> PreprocessCheckpoint:
     """Stage parse → match → postprocess; produces v0/v1 checkpoint."""
     _emit(progress_cb, 0, 1, "", "deduplicating")
@@ -144,10 +165,12 @@ def run_preprocess(params: BatchLoadParams, progress_cb: ProgressCallback | None
     _emit(progress_cb, 0, 1, "", "matching_suppliers")
     db = params.supplier_db_snapshot.matcher_db()
     matched_list = match_suppliers(list(v0.invoices), db)
-    if batch_requires_settlement(matched_list):
-        _emit(progress_cb, 0, 1, "", "enriching_credits")
-        matched_list = enrich_credit_documents(matched_list)
-    strip_raw_text_from_invoices(matched_list)
+    _emit(progress_cb, 0, 1, "", "resolving_document_types")
+    matched_list = apply_match_postprocess(
+        matched_list,
+        document_type_override_session=params.document_type_override_session,
+        strip_raw_text=True,
+    )
 
     v1 = MatchedInvoiceBatch(
         batch_id=stable_hash({"parent": v0.batch_id, "stage": "v1"}),
@@ -184,6 +207,9 @@ def run_engine(params: BatchLoadParams, v2_invoices: tuple[dict, ...]) -> Engine
             session_date=params.session_date,
         ),
         amount_override_fingerprint=amount_override_session_fingerprint(amount_session),
+        document_type_override_fingerprint=document_type_override_session_fingerprint(
+            params.document_type_override_session
+        ),
     )
 
 

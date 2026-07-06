@@ -124,11 +124,24 @@ De volgende punten zijn gedocumenteerd voor een latere build-fase; er is nu geen
 2. **`strategy_engine_bundle.json`** — pad in frozen mode (`parser/profile_strategy_engine.py`).
 3. **`tesseract_path()`** — implementeren wanneer `packaging/tesseract/` binaries bevat; env-vars (`TESSDATA_PREFIX`, `tesseract_cmd`, PATH) instellen bij startup.
 
+## App-icoon
+
+Bronbestanden in `packaging/icons/`:
+
+| Bestand | Gebruik |
+|---------|---------|
+| `app_icon.png` | Qt-venstericoon (gebundeld via `datas` → `icons/`) |
+| `app_icon.ico` | Windows `.exe`-icoon (PyInstaller `EXE(icon=...)`) |
+| `app_icon.icns` | macOS `.app`-icoon (toekomstige Mac-bundle) |
+
+In development toont macOS Dock nog het Python-icoon bij `python main.py`; na installatie/build gebruikt de gebundelde app het eigen icoon.
+
 ## Bestanden in deze map
 
 | Bestand | Doel |
 |---------|------|
 | `pdf2sepa.spec` | PyInstaller-specificatie |
+| `icons/` | App-iconen (PNG, ICO, ICNS) |
 | `tesseract/README.md` | Placeholder voor OCR-binaries |
 | `tesseract/tessdata/README.md` | Placeholder voor traineddata |
 

@@ -48,7 +48,7 @@ from PySide6.QtWidgets import (
 )
 
 from logic.invoice_folder_loader import load_invoices_from_folder, strip_raw_text_from_invoices
-from logic.batch_load_pipeline import BatchLoadParams
+from logic.batch_load_pipeline import BatchLoadParams, apply_match_postprocess
 from logic.batch_load_types import (
     BatchLoadResult,
     IbanAmbiguityDialogSpec,
@@ -147,6 +147,12 @@ from logic.credit_settlement import document_id
 from logic.credit_override_apply import make_detach_override, make_reassign_override
 from logic.amount_override_apply import apply_amount_overrides
 from logic.amount_override_store import AmountOverride, AmountOverrideSession, amount_override_session_fingerprint
+from logic.document_type_override_store import (
+    DocumentTypeOverrideSession,
+    DocumentTypeOverrideStore,
+    document_type_override_session_fingerprint,
+    make_document_type_override,
+)
 from logic.credit_override_store import CreditOverrideStore
 from logic.engine_cache import SettlementEngineCache
 from logic.engine_result import EngineResult
@@ -346,6 +352,21 @@ class TraceStepVM:
 
 
 @dataclass(frozen=True)
+class _CellSnapshot:
+    text: str
+    tooltip: str
+    flags: int
+    roles: dict[int, Any]
+
+
+@dataclass(frozen=True)
+class _TableSnapshot:
+    cells: tuple[tuple[_CellSnapshot | None, ...], ...]
+    active_run_id: str | None
+    session_amount_overrides: dict[str, AmountOverride]
+
+
+@dataclass(frozen=True)
 class ResolvedRowViewModel:
     row: int
     row_id: str
@@ -410,7 +431,9 @@ def _agent_log(hypothesis_id: str, location: str, message: str, data: dict) -> N
         pass
 # endregion
 
-APP_BASE = Path(__file__).resolve().parent
+from logic.runtime_paths import app_root as _app_root
+
+APP_BASE = _app_root()
 
 _SUPPLIER_MATCH_REVIEW_STATUSES = frozenset(
     {"needs_review", "unmatched", "no_hint", "new", "load_failed"}
@@ -859,6 +882,40 @@ _ROW_INVOICE_NUMBER_RESULT_ROLE = Qt.ItemDataRole.UserRole + 18
 _ROW_CUSTOMER_NUMBER_RESULT_ROLE = Qt.ItemDataRole.UserRole + 19
 _ROW_IBAN_RESULT_ROLE = Qt.ItemDataRole.UserRole + 20
 
+_TABLE_SNAPSHOT_ROLES: tuple[Qt.ItemDataRole, ...] = (
+    Qt.ItemDataRole.UserRole,
+    _ROW_WARNING_RAW_ROLE,
+    _ROW_INVOICE_DATE_SOURCE_ROLE,
+    _ROW_DATE_MODE_ROLE,
+    _ROW_EFFECTIVE_TERM_ROLE,
+    _ROW_TERM_TRUSTED_ROLE,
+    _ROW_EMAIL_DOMAIN_ROLE,
+    _ROW_KVK_NUMBER_ROLE,
+    _ROW_VAT_NUMBER_ROLE,
+    _ROW_BASE_INCL_ROLE,
+    _ROW_BASE_EXCL_ROLE,
+    _ROW_DECISION_TRACE_ROLE,
+    _ROW_AMOUNT_RESULT_ROLE,
+    _ROW_DECISION_ROLE,
+    _ROW_ROW_ID_ROLE,
+    _ROW_RENDER_HASH_ROLE,
+    _ROW_SUPPLIER_ORIGINAL_ROLE,
+    _ROW_INVOICE_DIAGNOSTICS_ROLE,
+    _ROW_INVOICE_NUMBER_RESULT_ROLE,
+    _ROW_CUSTOMER_NUMBER_RESULT_ROLE,
+    _ROW_IBAN_RESULT_ROLE,
+    _ROW_SETTLEMENT_GROUP_ID_ROLE,
+    _ROW_SETTLEMENT_STATUS_ROLE,
+    _ROW_SETTLEMENT_DOC_ID_ROLE,
+    _ROW_SETTLEMENT_DOC_TYPE_ROLE,
+    _ROW_SETTLEMENT_ROW_KIND_ROLE,
+    _ROW_SETTLEMENT_SOURCE_PDF_ROLE,
+    _ROW_SETTLEMENT_SUPPLIER_ROLE,
+    _ROW_INVOICE_META_ROLE,
+)
+
+_UNDO_STACK_LIMIT = 30
+
 _READ_ONLY_FLAGS = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
 
 
@@ -1196,7 +1253,9 @@ class MainWindow(QMainWindow):
         self._persist_sort_column: Optional[int] = None
         self._persist_sort_order: Qt.SortOrder = Qt.SortOrder.AscendingOrder
         self._sort_persist_connected: bool = False
-        self._deleted_rows_undo: list[list[tuple[int, str]]] = []
+        self._undo_stack: list[_TableSnapshot] = []
+        self._undo_restore_depth: int = 0
+        self._undo_batch_depth: int = 0
         self._session_date = date.today()
         self._suppress_table_item_changed: bool = False
         self._field_apply_depth: int = 0
@@ -1206,8 +1265,9 @@ class MainWindow(QMainWindow):
         self._decision_store = GuardedDecisionStore(self._decision_store_inner, is_allowed=lambda: self._resolver_active)
         self._pinned_run_id: str | None = None
         self._active_run_id: str | None = None
-        self._approval_store = UserApprovalStore(self._user_data_dir / "user_approvals.json")
-        self._override_store = CreditOverrideStore(self._user_data_dir / "credit_overrides.json")
+        self._approval_store = UserApprovalStore()
+        self._override_store = CreditOverrideStore()
+        self._document_type_override_store = DocumentTypeOverrideStore()
         self._session_amount_overrides: dict[str, AmountOverride] = {}
         self._engine_cache = SettlementEngineCache()
         self._matched_invoices: list[dict] = []
@@ -1249,6 +1309,16 @@ class MainWindow(QMainWindow):
             self._suppress_table_item_changed = prev_suppress
             self._field_apply_depth = max(0, self._field_apply_depth - 1)
 
+    @contextmanager
+    def _undo_batch(self):
+        """Group multiple mutations into one undo step (e.g. profile confirm)."""
+        self._push_undo()
+        self._undo_batch_depth += 1
+        try:
+            yield
+        finally:
+            self._undo_batch_depth = max(0, self._undo_batch_depth - 1)
+
     def _supplier_db_path(self) -> str:
         return str(self._user_data_dir / "suppliers.json")
 
@@ -1277,6 +1347,26 @@ class MainWindow(QMainWindow):
 
     def _clear_session_amount_overrides(self) -> None:
         self._session_amount_overrides.clear()
+
+    def _session_document_type_override_session(self) -> DocumentTypeOverrideSession | None:
+        batch_key = self._batch_key()
+        all_doc_ids, _ = self._document_ids_in_matched(self._matched_invoices)
+        if not all_doc_ids:
+            return self._document_type_override_store.load_session(batch_key)
+        return self._document_type_override_store.load_applicable_session(batch_key, all_doc_ids)
+
+    def _rematch_with_document_type_overrides(self) -> list[dict] | None:
+        warm = self._load_parsed_invoices_warm()
+        if warm is None:
+            return None
+        parsed = deepcopy(warm)
+        db = SupplierDB(path=self._supplier_db_path())
+        matched = match_suppliers(parsed, db)
+        return apply_match_postprocess(
+            matched,
+            document_type_override_session=self._session_document_type_override_session(),
+            strip_raw_text=True,
+        )
 
     def _document_ids_in_matched(self, matched: list[dict]) -> tuple[set[str], set[str]]:
         all_ids: set[str] = set()
@@ -1315,6 +1405,9 @@ class MainWindow(QMainWindow):
                 session_date=self._session_date,
             ),
             amount_override_fingerprint=amount_override_session_fingerprint(amount_session),
+            document_type_override_fingerprint=document_type_override_session_fingerprint(
+                self._session_document_type_override_session()
+            ),
         )
 
     def _populate_from_engine_result(
@@ -1497,6 +1590,7 @@ class MainWindow(QMainWindow):
 
     def _on_detach_credit_override(self, credit: dict[str, Any]) -> None:
         cid = document_id({"raw": credit})
+        self._push_undo()
         self._override_store.upsert_override(
             self._batch_key(),
             make_detach_override(cid),
@@ -1517,6 +1611,7 @@ class MainWindow(QMainWindow):
         allocations = dlg.allocations()
         if not allocations:
             return
+        self._push_undo()
         self._override_store.upsert_override(
             self._batch_key(),
             make_reassign_override(dlg.credit_document_id, allocations),
@@ -1530,6 +1625,7 @@ class MainWindow(QMainWindow):
 
     def _on_reset_credit_override(self, credit: dict[str, Any]) -> None:
         cid = document_id({"raw": credit})
+        self._push_undo()
         self._override_store.clear_credit(self._batch_key(), cid)
         self._rerun_settlement_engine()
 
@@ -1583,11 +1679,13 @@ class MainWindow(QMainWindow):
         new_dec = Decimal(str(new_val)).copy_abs().quantize(Decimal("0.01"))
         if new_dec == old_dec:
             if existing is not None:
+                self._push_undo()
                 self._remove_session_amount_override(doc_id)
             self._rerun_settlement_engine()
             return
         if existing is not None and new_dec == existing.new_amount.copy_abs().quantize(Decimal("0.01")):
             return
+        self._push_undo()
         override = AmountOverride(
             document_id=doc_id,
             old_amount=old_dec,
@@ -1875,11 +1973,13 @@ class MainWindow(QMainWindow):
         existing = self._session_amount_overrides.get(doc_id)
         if new_dec == old_dec:
             if existing is not None:
+                self._push_undo()
                 self._remove_session_amount_override(doc_id)
             self._rerun_settlement_engine()
             return
         if existing is not None and new_dec == existing.new_amount.copy_abs().quantize(Decimal("0.01")):
             return
+        self._push_undo()
         override = AmountOverride(
             document_id=doc_id,
             old_amount=old_dec,
@@ -3284,7 +3384,8 @@ class MainWindow(QMainWindow):
             session_date=self._session_date,
             batch_key=self._batch_key(),
             amount_override_session=self._session_amount_override_session(),
-            override_store_path=str(self._override_store.path),
+            document_type_override_session=self._session_document_type_override_session(),
+            override_store=self._override_store,
             warm_invoices=warm_tuple,
         )
 
@@ -3521,6 +3622,11 @@ class MainWindow(QMainWindow):
         )
         if parse_pdfs:
             self._clear_session_amount_overrides()
+            self._undo_stack.clear()
+            batch_key = self._batch_key()
+            self._override_store.clear_batch(batch_key)
+            self._document_type_override_store.clear_batch(batch_key)
+            self._approval_store.clear_batch(batch_key)
         self._start_batch_load(parse_pdfs=parse_pdfs)
 
     def _update_load_status_after_load(
@@ -3840,6 +3946,7 @@ class MainWindow(QMainWindow):
         mark_pending: bool = True,
     ) -> None:
         """Leg vast dat deze leverancier geen klantnummer op de factuur heeft."""
+        self._push_undo()
         # #region agent log (debug mode)
         _dbg_log_3d66a1(
             hypothesis_id="H2",
@@ -3907,6 +4014,7 @@ class MainWindow(QMainWindow):
         override_reason: str = "diagnostics_candidate_click",
     ) -> None:
         """Atomic operation: state update → resolve_field → apply_resolved_field_result → UI refresh."""
+        self._push_undo()
         candidate = self._candidate_from_ui_dict(field_id, cand, source_fallback="manual")
         if candidate is None:
             return
@@ -3986,6 +4094,14 @@ class MainWindow(QMainWindow):
         selected_by_field: dict[str, Any],
     ) -> None:
         """Bevestig huidige selectie: user_selected → resolve (gewijzigd) → apply (alle velden)."""
+        with self._undo_batch():
+            self._confirm_selected_fields_for_row_impl(row, selected_by_field)
+
+    def _confirm_selected_fields_for_row_impl(
+        self,
+        row: int,
+        selected_by_field: dict[str, Any],
+    ) -> None:
         resolved_by_field: dict[FieldId, dict[str, Any]] = {}
         for field_id in REVIEW_FIELD_IDS:
             generic_snap = self._field_result_snapshot_for_row(row, field_id) or {}
@@ -4764,6 +4880,22 @@ class MainWindow(QMainWindow):
         learned_profile: dict[str, Any] | None,
     ) -> None:
         """Werk tabelcellen bij na bevestiging (geen engine-commit)."""
+        with self._undo_batch():
+            self._apply_profile_confirm_to_row_impl(
+                row,
+                result_confirmed,
+                profile_saved=profile_saved,
+                learned_profile=learned_profile,
+            )
+
+    def _apply_profile_confirm_to_row_impl(
+        self,
+        row: int,
+        result_confirmed: dict[str, Any],
+        *,
+        profile_saved: bool,
+        learned_profile: dict[str, Any] | None,
+    ) -> None:
         amt_xml = confirmed_amount_xml(result_confirmed)
         if amt_xml:
             self._resolve_and_apply_field_candidate(
@@ -4951,6 +5083,43 @@ class MainWindow(QMainWindow):
                 return deepcopy(ar)
         return None
 
+    def _set_document_type_from_row(self, row: int, target_type: str) -> bool:
+        doc_id = self._document_id_for_table_row(row)
+        inv = self._invoice_for_document_id(doc_id) if doc_id else None
+        if inv is None:
+            try:
+                p_row = self._payment_dict_from_row(row)
+            except ValueError:
+                return False
+            inv = self._match_inv_for_payment(self._matched_invoices, p_row)
+        if inv is None:
+            return False
+        if target_type not in ("invoice", "credit_note"):
+            return False
+        cid = document_id({"raw": inv})
+        self._document_type_override_store.upsert_override(
+            self._batch_key(),
+            make_document_type_override(cid, target_type),  # type: ignore[arg-type]
+            history_event={
+                "event": "user_set_document_type",
+                "document_id": cid,
+                "document_type": target_type,
+                "at": now_utc_iso(),
+            },
+        )
+        matched = self._rematch_with_document_type_overrides()
+        if matched is None:
+            QMessageBox.warning(
+                self,
+                tr("diagnostics.section.general"),
+                tr("dialog.batch_load.no_cache.message"),
+            )
+            return False
+        self._matched_invoices = matched
+        self._engine_cache.invalidate("document_type_override")
+        self._rerun_settlement_engine(focus_doc_ids={cid})
+        return True
+
     def _open_diagnostics_for_row(self, row: int) -> None:
         try:
             diag, limited = self._build_diagnostics_for_row(row)
@@ -4972,6 +5141,11 @@ class MainWindow(QMainWindow):
                 on_save_credit_profile=lambda selected: (
                     self._save_credit_profile_from_row(row, selected)
                     or _refresh_diag(selected)
+                ),
+                on_set_document_type=lambda target_type: (
+                    _refresh_diag({})
+                    if self._set_document_type_from_row(row, target_type)
+                    else None
                 ),
                 limited_snapshot=limited,
             )
@@ -5757,6 +5931,7 @@ class MainWindow(QMainWindow):
         self._set_status(tr("status.discount_applied", updated=updated, skipped=skipped_suffix, extra=extra))
 
     def _on_add_row(self) -> None:
+        self._push_undo()
         self._suppress_table_item_changed = True
         self._append_table_row(
             "",
@@ -6164,6 +6339,7 @@ class MainWindow(QMainWindow):
                 tr("dialog.suppliers.select_rows"),
             )
             return
+        self._push_undo()
         db = SupplierDB(path=self._supplier_db_path())
         ok = 0
         failed = 0
@@ -6273,32 +6449,90 @@ class MainWindow(QMainWindow):
             self._table.sortByColumn(self._persist_sort_column, self._persist_sort_order)
         self._apply_filter_to_table(self._filter_edit.text())
 
+    def _capture_table_snapshot(self) -> _TableSnapshot:
+        cells: list[tuple[_CellSnapshot | None, ...]] = []
+        for r in range(self._table.rowCount()):
+            row_cells: list[_CellSnapshot | None] = []
+            for c in range(self._table.columnCount()):
+                it = self._table.item(r, c)
+                if it is None:
+                    row_cells.append(None)
+                    continue
+                roles: dict[int, Any] = {}
+                for role in _TABLE_SNAPSHOT_ROLES:
+                    val = it.data(role)
+                    if val is not None:
+                        roles[int(role)] = deepcopy(val)
+                row_cells.append(
+                    _CellSnapshot(
+                        text=it.text(),
+                        tooltip=it.toolTip() or "",
+                        flags=int(it.flags().value),
+                        roles=roles,
+                    )
+                )
+            cells.append(tuple(row_cells))
+        return _TableSnapshot(
+            cells=tuple(cells),
+            active_run_id=self._active_run_id,
+            session_amount_overrides=dict(self._session_amount_overrides),
+        )
+
+    def _restore_table_snapshot(self, snap: _TableSnapshot) -> None:
+        prev_suppress = self._suppress_table_item_changed
+        blocked = self._table.blockSignals(True)
+        self._suppress_table_item_changed = True
+        try:
+            self._table.setRowCount(len(snap.cells))
+            for r, row_cells in enumerate(snap.cells):
+                for c, cell in enumerate(row_cells):
+                    if cell is None:
+                        self._table.setItem(r, c, None)
+                        continue
+                    it = QTableWidgetItem(cell.text)
+                    it.setFlags(Qt.ItemFlags(cell.flags))
+                    if cell.tooltip:
+                        it.setToolTip(cell.tooltip)
+                    for role_int, val in cell.roles.items():
+                        it.setData(Qt.ItemDataRole(role_int), val)
+                    self._table.setItem(r, c, it)
+            self._active_run_id = snap.active_run_id
+            self._session_amount_overrides = dict(snap.session_amount_overrides)
+        finally:
+            self._suppress_table_item_changed = prev_suppress
+            self._table.blockSignals(blocked)
+        self._decision_table_fingerprint = None
+        self._apply_row_colors()
+        self._refresh_filter_and_sort_after_row_change()
+        self._refresh_export_batch_status_label()
+        self._refresh_profile_button_state()
+
+    def _push_undo(self) -> None:
+        if self._is_loading_batch or self._undo_restore_depth > 0 or self._undo_batch_depth > 0:
+            return
+        self._undo_stack.append(self._capture_table_snapshot())
+        if len(self._undo_stack) > _UNDO_STACK_LIMIT:
+            self._undo_stack.pop(0)
+
+    def _on_undo(self) -> None:
+        if not self._undo_stack:
+            return
+        snap = self._undo_stack.pop()
+        self._undo_restore_depth += 1
+        try:
+            self._restore_table_snapshot(snap)
+        finally:
+            self._undo_restore_depth -= 1
+        self._set_status(tr("status.undo"))
+
     def _on_delete_selected_rows(self) -> None:
         selected = self._selected_table_rows()
         if not selected:
             return
-        deleted_data: list[list[tuple[int, str]]] = []
+        self._push_undo()
         for r in sorted(selected, reverse=True):
             if 0 <= r < self._table.rowCount():
-                row_data: list[tuple[int, str]] = []
-                for c in range(self._table.columnCount()):
-                    it = self._table.item(r, c)
-                    row_data.append((c, it.text() if it else ""))
-                deleted_data.append(row_data)
                 self._table.removeRow(r)
-        if deleted_data:
-            self._deleted_rows_undo.append(deleted_data[0])
-        self._refresh_filter_and_sort_after_row_change()
-        self._refresh_export_batch_status_label()
-
-    def _on_undo_delete(self) -> None:
-        if not self._deleted_rows_undo:
-            return
-        row_data = self._deleted_rows_undo.pop()
-        r = self._table.rowCount()
-        self._table.insertRow(r)
-        for c, text in row_data:
-            self._table.setItem(r, c, QTableWidgetItem(text))
         self._refresh_filter_and_sort_after_row_change()
         self._refresh_export_batch_status_label()
 
@@ -6307,7 +6541,7 @@ class MainWindow(QMainWindow):
         QShortcut(QKeySequence("Ctrl+R"), self).activated.connect(self._on_reread_pdfs)
         QShortcut(QKeySequence("Ctrl+E"), self).activated.connect(self._on_make_xml)
         QShortcut(QKeySequence("Delete"), self).activated.connect(self._on_delete_selected_rows)
-        QShortcut(QKeySequence("Ctrl+Z"), self).activated.connect(self._on_undo_delete)
+        QShortcut(QKeySequence.StandardKey.Undo, self).activated.connect(self._on_undo)
         QShortcut(QKeySequence("Ctrl+F"), self).activated.connect(
             lambda: self._filter_edit.setFocus()
         )
@@ -7850,10 +8084,17 @@ class MainWindow(QMainWindow):
         self._log_export(abspath, payment_dicts, total_amount)
 
 def main() -> None:
+    from logic.auto_update import offer_update_if_available
+    from logic.runtime_paths import app_icon_path
     from parser.profile_strategy_engine import reload_strategy_engine_state
 
     reload_strategy_engine_state()
     app = QApplication(sys.argv)
+    if offer_update_if_available():
+        sys.exit(0)
+    icon_path = app_icon_path()
+    if icon_path is not None:
+        app.setWindowIcon(QIcon(str(icon_path)))
     window = MainWindow()
     window.resize(1100, 560)
     window.show()
