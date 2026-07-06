@@ -40,23 +40,31 @@ jobs:
           choco install tesseract -y --no-progress
           $src = "C:\Program Files\Tesseract-OCR"
           $dst = "packaging\tesseract"
+          $tessdataRepo = "https://github.com/tesseract-ocr/tessdata/raw/main"
           New-Item -ItemType Directory -Force -Path $dst | Out-Null
           Copy-Item "$src\tesseract.exe" $dst -Force
           Copy-Item "$src\*.dll" $dst -Force
           New-Item -ItemType Directory -Force -Path "$dst\tessdata" | Out-Null
           foreach ($lang in @("eng", "nld")) {
+            $dest = "$dst\tessdata\$lang.traineddata"
             $trained = "$src\tessdata\$lang.traineddata"
             if (Test-Path $trained) {
-              Copy-Item $trained "$dst\tessdata\" -Force
-            } else {
-              Write-Warning "Missing tessdata language pack: $lang"
+              Copy-Item $trained $dest -Force
+            } elseif (-not (Test-Path $dest)) {
+              $url = "$tessdataRepo/$lang.traineddata"
+              Write-Host "Downloading tessdata: $url"
+              Invoke-WebRequest -Uri $url -OutFile $dest -UseBasicParsing
+            }
+            if (-not (Test-Path $dest)) {
+              Write-Error "Missing required tessdata language pack: $lang"
+              exit 1
             }
           }
           if (-not (Test-Path "$dst\tesseract.exe")) {
             Write-Error "Tesseract staging failed"
             exit 1
           }
-          Write-Host "Staged Tesseract to $dst"
+          Write-Host "Staged Tesseract to $dst (eng + nld tessdata)"
 
       - name: Build with PyInstaller
         shell: pwsh
