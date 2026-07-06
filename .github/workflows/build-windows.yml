@@ -34,6 +34,30 @@ jobs:
           python -m pip install -r requirements.txt --no-compile
           python -m pip install pyinstaller
 
+      - name: Stage Tesseract for bundling
+        shell: pwsh
+        run: |
+          choco install tesseract -y --no-progress
+          $src = "C:\Program Files\Tesseract-OCR"
+          $dst = "packaging\tesseract"
+          New-Item -ItemType Directory -Force -Path $dst | Out-Null
+          Copy-Item "$src\tesseract.exe" $dst -Force
+          Copy-Item "$src\*.dll" $dst -Force
+          New-Item -ItemType Directory -Force -Path "$dst\tessdata" | Out-Null
+          foreach ($lang in @("eng", "nld")) {
+            $trained = "$src\tessdata\$lang.traineddata"
+            if (Test-Path $trained) {
+              Copy-Item $trained "$dst\tessdata\" -Force
+            } else {
+              Write-Warning "Missing tessdata language pack: $lang"
+            }
+          }
+          if (-not (Test-Path "$dst\tesseract.exe")) {
+            Write-Error "Tesseract staging failed"
+            exit 1
+          }
+          Write-Host "Staged Tesseract to $dst"
+
       - name: Build with PyInstaller
         shell: pwsh
         run: pyinstaller --distpath packaging/dist --workpath packaging/build packaging/pdf2sepa.spec
@@ -53,6 +77,8 @@ jobs:
         run: |
           $exe = "packaging/dist/PDF2SEPA/PDF2SEPA.exe"
           $internal = "packaging/dist/PDF2SEPA/_internal"
+          $bundle = "$internal/data/strategy_engine_bundle.json"
+          $tesseract = "$internal/tesseract/tesseract.exe"
           if (-not (Test-Path $exe)) {
             Write-Error "Missing $exe"
             exit 1
@@ -61,7 +87,20 @@ jobs:
             Write-Error "Missing $internal"
             exit 1
           }
-          Write-Host "Build output verified: PDF2SEPA.exe and _internal/ present"
+          if (-not (Test-Path $bundle)) {
+            Write-Error "Missing parser bundle: $bundle"
+            exit 1
+          }
+          if (-not (Test-Path $tesseract)) {
+            Write-Error "Missing bundled Tesseract: $tesseract"
+            exit 1
+          }
+          $nld = "$internal/tesseract/tessdata/nld.traineddata"
+          if (-not (Test-Path $nld)) {
+            Write-Error "Missing Dutch OCR model: $nld"
+            exit 1
+          }
+          Write-Host "Build output verified: exe, bundle, Tesseract and nld tessdata present"
 
       - name: Create zip archive
         shell: pwsh

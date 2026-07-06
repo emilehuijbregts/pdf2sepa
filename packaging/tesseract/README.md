@@ -21,13 +21,9 @@ packaging/tesseract/
 
 ## Activeren in de build
 
-1. Plaats `tesseract.exe`, bijbehorende DLL's en `tessdata/*.traineddata` in deze map.
-2. Uncomment de Tesseract-sectie in [`../pdf2sepa.spec`](../pdf2sepa.spec).
-3. Implementeer in een vervolgfase runtime-wiring in de applicatie:
-   - `TESSDATA_PREFIX` → parent van `tessdata/`
-   - `pytesseract.pytesseract.tesseract_cmd` → pad naar `tesseract.exe`
-   - `PATH` zodat PyMuPDF `get_textpage_ocr` Tesseract kan vinden
-   - `logic/runtime_paths.tesseract_path()` voor logging en consistentie
+1. Plaats `tesseract.exe`, bijbehorende DLL's en `tessdata/*.traineddata` in deze map, **of** laat CI ze stagen (zie `.github/workflows/build-windows.yml`).
+2. De PyInstaller-spec bundelt automatisch wanneer `tesseract.exe` aanwezig is.
+3. Bij startup roept `main.py` `logic.runtime_paths.configure_tesseract_runtime()` aan (`TESSDATA_PREFIX`, `pytesseract.tesseract_cmd`, `PATH`).
 
 ## Benodigde talen
 

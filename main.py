@@ -4,7 +4,14 @@ import logging
 import sys
 from logging.handlers import RotatingFileHandler
 
-from logic.runtime_paths import app_root, data_dir, deps_dir, log_dir, tesseract_path
+from logic.runtime_paths import (
+    app_root,
+    configure_tesseract_runtime,
+    data_dir,
+    deps_dir,
+    log_dir,
+    tesseract_path,
+)
 from version import __version__
 
 # Make sure local vendored deps are available (for dev runs).
@@ -45,6 +52,7 @@ def _configure_logging() -> logging.Logger:
 
 
 def main() -> None:
+    configure_tesseract_runtime()
     logger = _configure_logging()
     logger.info("PDF2SEPA %s", __version__)
     logger.info("App root: %s", app_root())

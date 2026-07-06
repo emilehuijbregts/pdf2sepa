@@ -195,13 +195,16 @@ def _normalize_vat_compact(vat: str | None) -> str:
 
 def _settings_json_path() -> Path:
     from logic.paths import read_user_data_root
+    from logic.runtime_paths import app_root
 
-    app_base = Path(__file__).resolve().parents[1]
-    return read_user_data_root(app_base) / "settings.json"
+    return read_user_data_root(app_root()) / "settings.json"
 
 
 def _default_supplier_db_path() -> Path:
-    return Path(__file__).resolve().parents[1] / "data" / "suppliers.json"
+    from logic.paths import read_user_data_root
+    from logic.runtime_paths import app_root
+
+    return read_user_data_root(app_root()) / "suppliers.json"
 
 
 def resolve_supplier_extraction_profile(

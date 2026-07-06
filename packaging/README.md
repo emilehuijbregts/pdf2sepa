@@ -108,21 +108,11 @@ De PyInstaller-spec bundelt geen van deze bestanden.
 
 **App-engine data (geen klantdata, wel shipped config):**
 
-- `data/strategy_engine_bundle.json` — strategy-engine configuratie; in de spec staat een gecommentarieerde placeholder. Padresolutie in frozen mode is vervolgwerk.
+- `data/strategy_engine_bundle.json` — strategy-engine configuratie; pad via `logic.runtime_paths.bundled_engine_data_path()`.
 
 ## Tesseract
 
-Zie [`tesseract/README.md`](tesseract/README.md). Binaries en traineddata worden later toegevoegd; de spec heeft voorbereide (uitgecommentarieerde) `binaries`/`datas`-regels.
-
-Benodigde talen: `nld` (PyMuPDF) en `nld+eng` (pytesseract fallback).
-
-## Bekende vervolgstappen (niet in deze fase)
-
-De volgende punten zijn gedocumenteerd voor een latere build-fase; er is nu geen applicatiecode gewijzigd:
-
-1. **`main_window.APP_BASE`** gebruikt `Path(__file__).parent` i.p.v. `runtime_paths.app_root()` — moet worden aangesloten vóór productie-build.
-2. **`strategy_engine_bundle.json`** — pad in frozen mode (`parser/profile_strategy_engine.py`).
-3. **`tesseract_path()`** — implementeren wanneer `packaging/tesseract/` binaries bevat; env-vars (`TESSDATA_PREFIX`, `tesseract_cmd`, PATH) instellen bij startup.
+Zie [`tesseract/README.md`](tesseract/README.md). CI installeert Tesseract op de Windows-runner en staged binaries naar `packaging/tesseract/` vóór de PyInstaller-build. Runtime-wiring: `logic/runtime_paths.configure_tesseract_runtime()` bij startup.
 
 ## App-icoon
 

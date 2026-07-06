@@ -99,14 +99,10 @@ _HEAVY_FRAGILE_STRATEGIES = frozenset(
     }
 )
 
-def _bundled_data_path(filename: str) -> Path:
-    if getattr(sys, "frozen", False):
-        return Path(sys.executable).resolve().parent / "data" / filename
-    return Path(__file__).resolve().parents[1] / "data" / filename
+from logic.runtime_paths import bundled_engine_data_path
 
-
-_ENGINE_BUNDLE_PATH = _bundled_data_path("strategy_engine_bundle.json")
-_REGRESSION_BASELINE_PATH = _bundled_data_path("strategy_regression_baseline.json")
+_ENGINE_BUNDLE_PATH = bundled_engine_data_path("strategy_engine_bundle.json")
+_REGRESSION_BASELINE_PATH = bundled_engine_data_path("strategy_regression_baseline.json")
 _engine_bundle_cache: dict[str, Any] | None = None
 _engine_bundle_version: int | None = None
 _strategy_order_cache: dict[str, tuple[str, ...]] | None = None

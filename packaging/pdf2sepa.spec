@@ -78,32 +78,28 @@ if _icon_png.is_file():
     datas += [(str(_icon_png), "icons")]
 
 # ---------------------------------------------------------------------------
-# App-engine data (shipped config, NOT customer data) — phase 2
-# Path resolution in frozen mode still needs a follow-up code change.
+# App-engine data (shipped config, NOT customer data)
+# Resolved at runtime via logic.runtime_paths.bundled_engine_data_path()
 # ---------------------------------------------------------------------------
 _engine_bundle = project_root / "data" / "strategy_engine_bundle.json"
 if _engine_bundle.is_file():
     datas += [(str(_engine_bundle), "data")]
 
 # ---------------------------------------------------------------------------
-# Tesseract OCR (Windows binaries) — phase 2
-# Expected layout after installer:
-#   app/tesseract/tesseract.exe
-#   app/tesseract/*.dll
-#   app/tesseract/tessdata/nld.traineddata
-#   app/tesseract/tessdata/eng.traineddata
+# Tesseract OCR (Windows binaries)
+# Place tesseract.exe, DLLs and tessdata/ under packaging/tesseract/ before build.
 # ---------------------------------------------------------------------------
-# tesseract_root = project_root / "packaging" / "tesseract"
-# _tesseract_exe = tesseract_root / "tesseract.exe"
-# if _tesseract_exe.is_file():
-#     binaries += [(str(_tesseract_exe), "tesseract")]
-#     binaries += [
-#         (str(dll), "tesseract")
-#         for dll in sorted(tesseract_root.glob("*.dll"))
-#     ]
-# _tessdata_dir = tesseract_root / "tessdata"
-# if _tessdata_dir.is_dir():
-#     datas += [(str(_tessdata_dir), os.path.join("tesseract", "tessdata"))]
+tesseract_root = project_root / "packaging" / "tesseract"
+_tesseract_exe = tesseract_root / "tesseract.exe"
+if _tesseract_exe.is_file():
+    binaries += [(str(_tesseract_exe), "tesseract")]
+    binaries += [
+        (str(dll), "tesseract")
+        for dll in sorted(tesseract_root.glob("*.dll"))
+    ]
+_tessdata_dir = tesseract_root / "tessdata"
+if _tessdata_dir.is_dir() and any(_tessdata_dir.glob("*.traineddata")):
+    datas += [(str(_tessdata_dir), os.path.join("tesseract", "tessdata"))]
 
 # ---------------------------------------------------------------------------
 # Analysis

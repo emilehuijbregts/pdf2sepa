@@ -46,8 +46,65 @@ def deps_dir() -> Path:
     return app_root() / ".deps"
 
 
+def _meipass() -> Path | None:
+    raw = getattr(sys, "_MEIPASS", None)
+    return Path(raw) if raw else None
+
+
+def bundled_engine_data_path(filename: str) -> Path:
+    """Shipped parser config (strategy bundle, etc.) — dev repo or PyInstaller _internal."""
+    if is_frozen():
+        base = _meipass() or (app_root() / "_internal")
+        return base / "data" / filename
+    return Path(__file__).resolve().parent.parent / "data" / filename
+
+
+def _tesseract_dir_candidates() -> list[Path]:
+    root = app_root()
+    candidates: list[Path] = []
+    meipass = _meipass()
+    if meipass is not None:
+        candidates.append(meipass / "tesseract")
+    if is_frozen():
+        candidates.append(root / "_internal" / "tesseract")
+        candidates.append(root / "tesseract")
+    candidates.append(root / "packaging" / "tesseract")
+    return candidates
+
+
 def tesseract_path() -> Path | None:
+    for directory in _tesseract_dir_candidates():
+        for name in ("tesseract.exe", "tesseract"):
+            candidate = directory / name
+            if candidate.is_file():
+                return candidate
     return None
+
+
+def configure_tesseract_runtime() -> Path | None:
+    """Wire bundled Tesseract for PyMuPDF OCR and pytesseract. No-op if not bundled."""
+    exe = tesseract_path()
+    if exe is None:
+        return None
+
+    tess_dir = exe.parent
+    tessdata = tess_dir / "tessdata"
+    if tessdata.is_dir():
+        os.environ.setdefault("TESSDATA_PREFIX", str(tess_dir))
+
+    tess_str = str(tess_dir)
+    path_env = os.environ.get("PATH", "")
+    if not any(part == tess_str for part in path_env.split(os.pathsep) if part):
+        os.environ["PATH"] = tess_str + os.pathsep + path_env
+
+    try:
+        import pytesseract
+
+        pytesseract.pytesseract.tesseract_cmd = str(exe)
+    except ImportError:
+        pass
+
+    return exe
 
 
 def app_icon_path() -> Path | None:
