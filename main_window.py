@@ -8090,7 +8090,8 @@ def main() -> None:
 
     reload_strategy_engine_state()
     app = QApplication(sys.argv)
-    if offer_update_if_available():
+    # Auto-update on startup (Windows). Fail-safe: if update fails, app continues.
+    if offer_update_if_available(auto_accept=True):
         sys.exit(0)
     icon_path = app_icon_path()
     if icon_path is not None:

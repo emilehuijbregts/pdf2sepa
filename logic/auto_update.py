@@ -134,40 +134,47 @@ def launch_updater(zip_path: Path) -> None:
     )
 
 
-def offer_update_if_available() -> bool:
-    """Return True if an update was accepted and the updater was launched."""
+def offer_update_if_available(*, auto_accept: bool = False) -> bool:
+    """Return True if an update was accepted and the updater was launched.
+
+    When auto_accept=True, the app will download and launch the updater without
+    prompting. Failures are handled fail-safe (no update, app continues).
+    """
     if not sys.platform.startswith("win"):
         return False
     info = check_for_update()
     if info is None:
         return False
+    if not auto_accept:
+        from PySide6.QtWidgets import QMessageBox
 
-    from PySide6.QtWidgets import QMessageBox
-
-    reply = QMessageBox.question(
-        None,
-        "Update beschikbaar",
-        (
-            f"Er is een nieuwe versie beschikbaar ({info.version}).\n"
-            f"Huidige versie: {__version__}\n\n"
-            "Wil je nu updaten? Uw gegevens blijven behouden."
-        ),
-        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-        QMessageBox.StandardButton.No,
-    )
-    if reply != QMessageBox.StandardButton.Yes:
-        return False
+        reply = QMessageBox.question(
+            None,
+            "Update beschikbaar",
+            (
+                f"Er is een nieuwe versie beschikbaar ({info.version}).\n"
+                f"Huidige versie: {__version__}\n\n"
+                "Wil je nu updaten? Uw gegevens blijven behouden."
+            ),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return False
 
     try:
         zip_path = download_update(info)
         launch_updater(zip_path)
     except Exception:
         logger.exception("Update start failed")
-        QMessageBox.warning(
-            None,
-            "Update mislukt",
-            "De update kon niet worden gestart. Probeer het later opnieuw.",
-        )
+        if not auto_accept:
+            from PySide6.QtWidgets import QMessageBox
+
+            QMessageBox.warning(
+                None,
+                "Update mislukt",
+                "De update kon niet worden gestart. Probeer het later opnieuw.",
+            )
         return False
 
     return True

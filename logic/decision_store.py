@@ -160,6 +160,35 @@ class UserApprovalStore:
         except Exception:
             return {}
 
+    def clear_batch(self, batch_key: str) -> None:
+        """Remove all approvals for a batch key (best-effort)."""
+        p = self.path
+        try:
+            try:
+                existing_txt = p.read_text(encoding="utf-8")  # type: ignore[attr-defined]
+                data = json.loads(existing_txt or "{}")
+            except FileNotFoundError:
+                return
+            if not isinstance(data, dict):
+                return
+            if int(data.get("version") or 0) != self.version:
+                return
+            batches = data.get("batches")
+            if not isinstance(batches, dict):
+                return
+            if batch_key not in batches:
+                return
+            batches.pop(batch_key, None)
+            payload = {"version": self.version, "batches": batches}
+            text = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
+            try:
+                p.parent.mkdir(parents=True, exist_ok=True)  # type: ignore[attr-defined]
+            except Exception:
+                pass
+            p.write_text(text, encoding="utf-8")  # type: ignore[attr-defined]
+        except Exception:
+            return
+
     def remove_from_batch(self, batch_key: str, row_ids: set[str]) -> None:
         """Verwijder goedkeuringen voor gegeven row_ids uit een batch."""
         if not row_ids:

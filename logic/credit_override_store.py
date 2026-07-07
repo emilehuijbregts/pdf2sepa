@@ -175,6 +175,20 @@ class CreditOverrideStore:
             history=tuple(history),
         )
 
+    def clear_batch(self, batch_key: str) -> None:
+        """Remove all overrides for a batch key (best-effort)."""
+        try:
+            data = self._read_batches()
+            batches = data.get("batches")
+            if not isinstance(batches, dict):
+                return
+            if batch_key not in batches:
+                return
+            batches.pop(batch_key, None)
+            self._write_batches(batches)
+        except Exception:
+            return
+
     def load_session(self, batch_key: str) -> OverrideSession | None:
         try:
             p = self.path
