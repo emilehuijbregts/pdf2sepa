@@ -50,7 +50,7 @@ def fetch_latest_manifest(url: str = UPDATE_MANIFEST_URL) -> dict[str, str] | No
     req = urllib.request.Request(url, headers={"User-Agent": "PDF2SEPA-updater"})
     try:
         with urllib.request.urlopen(req, timeout=_FETCH_TIMEOUT_SEC) as resp:
-            raw = resp.read().decode("utf-8")
+            raw = resp.read().decode("utf-8-sig")
         data = json.loads(raw)
         if not isinstance(data, dict):
             return None
@@ -61,7 +61,7 @@ def fetch_latest_manifest(url: str = UPDATE_MANIFEST_URL) -> dict[str, str] | No
             return None
         return {"version": version, "url": download_url, "sha256": digest}
     except (OSError, urllib.error.URLError, json.JSONDecodeError, ValueError):
-        logger.debug("Update manifest fetch failed", exc_info=True)
+        logger.info("Update manifest fetch failed", exc_info=True)
         return None
 
 

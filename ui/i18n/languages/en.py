@@ -252,7 +252,7 @@ STRINGS: dict[str, str] = {
     'dialog.suppliers.vat_rate_21': '21% (standaard)',
     'dialog.suppliers.vat_title': 'BTW-nummers (voor automatische match)',
     'error.batch.apply_failed': 'Load failed while processing result:\n{detail}',
-    'error.batch.generic': 'Load failed due to an unknown error. See pdf2sepa.log for details.',
+    'error.batch.generic': 'Unknown error. See pdf2sepa.log for details.',
     'error.batch.params_missing': 'Batch load parameters are missing.',
     'error.batch.resolve_phase_incomplete': 'Batch load preprocess must complete first.',
     'error.batch.warm_invoices_required': 'No parsed invoices available for recalculation.',

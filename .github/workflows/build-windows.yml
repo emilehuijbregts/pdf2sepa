@@ -122,11 +122,12 @@ jobs:
           $version = "${{ github.ref_name }}" -replace '^v', ''
           $hash = (Get-FileHash PDF2SEPA.zip -Algorithm SHA256).Hash.ToLower()
           $url = "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/PDF2SEPA.zip"
-          @{
+          $json = (@{
             version = $version
             url = $url
             sha256 = $hash
-          } | ConvertTo-Json | Set-Content latest.json -Encoding utf8
+          } | ConvertTo-Json)
+          [System.IO.File]::WriteAllText("$PWD\latest.json", $json, [System.Text.UTF8Encoding]::new($false))
           Get-Content latest.json
 
       - name: Install Inno Setup

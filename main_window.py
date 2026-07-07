@@ -1233,7 +1233,7 @@ class MainWindow(QMainWindow):
     en een actie om SEPA XML te genereren.
     """
 
-    APP_VERSION = "1.0.0"
+    APP_VERSION = "1.0.7"
 
     def __init__(self) -> None:
         super().__init__()
