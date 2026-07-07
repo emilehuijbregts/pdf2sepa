@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import replace
 
 from PySide6.QtCore import QObject, Qt, Signal, Slot
 
 from logic import batch_load_pipeline
 
+logger = logging.getLogger(__name__)
 
 def _exception_to_error_code(exc: BaseException) -> str:
     msg = str(exc)
@@ -70,6 +72,7 @@ class InvoiceBatchLoadWorker(QObject):
             result = batch_load_pipeline.run_preprocess(active_params, self._emit_progress)
             self.preprocess_finished.emit(result)
         except Exception as exc:
+            logger.exception("Batch preprocess failed")
             self.error.emit(_exception_to_error_code(exc))
 
     @Slot(object, object)
@@ -85,4 +88,5 @@ class InvoiceBatchLoadWorker(QObject):
             )
             self.finished.emit(result)
         except Exception as exc:
+            logger.exception("Batch resolve/engine failed")
             self.error.emit(_exception_to_error_code(exc))
