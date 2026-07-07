@@ -22,6 +22,7 @@ from parser.pdf_parser import (
     _KVK_LABEL_RE,
     _KVK_RE,
     _MONTHS,
+    _MONTH_DAY_YEAR_RE,
     _MONTH_NAME_DATE_RE,
     _VAT_BTW_VALUE_RE,
     _VAT_DEBTOR_HINT_RE,
@@ -4892,6 +4893,23 @@ def _month_name_to_int(name: str) -> int | None:
     return _MONTHS.get(key)
 
 
+def _named_month_date_parts(token: str) -> tuple[int, int, int] | None:
+    """Parse day-first (2 Jul 2026) or month-first (Jul 2, 2026) named month dates."""
+    raw = str(token or "")
+    m = _MONTH_NAME_DATE_RE.search(raw)
+    if m:
+        mm = _month_name_to_int(m.group(2))
+        if mm:
+            return int(m.group(1)), mm, int(m.group(3))
+    m = _MONTH_DAY_YEAR_RE.search(raw)
+    if m:
+        mm = _month_name_to_int(m.group(1))
+        if mm:
+            return int(m.group(2)), mm, int(m.group(3))
+    return None
+
+
+
 def _date_token_to_iso(token: str) -> str | None:
     from parser.field_model import normalize_field_value
 
@@ -4899,14 +4917,10 @@ def _date_token_to_iso(token: str) -> str | None:
     if isinstance(iso, str) and iso:
         return iso
 
-    m = _MONTH_NAME_DATE_RE.search(token or "")
-    if not m:
+    parts = _named_month_date_parts(token)
+    if not parts:
         return None
-    dd = int(m.group(1))
-    mm = _month_name_to_int(m.group(2))
-    yy = int(m.group(3))
-    if not mm:
-        return None
+    dd, mm, yy = parts
     try:
         from datetime import date
 
@@ -4935,8 +4949,8 @@ def _date_token_to_iso_explain(token: str) -> tuple[str | None, dict[str, Any]]:
         )
         return iso, meta
 
-    m = _MONTH_NAME_DATE_RE.search(raw)
-    if not m:
+    parts = _named_month_date_parts(raw)
+    if not parts:
         meta = _candidate_explain_meta(
             extraction_method="regex",
             label_reason="date token did not match supported patterns",
@@ -4947,30 +4961,19 @@ def _date_token_to_iso_explain(token: str) -> tuple[str | None, dict[str, Any]]:
         )
         return None, meta
 
-    dd = int(m.group(1))
-    mm = _month_name_to_int(m.group(2))
-    yy = int(m.group(3))
-    if not mm:
-        meta = _candidate_explain_meta(
-            extraction_method="regex",
-            label_reason="month name not recognized",
-            score_breakdown={"base": 0},
-            raw_detected=raw,
-            normalized_iso=None,
-            parse_path="month_name_unrecognized",
-        )
-        return None, meta
+    dd, mm, yy = parts
     try:
         from datetime import date
 
         iso2 = date(yy, mm, dd).isoformat()
+        parse_path = "month_day_year_date" if _MONTH_DAY_YEAR_RE.search(raw) else "month_name_date"
         meta = _candidate_explain_meta(
             extraction_method="regex",
-            label_reason="month-name date parsed via _MONTH_NAME_DATE_RE + datetime.date",
+            label_reason="month-name date parsed via named month token + datetime.date",
             score_breakdown={"base": 88, "normalization_bonus": 1},
             raw_detected=raw,
             normalized_iso=iso2,
-            parse_path="month_name_date",
+            parse_path=parse_path,
         )
         return iso2, meta
     except ValueError:
@@ -5039,7 +5042,7 @@ def extract_invoice_date_result(
             r" \1",
             tail,
         )
-        for rx in (_ISO_DATE_RE, _DD_MM_YYYY_RE, _MONTH_NAME_DATE_RE):
+        for rx in (_ISO_DATE_RE, _DD_MM_YYYY_RE, _MONTH_NAME_DATE_RE, _MONTH_DAY_YEAR_RE):
             dm = rx.search(tail)
             if dm:
                 raw_tok = dm.group(0)
@@ -5076,7 +5079,7 @@ def extract_invoice_date_result(
             if _DATE_EXCLUDE_HINT_RE.search(nxt):
                 continue
             nxt_ctx = re.sub(r"\s+", " ", nxt).strip()[:160]
-            for rx in (_ISO_DATE_RE, _DD_MM_YYYY_RE, _MONTH_NAME_DATE_RE):
+            for rx in (_ISO_DATE_RE, _DD_MM_YYYY_RE, _MONTH_NAME_DATE_RE, _MONTH_DAY_YEAR_RE):
                 dm = rx.search(nxt)
                 if not dm:
                     continue
@@ -5142,7 +5145,7 @@ def extract_invoice_date_result(
                 continue
             if re.search(r"(?i)\b(?:bouwvak|vakantie|gesloten|fijne\s+zomer)\b", ln):
                 continue
-            for rx in (_ISO_DATE_RE, _DD_MM_YYYY_RE, _MONTH_NAME_DATE_RE):
+            for rx in (_ISO_DATE_RE, _DD_MM_YYYY_RE, _MONTH_NAME_DATE_RE, _MONTH_DAY_YEAR_RE):
                 dm = rx.search(ln)
                 if not dm:
                     continue

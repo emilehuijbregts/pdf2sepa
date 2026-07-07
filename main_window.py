@@ -7,6 +7,7 @@ import json
 import re
 import shutil
 import sys
+import traceback
 import uuid
 import time
 from dataclasses import dataclass
@@ -189,7 +190,7 @@ from output.sepa_xml import (
     generate_xml,
     validate_export_batch,
 )
-from parser.pdf_parser import extract_text_strict, format_remittance_text
+from parser.pdf_parser import extract_text_strict, format_remittance_text, normalize_amount_decimal
 from parser.supplier_db import (
     CUSTOMER_NUMBER_MODE_NONE,
     SupplierDB,
@@ -263,8 +264,8 @@ def _dbg_log_3d66a1(
 # #endregion
 
 # #region agent log (debug mode)
-_DEBUG_LOG_PATH = "/Users/eh/Documents/Cursor/PDF2SEPA/.cursor/debug-19e810.log"
-_DEBUG_SESSION_ID = "19e810"
+_DEBUG_LOG_PATH = "/Users/eh/Documents/Cursor/PDF2SEPA/.cursor/debug-e28c78.log"
+_DEBUG_SESSION_ID = "e28c78"
 
 
 def _dbg_log(*, hypothesis_id: str, location: str, message: str, data: dict[str, Any] | None = None, run_id: str = "pre-fix") -> None:
@@ -360,10 +361,57 @@ class _CellSnapshot:
 
 
 @dataclass(frozen=True)
+class _RowUndoEntry:
+    """Single-row undo step (stable row_id, not table index)."""
+
+    row_id: str
+    cells: tuple[_CellSnapshot | None, ...]
+    session_amount_override: AmountOverride | None = None
+    had_session_amount_override: bool = False
+    edited_column: int | None = None
+
+
+@dataclass(frozen=True)
 class _TableSnapshot:
     cells: tuple[tuple[_CellSnapshot | None, ...], ...]
     active_run_id: str | None
     session_amount_overrides: dict[str, AmountOverride]
+
+
+class _PaymentsTableWidget(QTableWidget):
+    """Captures undo snapshot once per inline edit (before value changes)."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._undo_before_edit: Callable[[int, int], None] | None = None
+        self._edit_undo_captured: bool = False
+        self._sorting_enabled_before_edit: bool = False
+
+    def set_undo_before_edit(self, callback: Callable[[int, int], None] | None) -> None:
+        self._undo_before_edit = callback
+
+    def on_cell_editor_closed(self) -> None:
+        """Allow next edit to capture undo; restore sorting if it was on."""
+        self._edit_undo_captured = False
+        if self._sorting_enabled_before_edit:
+            self.setSortingEnabled(True)
+
+    def edit(self, index, trigger, event=None):  # noqa: N802
+        # Qt roept edit() bij elke klik aan; alleen capturen als de editor écht opent
+        # (return True). De celwaarde is dan nog ongewijzigd — commit volgt pas later.
+        started = super().edit(index, trigger, event)
+        if (
+            started
+            and index.isValid()
+            and self._undo_before_edit is not None
+            and not self._edit_undo_captured
+        ):
+            self._sorting_enabled_before_edit = self.isSortingEnabled()
+            if self._sorting_enabled_before_edit:
+                self.setSortingEnabled(False)
+            self._undo_before_edit(index.row(), index.column())
+            self._edit_undo_captured = True
+        return started
 
 
 @dataclass(frozen=True)
@@ -914,7 +962,7 @@ _TABLE_SNAPSHOT_ROLES: tuple[Qt.ItemDataRole, ...] = (
     _ROW_INVOICE_META_ROLE,
 )
 
-_UNDO_STACK_LIMIT = 30
+_UNDO_STACK_LIMIT = 5
 
 _READ_ONLY_FLAGS = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
 
@@ -1233,7 +1281,7 @@ class MainWindow(QMainWindow):
     en een actie om SEPA XML te genereren.
     """
 
-    APP_VERSION = "1.0.7"
+    APP_VERSION = "1.0.8"
 
     def __init__(self) -> None:
         super().__init__()
@@ -1248,14 +1296,17 @@ class MainWindow(QMainWindow):
         self._selected_folder: Optional[Path] = None
         self._payment_sources: list[PaymentSource] = []
         self._status_label = QLabel("")
-        self._table: QTableWidget
+        self._table: _PaymentsTableWidget
         self._filter_edit: QLineEdit
         self._persist_sort_column: Optional[int] = None
         self._persist_sort_order: Qt.SortOrder = Qt.SortOrder.AscendingOrder
         self._sort_persist_connected: bool = False
-        self._undo_stack: list[_TableSnapshot] = []
+        self._undo_stack: list[_RowUndoEntry] = []
+        self._pending_undo_snapshot: _RowUndoEntry | None = None
         self._undo_restore_depth: int = 0
         self._undo_batch_depth: int = 0
+        self._undo_shortcut_busy: bool = False
+        self._diagnostics_action_busy: bool = False
         self._session_date = date.today()
         self._suppress_table_item_changed: bool = False
         self._field_apply_depth: int = 0
@@ -1310,9 +1361,9 @@ class MainWindow(QMainWindow):
             self._field_apply_depth = max(0, self._field_apply_depth - 1)
 
     @contextmanager
-    def _undo_batch(self):
-        """Group multiple mutations into one undo step (e.g. profile confirm)."""
-        self._push_undo()
+    def _undo_batch(self, *, source: str = "batch"):
+        """Suppress per-cell undo capture during multi-step UI updates."""
+        _ = source
         self._undo_batch_depth += 1
         try:
             yield
@@ -1441,13 +1492,26 @@ class MainWindow(QMainWindow):
             run_shadow_validation(matched, engine_result)
         return n_err
 
+    def _cancel_pending_engine_updates(self) -> None:
+        """Stop geplande engine-reruns (voorkomt inconsistentie na undo)."""
+        self._engine_rerun_timer.stop()
+        self._pending_engine_row_ids.clear()
+        self._pending_engine_idempotency.clear()
+
+    def _clear_undo_stack(self) -> None:
+        self._undo_stack.clear()
+
     def _rerun_settlement_engine(
         self,
         *,
         focus_doc_ids: set[str] | None = None,
+        clear_undo: bool = False,
     ) -> None:
         if not self._matched_invoices:
             return
+        self._cancel_pending_engine_updates()
+        if clear_undo:
+            self._clear_undo_stack()
         prior_expanded = set(self._expanded_settlement_groups)
         self._engine_cache.invalidate("override_changed")
         self._engine_result = self._compute_engine_result(self._matched_invoices)
@@ -1590,7 +1654,6 @@ class MainWindow(QMainWindow):
 
     def _on_detach_credit_override(self, credit: dict[str, Any]) -> None:
         cid = document_id({"raw": credit})
-        self._push_undo()
         self._override_store.upsert_override(
             self._batch_key(),
             make_detach_override(cid),
@@ -1611,7 +1674,6 @@ class MainWindow(QMainWindow):
         allocations = dlg.allocations()
         if not allocations:
             return
-        self._push_undo()
         self._override_store.upsert_override(
             self._batch_key(),
             make_reassign_override(dlg.credit_document_id, allocations),
@@ -1625,7 +1687,6 @@ class MainWindow(QMainWindow):
 
     def _on_reset_credit_override(self, credit: dict[str, Any]) -> None:
         cid = document_id({"raw": credit})
-        self._push_undo()
         self._override_store.clear_credit(self._batch_key(), cid)
         self._rerun_settlement_engine()
 
@@ -1679,13 +1740,11 @@ class MainWindow(QMainWindow):
         new_dec = Decimal(str(new_val)).copy_abs().quantize(Decimal("0.01"))
         if new_dec == old_dec:
             if existing is not None:
-                self._push_undo()
                 self._remove_session_amount_override(doc_id)
             self._rerun_settlement_engine()
             return
         if existing is not None and new_dec == existing.new_amount.copy_abs().quantize(Decimal("0.01")):
             return
-        self._push_undo()
         override = AmountOverride(
             document_id=doc_id,
             old_amount=old_dec,
@@ -1973,13 +2032,11 @@ class MainWindow(QMainWindow):
         existing = self._session_amount_overrides.get(doc_id)
         if new_dec == old_dec:
             if existing is not None:
-                self._push_undo()
                 self._remove_session_amount_override(doc_id)
             self._rerun_settlement_engine()
             return
         if existing is not None and new_dec == existing.new_amount.copy_abs().quantize(Decimal("0.01")):
             return
-        self._push_undo()
         override = AmountOverride(
             document_id=doc_id,
             old_amount=old_dec,
@@ -2301,7 +2358,7 @@ class MainWindow(QMainWindow):
             tr("table.header.info"),
             tr("table.header.settlement"),
         ]
-        self._table = QTableWidget(0, len(headers))
+        self._table = _PaymentsTableWidget(0, len(headers))
         self._table.setHorizontalHeaderLabels(headers)
         self._table.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self._table.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
@@ -2353,6 +2410,8 @@ class MainWindow(QMainWindow):
         self._table.customContextMenuRequested.connect(self._on_table_context_menu)
         self._table.itemChanged.connect(self._on_table_item_changed)
         self._table.cellClicked.connect(self._on_table_cell_clicked)
+        self._table.set_undo_before_edit(self._capture_pending_undo_snapshot)
+        self._table.itemDelegate().closeEditor.connect(self._on_table_cell_editor_closed)
 
         # Table + decision inspector splitter.
         self._decision_inspector = QTextEdit()
@@ -2376,6 +2435,41 @@ class MainWindow(QMainWindow):
 
         self._status_label.setWordWrap(False)
         layout.addWidget(self._status_label)
+
+    def _on_table_cell_editor_closed(self, _editor, _hint) -> None:  # noqa: N802
+        self._finalize_pending_undo_on_edit_close()
+        cur = self._table.currentIndex()
+        edited_row_id = self._row_id(cur.row()) if cur.isValid() else ""
+        edited_col = cur.column() if cur.isValid() else None
+        self._table.on_cell_editor_closed()
+        if (
+            self._table.isSortingEnabled()
+            and self._persist_sort_column is not None
+        ):
+            self._table.sortByColumn(self._persist_sort_column, self._persist_sort_order)
+        # Volg de bewerkte rij na hersortering, anders raakt de gebruiker de rij kwijt.
+        if edited_row_id:
+            r = self._find_row_by_id(edited_row_id)
+            if r is not None:
+                self._table.selectRow(r)
+                col = edited_col if edited_col is not None and 0 <= edited_col < self._table.columnCount() else int(PaymentColumn.SUPPLIER)
+                self._table.setCurrentCell(r, col)
+                it = self._table.item(r, col)
+                if it is not None:
+                    self._table.scrollToItem(it, QAbstractItemView.ScrollHint.PositionAtCenter)
+                # #region agent log (debug mode)
+                _dbg_log(
+                    hypothesis_id="U4",
+                    location="main_window.py:_on_table_cell_editor_closed",
+                    message="edited row followed after resort",
+                    data={
+                        "row_id": edited_row_id[:60],
+                        "row_after_sort": int(r),
+                        "amount": self._cell_text(r, PaymentColumn.AMOUNT).strip()[:20],
+                    },
+                    run_id="post-fix",
+                )
+                # #endregion
 
     def get_debtor_name(self) -> str:
         self._ensure_debtor_dict()
@@ -3783,6 +3877,13 @@ class MainWindow(QMainWindow):
             return None
         if field_id in ("invoice_number", "customer_number"):
             return self._ident_field_result_snapshot_for_row(row, field_id)
+        spec = FIELD_REVIEW_SPECS.get(field_id)
+        if spec is not None:
+            snap = self._get_row_invoice_diagnostics_snapshot(row)
+            if isinstance(snap, dict):
+                raw = snap.get(spec.result_snapshot_key)
+                if isinstance(raw, dict):
+                    return deepcopy(raw)
         return None
 
     def _ident_field_result_snapshot_for_row(self, row: int, field: str) -> dict[str, Any] | None:
@@ -3946,7 +4047,6 @@ class MainWindow(QMainWindow):
         mark_pending: bool = True,
     ) -> None:
         """Leg vast dat deze leverancier geen klantnummer op de factuur heeft."""
-        self._push_undo()
         # #region agent log (debug mode)
         _dbg_log_3d66a1(
             hypothesis_id="H2",
@@ -3993,6 +4093,7 @@ class MainWindow(QMainWindow):
         *,
         pending_reason: str,
         mark_pending: bool = True,
+        skip_undo: bool = False,
     ) -> None:
         # Legacy entry point: keep signature but route through unified pipeline.
         self._candidate_click_pipeline(
@@ -4001,6 +4102,7 @@ class MainWindow(QMainWindow):
             cand,
             pending_reason=pending_reason,
             mark_pending=mark_pending,
+            skip_undo=skip_undo,
         )
 
     def _candidate_click_pipeline(
@@ -4012,9 +4114,9 @@ class MainWindow(QMainWindow):
         pending_reason: str,
         mark_pending: bool = True,
         override_reason: str = "diagnostics_candidate_click",
+        skip_undo: bool = False,
     ) -> None:
         """Atomic operation: state update → resolve_field → apply_resolved_field_result → UI refresh."""
-        self._push_undo()
         candidate = self._candidate_from_ui_dict(field_id, cand, source_fallback="manual")
         if candidate is None:
             return
@@ -4094,7 +4196,7 @@ class MainWindow(QMainWindow):
         selected_by_field: dict[str, Any],
     ) -> None:
         """Bevestig huidige selectie: user_selected → resolve (gewijzigd) → apply (alle velden)."""
-        with self._undo_batch():
+        with self._undo_batch(source="diagnostics_confirm"):
             self._confirm_selected_fields_for_row_impl(row, selected_by_field)
 
     def _confirm_selected_fields_for_row_impl(
@@ -4102,68 +4204,175 @@ class MainWindow(QMainWindow):
         row: int,
         selected_by_field: dict[str, Any],
     ) -> None:
+        # #region agent log (debug mode)
+        _dbg_log(
+            hypothesis_id="H2",
+            location="main_window.py:_confirm_selected_fields_for_row_impl:entry",
+            message="confirm_selection_start",
+            data={
+                "row": row,
+                "row_id": self._row_id(row)[:60],
+                "selected_keys": sorted(selected_by_field.keys()),
+            },
+        )
+        # #endregion
         resolved_by_field: dict[FieldId, dict[str, Any]] = {}
-        for field_id in REVIEW_FIELD_IDS:
-            generic_snap = self._field_result_snapshot_for_row(row, field_id) or {}
-            generic = field_result_from_legacy_dict(generic_snap, field_id=field_id)
-            raw_target = selected_by_field.get(field_id)
-            if field_id == "customer_number" and is_customer_absent_pick(
-                raw_target if isinstance(raw_target, dict) else None
-            ):
+        try:
+            for field_id in REVIEW_FIELD_IDS:
                 # #region agent log (debug mode)
-                _dbg_log_3d66a1(
-                    hypothesis_id="H4",
-                    location="main_window.py:_confirm_selected_fields_for_row",
-                    message="confirm absent branch",
-                    data={"row": row, "raw_type": type(raw_target).__name__},
+                _dbg_log(
+                    hypothesis_id="H2",
+                    location="main_window.py:_confirm_selected_fields_for_row_impl:resolve",
+                    message="confirm_field_resolve_start",
+                    data={"row": row, "field_id": field_id},
                 )
                 # #endregion
-                self._apply_customer_absent_pick_to_row(
-                    row,
-                    pending_reason="diagnostics_confirm_selection",
-                    mark_pending=True,
+                try:
+                    generic_snap = self._field_result_snapshot_for_row(row, field_id) or {}
+                    generic = field_result_from_legacy_dict(generic_snap, field_id=field_id)
+                    raw_target = selected_by_field.get(field_id)
+                    if field_id == "customer_number" and is_customer_absent_pick(
+                        raw_target if isinstance(raw_target, dict) else None
+                    ):
+                        # #region agent log (debug mode)
+                        _dbg_log_3d66a1(
+                            hypothesis_id="H4",
+                            location="main_window.py:_confirm_selected_fields_for_row",
+                            message="confirm absent branch",
+                            data={"row": row, "raw_type": type(raw_target).__name__},
+                        )
+                        # #endregion
+                        self._apply_customer_absent_pick_to_row(
+                            row,
+                            pending_reason="diagnostics_confirm_selection",
+                            mark_pending=False,
+                        )
+                        continue
+                    if raw_target is not None:
+                        target = normalize_field_value(field_id, raw_target)
+                    else:
+                        target = normalize_field_value(field_id, generic.selected_value)
+
+                    if target is None:
+                        continue
+
+                    changed = not self._field_values_equal(field_id, generic.selected_value, target)
+                    generic.selected_value = target
+                    generic.user_selected = True
+                    generic.user_overridden = True
+                    generic.override_reason = "diagnostics_confirm_selection"
+
+                    if changed:
+                        user_pick = self._user_pick_for_selected_value(field_id, generic, target)
+                        resolved_fr = resolve_field(field_id, generic, [], user_pick=user_pick)
+                        resolved_fr.resolver_finalized = True
+                        resolved_dict = field_result_to_legacy_dict(resolved_fr)
+                    else:
+                        resolved_dict = field_result_to_legacy_dict(generic)
+                        resolved_dict["user_selected"] = True
+                        resolved_dict["user_overridden"] = True
+                        resolved_dict["override_reason"] = "diagnostics_confirm_selection"
+                        resolved_dict["resolver_finalized"] = True
+                        resolved_dict = canonicalize_legacy_result_dict(
+                            resolved_dict,
+                            field_id=field_id,
+                            resolver_finalized=True,
+                        )
+                    resolved_by_field[field_id] = resolved_dict
+                except Exception as exc:
+                    # #region agent log (debug mode)
+                    _dbg_log(
+                        hypothesis_id="H2",
+                        location="main_window.py:_confirm_selected_fields_for_row_impl:resolve",
+                        message="confirm_field_resolve_failed",
+                        data={
+                            "row": row,
+                            "field_id": field_id,
+                            "error": str(exc),
+                            "traceback": traceback.format_exc()[-2000:],
+                        },
+                    )
+                    # #endregion
+                    raise
+
+                # #region agent log (debug mode)
+                _dbg_log(
+                    hypothesis_id="H2",
+                    location="main_window.py:_confirm_selected_fields_for_row_impl:resolve",
+                    message="confirm_field_resolved",
+                    data={"row": row, "field_id": field_id},
                 )
-                continue
-            if raw_target is not None:
-                target = normalize_field_value(field_id, raw_target)
-            else:
-                target = normalize_field_value(field_id, generic.selected_value)
+                # #endregion
 
-            if target is None:
-                continue
-
-            changed = not self._field_values_equal(field_id, generic.selected_value, target)
-            generic.selected_value = target
-            generic.user_selected = True
-            generic.user_overridden = True
-            generic.override_reason = "diagnostics_confirm_selection"
-
-            if changed:
-                user_pick = self._user_pick_for_selected_value(field_id, generic, target)
-                resolved_fr = resolve_field(field_id, generic, [], user_pick=user_pick)
-                resolved_fr.resolver_finalized = True
-                resolved_dict = field_result_to_legacy_dict(resolved_fr)
-            else:
-                resolved_dict = field_result_to_legacy_dict(generic)
-                resolved_dict["user_selected"] = True
-                resolved_dict["user_overridden"] = True
-                resolved_dict["override_reason"] = "diagnostics_confirm_selection"
-                resolved_dict["resolver_finalized"] = True
-                resolved_dict = canonicalize_legacy_result_dict(
-                    resolved_dict,
-                    field_id=field_id,
-                    resolver_finalized=True,
+            for field_id, resolved_dict in resolved_by_field.items():
+                # #region agent log (debug mode)
+                _dbg_log(
+                    hypothesis_id="H2",
+                    location="main_window.py:_confirm_selected_fields_for_row_impl:apply",
+                    message="confirm_field_apply_start",
+                    data={"row": row, "field_id": field_id},
                 )
-            resolved_by_field[field_id] = resolved_dict
+                # #endregion
+                try:
+                    self._apply_resolved_field_result_to_row(
+                        row,
+                        field_id,
+                        resolved_dict,
+                        pending_reason="diagnostics_confirm_selection",
+                        mark_pending=False,
+                    )
+                except Exception as exc:
+                    # #region agent log (debug mode)
+                    _dbg_log(
+                        hypothesis_id="H2",
+                        location="main_window.py:_confirm_selected_fields_for_row_impl:apply",
+                        message="confirm_field_apply_failed",
+                        data={
+                            "row": row,
+                            "field_id": field_id,
+                            "error": str(exc),
+                            "traceback": traceback.format_exc()[-2000:],
+                        },
+                    )
+                    # #endregion
+                    raise
+                # #region agent log (debug mode)
+                _dbg_log(
+                    hypothesis_id="H2",
+                    location="main_window.py:_confirm_selected_fields_for_row_impl:apply",
+                    message="confirm_field_applied",
+                    data={"row": row, "field_id": field_id},
+                )
+                # #endregion
 
-        for field_id, resolved_dict in resolved_by_field.items():
-            self._apply_resolved_field_result_to_row(
-                row,
-                field_id,
-                resolved_dict,
-                pending_reason="diagnostics_confirm_selection",
-                mark_pending=True,
+            if resolved_by_field:
+                self._after_diagnostics_confirm_batch(row)
+        except Exception as exc:
+            # #region agent log (debug mode)
+            _dbg_log(
+                hypothesis_id="H2",
+                location="main_window.py:_confirm_selected_fields_for_row_impl",
+                message="confirm_selection_failed",
+                data={"row": row, "error": str(exc), "traceback": traceback.format_exc()[-3000:]},
             )
+            # #endregion
+            raise
+        # #region agent log (debug mode)
+        _dbg_log(
+            hypothesis_id="H2",
+            location="main_window.py:_confirm_selected_fields_for_row_impl",
+            message="confirm_selection_applied",
+            data={
+                "row": row,
+                "fields": sorted(resolved_by_field.keys()),
+                "amount": str(
+                    (resolved_by_field.get("amount") or {}).get("selected_value")
+                    or (resolved_by_field.get("amount") or {}).get("value")
+                    or ""
+                ),
+            },
+        )
+        # #endregion
 
     def _confirmed_dict_from_selected(
         self,
@@ -4171,23 +4380,32 @@ class MainWindow(QMainWindow):
         selected_by_field: dict[str, Any],
     ) -> dict[str, Any]:
         confirmed: dict[str, Any] = {}
+
+        def _parse_confirmed_amount(raw: Any) -> Decimal | None:
+            if raw is None:
+                return None
+            if isinstance(raw, Decimal):
+                return raw if raw > Decimal("0.00") else None
+            dec = normalize_amount_decimal(str(raw).strip())
+            if dec is not None and dec > Decimal("0.00"):
+                return dec
+            try:
+                parsed = amount_to_decimal(raw)
+                return parsed if parsed > Decimal("0.00") else None
+            except (TypeError, ValueError):
+                return None
+
         raw_amt = selected_by_field.get("amount")
         if raw_amt is not None and str(raw_amt).strip():
-            try:
-                dec = amount_to_decimal(raw_amt)
-                if dec > Decimal("0.00"):
-                    confirmed["amount"] = dec
-            except (TypeError, ValueError):
-                pass
+            dec = _parse_confirmed_amount(raw_amt)
+            if dec is not None:
+                confirmed["amount"] = dec
         if "amount" not in confirmed:
             cell_amt = self._cell_text(row, PaymentColumn.AMOUNT).strip()
             if cell_amt and cell_amt != "?":
-                try:
-                    dec = amount_to_decimal(cell_amt.replace(",", "."))
-                    if dec > Decimal("0.00"):
-                        confirmed["amount"] = dec
-                except (TypeError, ValueError):
-                    pass
+                dec = _parse_confirmed_amount(cell_amt)
+                if dec is not None:
+                    confirmed["amount"] = dec
         inv = str(selected_by_field.get("invoice_number") or "").strip()
         if not inv:
             inv = self._get_row_invoice_number(row)
@@ -4224,67 +4442,97 @@ class MainWindow(QMainWindow):
         self,
         row: int,
         selected_by_field: dict[str, Any],
+        *,
+        message_parent: QWidget | None = None,
     ) -> None:
         """Sla profiel op via bestaande confirm_invoice_fields-pipeline."""
-        self._confirm_selected_fields_for_row(row, selected_by_field)
-        if not self._row_can_profile_confirm(row):
-            reason = self._row_profile_block_reason(row)
-            QMessageBox.warning(
-                self,
-                tr("dialog.profile.save_title"),
-                self._profile_block_tooltip(reason or ""),
-            )
-            return
-        source_file = self._resolve_row_source_file(row)
-        if not source_file:
-            QMessageBox.warning(
-                self,
-                tr("dialog.profile.save_title"),
-                tr("dialog.profile.pdf_not_found"),
-            )
-            return
-        snap = self._get_row_invoice_diagnostics_snapshot(row)
-        if not isinstance(snap, dict):
-            snap = self._minimal_diagnostics_snapshot_from_row(row)
-        supplier = self._cell_text(row, PaymentColumn.SUPPLIER).strip()
-        confirmed = self._confirmed_dict_from_selected(row, selected_by_field)
-        try:
-            raw_text = extract_text_strict(source_file)
-        except Exception as exc:
-            QMessageBox.warning(
-                self,
-                tr("dialog.profile.save_title"),
-                tr("dialog.profile.pdf_read_failed", detail=exc),
-            )
-            return
-        db = SupplierDB(path=self._supplier_db_path())
-        amt_snap = self._amount_result_snapshot_for_row(row)
-        inv_snap = self._ident_field_result_snapshot_for_row(row, "invoice_number")
-        cust_snap = self._ident_field_result_snapshot_for_row(row, "customer_number")
-        iban_snap = self._field_result_snapshot_for_row(row, "iban")
-        result = confirm_invoice_fields(
-            raw_text=raw_text,
-            source_file=source_file,
-            supplier_name=supplier,
-            confirmed=confirmed,
-            db=db,
-            save_profile=True,
-            iban=self._cell_text(row, PaymentColumn.IBAN).strip() or None,
-            amount_result=amt_snap if isinstance(amt_snap, dict) else None,
-            invoice_number_result=inv_snap if isinstance(inv_snap, dict) else None,
-            customer_number_result=cust_snap if isinstance(cust_snap, dict) else None,
-            iban_result=iban_snap if isinstance(iban_snap, dict) else None,
-            post_resolve_snapshot=snap if isinstance(snap, dict) else None,
+        msg_parent = message_parent or self
+        # #region agent log (debug mode)
+        _dbg_log(
+            hypothesis_id="H1-H3",
+            location="main_window.py:_save_profile_from_row:entry",
+            message="profile_save_start",
+            data={"row": row, "row_id": self._row_id(row)[:60]},
         )
-        self._apply_profile_confirm_to_row(
-            row,
-            result.confirmed,
-            profile_saved=result.saved,
-            learned_profile=result.profile,
-        )
-        self._mark_row_pending_engine_update(row, "profile_confirmed")
-        self._refresh_export_batch_status_label()
-        QMessageBox.information(self, tr("dialog.profile.save_title"), result.message)
+        # #endregion
+        with self._undo_batch(source="profile_save"):
+            self._confirm_selected_fields_for_row_impl(row, selected_by_field)
+            if not self._row_can_profile_confirm(row, allow_profile_update=True):
+                reason = self._row_profile_block_reason(row, allow_profile_update=True)
+                QMessageBox.warning(
+                    msg_parent,
+                    tr("dialog.profile.save_title"),
+                    self._profile_block_tooltip(reason or ""),
+                )
+                return
+            source_file = self._resolve_row_source_file(row)
+            if not source_file:
+                QMessageBox.warning(
+                    msg_parent,
+                    tr("dialog.profile.save_title"),
+                    tr("dialog.profile.pdf_not_found"),
+                )
+                return
+            snap = self._get_row_invoice_diagnostics_snapshot(row)
+            if not isinstance(snap, dict):
+                snap = self._minimal_diagnostics_snapshot_from_row(row)
+            supplier = self._cell_text(row, PaymentColumn.SUPPLIER).strip()
+            try:
+                raw_text = extract_text_strict(source_file)
+            except Exception as exc:
+                QMessageBox.warning(
+                    msg_parent,
+                    tr("dialog.profile.save_title"),
+                    tr("dialog.profile.pdf_read_failed", detail=exc),
+                )
+                return
+            confirmed = self._confirmed_dict_from_selected(row, selected_by_field)
+            db = SupplierDB(path=self._supplier_db_path())
+            amt_snap = self._amount_result_snapshot_for_row(row)
+            inv_snap = self._ident_field_result_snapshot_for_row(row, "invoice_number")
+            cust_snap = self._ident_field_result_snapshot_for_row(row, "customer_number")
+            iban_snap = self._field_result_snapshot_for_row(row, "iban")
+            result = confirm_invoice_fields(
+                raw_text=raw_text,
+                source_file=source_file,
+                supplier_name=supplier,
+                confirmed=confirmed,
+                db=db,
+                save_profile=True,
+                iban=self._cell_text(row, PaymentColumn.IBAN).strip() or None,
+                amount_result=amt_snap if isinstance(amt_snap, dict) else None,
+                invoice_number_result=inv_snap if isinstance(inv_snap, dict) else None,
+                customer_number_result=cust_snap if isinstance(cust_snap, dict) else None,
+                iban_result=iban_snap if isinstance(iban_snap, dict) else None,
+                post_resolve_snapshot=snap if isinstance(snap, dict) else None,
+            )
+            # #region agent log (debug mode)
+            _dbg_log(
+                hypothesis_id="H1-H3",
+                location="main_window.py:_save_profile_from_row",
+                message="profile_save_result",
+                data={
+                    "row": row,
+                    "saved": bool(result.saved),
+                    "amount_outcome": next(
+                        (o.status for o in result.field_outcomes if o.field_id == "amount"),
+                        None,
+                    ),
+                    "confirmed_amount": str(confirmed.get("amount")),
+                },
+            )
+            # #endregion
+            self._apply_profile_confirm_to_row_impl(
+                row,
+                result.confirmed,
+                profile_saved=result.saved,
+                learned_profile=result.profile,
+            )
+            self._mark_row_pending_engine_update(row, "profile_confirmed")
+            self._refresh_export_batch_status_label()
+            if result.saved:
+                self._rematch_after_profile_saved(row)
+            QMessageBox.information(msg_parent, tr("dialog.profile.save_title"), result.message)
 
     def _row_credit_profile_block_reason(self, row: int) -> str | None:
         credit = self._credit_note_for_row(row)
@@ -4588,7 +4836,14 @@ class MainWindow(QMainWindow):
                     },
                 )
                 # #endregion
-                sup_it.setText(str(supplier["name"]))
+                prev_suppress = self._suppress_table_item_changed
+                blocked = self._table.blockSignals(True)
+                self._suppress_table_item_changed = True
+                try:
+                    sup_it.setText(str(supplier["name"]))
+                finally:
+                    self._suppress_table_item_changed = prev_suppress
+                    self._table.blockSignals(blocked)
 
         core_info = _core_matches_text(patched)
         complete_info = _matches_completeness_text(patched)
@@ -4640,6 +4895,14 @@ class MainWindow(QMainWindow):
 
     def _after_field_user_change(self, row: int, field_id: FieldId, reason: str) -> None:
         self._mark_row_pending_engine_update(row, reason)
+        self._refresh_export_batch_status_label()
+        self._refresh_profile_button_state()
+        self._apply_row_colors()
+        self._update_row_render_hash(row)
+
+    def _after_diagnostics_confirm_batch(self, row: int) -> None:
+        """Single engine/color refresh after multi-field diagnostics confirm."""
+        self._mark_row_pending_engine_update(row, "diagnostics_confirm_selection")
         self._refresh_export_batch_status_label()
         self._refresh_profile_button_state()
         self._apply_row_colors()
@@ -4744,7 +5007,7 @@ class MainWindow(QMainWindow):
         except Exception:
             return None
 
-    def _row_profile_block_reason(self, row: int) -> str | None:
+    def _row_profile_block_reason(self, row: int, *, allow_profile_update: bool = False) -> str | None:
         snap = self._get_row_invoice_diagnostics_snapshot(row)
         if not isinstance(snap, dict):
             snap = self._minimal_diagnostics_snapshot_from_row(row)
@@ -4757,10 +5020,24 @@ class MainWindow(QMainWindow):
             source_file=self._resolve_row_source_file(row),
             amount_resolved=self._row_amount_resolved(row),
             stored_profile=self._stored_profile_for_row(row),
+            allow_profile_update=allow_profile_update,
         )
 
-    def _row_can_profile_confirm(self, row: int) -> bool:
-        return self._row_profile_block_reason(row) is None
+    def _row_can_profile_confirm(self, row: int, *, allow_profile_update: bool = False) -> bool:
+        return self._row_profile_block_reason(row, allow_profile_update=allow_profile_update) is None
+
+    def _rematch_after_profile_saved(self, row: int) -> None:
+        """Her-match batch zodat gewijzigd extractieprofiel direct uit suppliers.json geldt."""
+        self._cancel_pending_engine_updates()
+        self._clear_undo_stack()
+        matched = self._rematch_with_document_type_overrides()
+        if matched is None:
+            return
+        self._matched_invoices = matched
+        self._engine_cache.invalidate("profile_saved")
+        doc_id = self._document_id_for_table_row(row)
+        focus = {doc_id} if doc_id else None
+        self._rerun_settlement_engine(focus_doc_ids=focus, clear_undo=True)
 
     def _refresh_profile_button_state(self) -> None:
         btn = getattr(self, "_btn_create_profile", None)
@@ -4880,7 +5157,7 @@ class MainWindow(QMainWindow):
         learned_profile: dict[str, Any] | None,
     ) -> None:
         """Werk tabelcellen bij na bevestiging (geen engine-commit)."""
-        with self._undo_batch():
+        with self._undo_batch(source="profile_confirm_dialog"):
             self._apply_profile_confirm_to_row_impl(
                 row,
                 result_confirmed,
@@ -5032,6 +5309,8 @@ class MainWindow(QMainWindow):
         )
         self._mark_row_pending_engine_update(row, "profile_confirmed")
         self._refresh_export_batch_status_label()
+        if result.saved:
+            self._rematch_after_profile_saved(row)
         QMessageBox.information(self, tr("dialog.profile_confirm.title"), result.message)
 
     def _minimal_diagnostics_snapshot_from_row(self, row: int) -> dict:
@@ -5120,31 +5399,131 @@ class MainWindow(QMainWindow):
         self._rerun_settlement_engine(focus_doc_ids={cid})
         return True
 
+    def _run_diagnostics_confirm(
+        self,
+        row_id: str,
+        selected: dict[str, Any],
+        refresh: Callable[[dict[str, Any]], dict | None],
+    ) -> dict | None:
+        if self._diagnostics_action_busy:
+            return None
+        self._diagnostics_action_busy = True
+        try:
+            row = self._find_row_by_id(row_id)
+            if row is None:
+                QMessageBox.warning(
+                    self,
+                    tr("diagnostics.section.general"),
+                    tr("dialog.profile.select_one_row"),
+                )
+                return None
+            self._confirm_selected_fields_for_row(row, selected)
+            self._set_status(tr("status.diagnostics_selection_confirmed"))
+            return refresh(selected)
+        except Exception as exc:
+            logger.exception("Diagnostics bevestigen mislukt (rij %s)", row_id)
+            # #region agent log (debug mode)
+            _dbg_log(
+                hypothesis_id="H2",
+                location="main_window.py:_run_diagnostics_confirm",
+                message="confirm_callback_failed",
+                data={"row_id": row_id[:60], "error": str(exc), "traceback": traceback.format_exc()[-3000:]},
+            )
+            # #endregion
+            QMessageBox.critical(
+                self,
+                tr("diagnostics.section.general"),
+                tr("dialog.diagnostics.confirm_failed", detail=exc),
+            )
+            return None
+        finally:
+            self._diagnostics_action_busy = False
+
+    def _run_diagnostics_save_profile(
+        self,
+        row_id: str,
+        selected: dict[str, Any],
+        dlg: QWidget,
+        refresh: Callable[[dict[str, Any]], dict | None],
+    ) -> dict | None:
+        if self._diagnostics_action_busy:
+            return None
+        self._diagnostics_action_busy = True
+        try:
+            row = self._find_row_by_id(row_id)
+            if row is None:
+                QMessageBox.warning(
+                    dlg,
+                    tr("dialog.profile.save_title"),
+                    tr("dialog.profile.select_one_row"),
+                )
+                return None
+            self._save_profile_from_row(row, selected, message_parent=dlg)
+            return refresh(selected)
+        except Exception as exc:
+            logger.exception("Profiel opslaan mislukt (rij %s)", row_id)
+            # #region agent log (debug mode)
+            _dbg_log(
+                hypothesis_id="H1",
+                location="main_window.py:_run_diagnostics_save_profile",
+                message="save_profile_callback_failed",
+                data={"row_id": row_id[:60], "error": str(exc), "traceback": traceback.format_exc()[-3000:]},
+            )
+            # #endregion
+            QMessageBox.critical(
+                dlg,
+                tr("dialog.profile.save_title"),
+                tr("dialog.profile.save_failed", detail=exc),
+            )
+            return None
+        finally:
+            self._diagnostics_action_busy = False
+
+    def _run_diagnostics_save_credit(
+        self,
+        row_id: str,
+        selected: dict[str, Any],
+        refresh: Callable[[dict[str, Any]], dict | None],
+    ) -> dict | None:
+        row = self._find_row_by_id(row_id)
+        if row is None:
+            return None
+        self._save_credit_profile_from_row(row, selected)
+        return refresh(selected)
+
     def _open_diagnostics_for_row(self, row: int) -> None:
         try:
-            diag, limited = self._build_diagnostics_for_row(row)
+            row_id = self._row_id(row)
 
-            def _refresh_diag(_selected: dict[str, Any]) -> dict:
-                return self._build_diagnostics_for_row(row)[0]
+            def _resolve_row() -> int | None:
+                return self._find_row_by_id(row_id)
+
+            def _refresh_diag(_selected: dict[str, Any]) -> dict | None:
+                r = _resolve_row()
+                if r is None:
+                    return None
+                return self._build_diagnostics_for_row(r)[0]
+
+            diag, limited = self._build_diagnostics_for_row(row)
 
             dlg = DiagnosticsDialog(
                 diag,
                 parent=self,
                 on_confirm_selection=lambda selected: (
-                    self._confirm_selected_fields_for_row(row, selected)
-                    or _refresh_diag(selected)
+                    self._run_diagnostics_confirm(row_id, selected, _refresh_diag)
                 ),
                 on_save_profile=lambda selected: (
-                    self._save_profile_from_row(row, selected)
-                    or _refresh_diag(selected)
+                    self._run_diagnostics_save_profile(row_id, selected, dlg, _refresh_diag)
                 ),
                 on_save_credit_profile=lambda selected: (
-                    self._save_credit_profile_from_row(row, selected)
-                    or _refresh_diag(selected)
+                    self._run_diagnostics_save_credit(row_id, selected, _refresh_diag)
                 ),
                 on_set_document_type=lambda target_type: (
                     _refresh_diag({})
-                    if self._set_document_type_from_row(row, target_type)
+                    if self._set_document_type_from_row(
+                        _resolve_row() if _resolve_row() is not None else row,
+                        target_type,
+                    )
                     else None
                 ),
                 limited_snapshot=limited,
@@ -5931,7 +6310,6 @@ class MainWindow(QMainWindow):
         self._set_status(tr("status.discount_applied", updated=updated, skipped=skipped_suffix, extra=extra))
 
     def _on_add_row(self) -> None:
-        self._push_undo()
         self._suppress_table_item_changed = True
         self._append_table_row(
             "",
@@ -6339,7 +6717,6 @@ class MainWindow(QMainWindow):
                 tr("dialog.suppliers.select_rows"),
             )
             return
-        self._push_undo()
         db = SupplierDB(path=self._supplier_db_path())
         ok = 0
         failed = 0
@@ -6444,58 +6821,134 @@ class MainWindow(QMainWindow):
         rows = {idx.row() for idx in self._table.selectedIndexes() if 0 <= idx.row() < n}
         return sorted(rows)
 
-    def _refresh_filter_and_sort_after_row_change(self) -> None:
-        if self._persist_sort_column is not None:
+    def _refresh_filter_and_sort_after_row_change(self, *, allow_sort: bool = True) -> None:
+        if allow_sort and self._persist_sort_column is not None:
             self._table.sortByColumn(self._persist_sort_column, self._persist_sort_order)
         self._apply_filter_to_table(self._filter_edit.text())
+
+    def _capture_row_cells(self, row: int) -> tuple[_CellSnapshot | None, ...]:
+        row_cells: list[_CellSnapshot | None] = []
+        for c in range(self._table.columnCount()):
+            it = self._table.item(row, c)
+            if it is None:
+                row_cells.append(None)
+                continue
+            roles: dict[int, Any] = {}
+            for role in _TABLE_SNAPSHOT_ROLES:
+                val = it.data(role)
+                if val is not None:
+                    roles[int(role)] = deepcopy(val)
+            row_cells.append(
+                _CellSnapshot(
+                    text=it.text(),
+                    tooltip=it.toolTip() or "",
+                    flags=int(it.flags().value),
+                    roles=roles,
+                )
+            )
+        return tuple(row_cells)
+
+    def _find_row_by_id(self, row_id: str) -> int | None:
+        target = str(row_id or "").strip()
+        if not target:
+            return None
+        for r in range(self._table.rowCount()):
+            if self._row_id(r) == target:
+                return r
+        return None
 
     def _capture_table_snapshot(self) -> _TableSnapshot:
         cells: list[tuple[_CellSnapshot | None, ...]] = []
         for r in range(self._table.rowCount()):
-            row_cells: list[_CellSnapshot | None] = []
-            for c in range(self._table.columnCount()):
-                it = self._table.item(r, c)
-                if it is None:
-                    row_cells.append(None)
-                    continue
-                roles: dict[int, Any] = {}
-                for role in _TABLE_SNAPSHOT_ROLES:
-                    val = it.data(role)
-                    if val is not None:
-                        roles[int(role)] = deepcopy(val)
-                row_cells.append(
-                    _CellSnapshot(
-                        text=it.text(),
-                        tooltip=it.toolTip() or "",
-                        flags=int(it.flags().value),
-                        roles=roles,
-                    )
-                )
-            cells.append(tuple(row_cells))
+            cells.append(self._capture_row_cells(r))
         return _TableSnapshot(
             cells=tuple(cells),
             active_run_id=self._active_run_id,
             session_amount_overrides=dict(self._session_amount_overrides),
         )
 
+    def _restore_row_cells(self, row: int, row_cells: tuple[_CellSnapshot | None, ...]) -> None:
+        for c, cell in enumerate(row_cells):
+            if cell is None:
+                self._table.setItem(row, c, None)
+                continue
+            it = QTableWidgetItem(cell.text)
+            it.setFlags(Qt.ItemFlags(cell.flags))
+            if cell.tooltip:
+                it.setToolTip(cell.tooltip)
+            for role_int, val in cell.roles.items():
+                it.setData(Qt.ItemDataRole(role_int), val)
+            self._table.setItem(row, c, it)
+
+    def _restore_row_undo(self, entry: _RowUndoEntry) -> int | None:
+        row = self._find_row_by_id(entry.row_id)
+        if row is None:
+            return None
+        prev_suppress = self._suppress_table_item_changed
+        blocked = self._table.blockSignals(True)
+        self._suppress_table_item_changed = True
+        # Sorteren uit tijdens restore: anders verplaatst de rij midden in de cel-loop.
+        sorting_was_enabled = self._table.isSortingEnabled()
+        if sorting_was_enabled:
+            self._table.setSortingEnabled(False)
+        try:
+            self._restore_row_cells(row, entry.cells)
+            doc_id = self._document_id_for_table_row(row)
+            if doc_id:
+                if entry.had_session_amount_override:
+                    if entry.session_amount_override is not None:
+                        self._session_amount_overrides[doc_id] = entry.session_amount_override
+                elif doc_id in self._session_amount_overrides:
+                    del self._session_amount_overrides[doc_id]
+        finally:
+            self._suppress_table_item_changed = prev_suppress
+            self._table.blockSignals(blocked)
+            if sorting_was_enabled:
+                self._table.setSortingEnabled(True)
+        self._decision_table_fingerprint = None
+        self._apply_row_colors()
+        self._refresh_export_batch_status_label()
+        self._refresh_profile_button_state()
+        row = self._find_row_by_id(entry.row_id)
+        if row is not None:
+            self._update_row_render_hash(row)
+        self._refresh_filter_and_sort_after_row_change(allow_sort=True)
+        row = self._find_row_by_id(entry.row_id)
+        if row is not None:
+            self._table.selectRow(row)
+            col = entry.edited_column
+            if col is not None and 0 <= col < self._table.columnCount():
+                it = self._table.item(row, col)
+                if it is not None:
+                    self._table.setCurrentCell(row, col)
+                    self._table.scrollToItem(it, QAbstractItemView.ScrollHint.PositionAtCenter)
+            else:
+                it = self._table.item(row, PaymentColumn.SUPPLIER)
+                if it is not None:
+                    self._table.scrollToItem(it, QAbstractItemView.ScrollHint.PositionAtCenter)
+        # #region agent log (debug mode)
+        _dbg_log(
+            hypothesis_id="U3",
+            location="main_window.py:_restore_row_undo",
+            message="row snapshot restored",
+            data={
+                "row_id": entry.row_id[:60],
+                "row": row,
+                "amount": self._cell_text(row, PaymentColumn.AMOUNT).strip()[:20] if row is not None else "",
+            },
+        )
+        # #endregion
+        return row
+
     def _restore_table_snapshot(self, snap: _TableSnapshot) -> None:
+        self._cancel_pending_engine_updates()
         prev_suppress = self._suppress_table_item_changed
         blocked = self._table.blockSignals(True)
         self._suppress_table_item_changed = True
         try:
             self._table.setRowCount(len(snap.cells))
             for r, row_cells in enumerate(snap.cells):
-                for c, cell in enumerate(row_cells):
-                    if cell is None:
-                        self._table.setItem(r, c, None)
-                        continue
-                    it = QTableWidgetItem(cell.text)
-                    it.setFlags(Qt.ItemFlags(cell.flags))
-                    if cell.tooltip:
-                        it.setToolTip(cell.tooltip)
-                    for role_int, val in cell.roles.items():
-                        it.setData(Qt.ItemDataRole(role_int), val)
-                    self._table.setItem(r, c, it)
+                self._restore_row_cells(r, row_cells)
             self._active_run_id = snap.active_run_id
             self._session_amount_overrides = dict(snap.session_amount_overrides)
         finally:
@@ -6503,33 +6956,159 @@ class MainWindow(QMainWindow):
             self._table.blockSignals(blocked)
         self._decision_table_fingerprint = None
         self._apply_row_colors()
-        self._refresh_filter_and_sort_after_row_change()
+        self._refresh_filter_and_sort_after_row_change(allow_sort=False)
         self._refresh_export_batch_status_label()
         self._refresh_profile_button_state()
+        # #region agent log (debug mode)
+        sample: list[dict[str, str]] = []
+        for r in range(min(self._table.rowCount(), 6)):
+            sample.append(
+                {
+                    "row": str(r),
+                    "row_id": self._row_id(r)[:40],
+                    "amount": self._cell_text(r, PaymentColumn.AMOUNT).strip()[:20],
+                }
+            )
+        _dbg_log(
+            hypothesis_id="U3",
+            location="main_window.py:_restore_table_snapshot",
+            message="snapshot restored",
+            data={"rows": sample},
+        )
+        # #endregion
 
-    def _push_undo(self) -> None:
+    def _capture_pending_undo_snapshot(self, row: int, column: int) -> None:
+        """Bewaar rijstaat bij start inline-edit; commit pas bij itemChanged."""
         if self._is_loading_batch or self._undo_restore_depth > 0 or self._undo_batch_depth > 0:
             return
-        self._undo_stack.append(self._capture_table_snapshot())
+        if row < 0 or row >= self._table.rowCount():
+            return
+        row_id = self._row_id(row)
+        doc_id = self._document_id_for_table_row(row)
+        had_override = bool(doc_id and doc_id in self._session_amount_overrides)
+        override = (
+            deepcopy(self._session_amount_overrides[doc_id])
+            if had_override and doc_id
+            else None
+        )
+        self._pending_undo_snapshot = _RowUndoEntry(
+            row_id=row_id,
+            cells=self._capture_row_cells(row),
+            session_amount_override=override,
+            had_session_amount_override=had_override,
+            edited_column=column,
+        )
+        # #region agent log (debug mode)
+        _dbg_log(
+            hypothesis_id="U5",
+            location="main_window.py:_capture_pending_undo_snapshot",
+            message="pre-edit snapshot captured",
+            data={
+                "row_id": row_id[:60],
+                "row": int(row),
+                "column": int(column),
+                "amount_at_capture": self._cell_text(row, PaymentColumn.AMOUNT).strip()[:20],
+            },
+            run_id="post-fix",
+        )
+        # #endregion
+
+    def _finalize_pending_undo_on_edit_close(self) -> None:
+        """Commit undo als de cel echt gewijzigd is; anders weggooien."""
+        pending = self._pending_undo_snapshot
+        if pending is None:
+            return
+        row = self._find_row_by_id(pending.row_id)
+        if row is None:
+            self._discard_pending_undo_snapshot()
+            return
+        current = self._capture_row_cells(row)
+        if current == pending.cells:
+            self._discard_pending_undo_snapshot()
+        else:
+            self._commit_pending_undo_snapshot()
+
+    def _commit_pending_undo_snapshot(self) -> None:
+        if self._pending_undo_snapshot is None:
+            return
+        if self._is_loading_batch or self._undo_restore_depth > 0 or self._undo_batch_depth > 0:
+            self._pending_undo_snapshot = None
+            return
+        snap = self._pending_undo_snapshot
+        self._pending_undo_snapshot = None
+        # #region agent log (debug mode)
+        _dbg_log(
+            hypothesis_id="U2",
+            location="main_window.py:_commit_pending_undo_snapshot",
+            message="row snapshot pushed",
+            data={
+                "source": "inline_edit_commit",
+                "row_id": snap.row_id[:40],
+                "stack_depth_after": len(self._undo_stack) + 1,
+            },
+        )
+        # #endregion
+        self._undo_stack.append(snap)
         if len(self._undo_stack) > _UNDO_STACK_LIMIT:
             self._undo_stack.pop(0)
 
+    def _discard_pending_undo_snapshot(self) -> None:
+        self._pending_undo_snapshot = None
+
     def _on_undo(self) -> None:
-        if not self._undo_stack:
+        if self._undo_shortcut_busy:
             return
-        snap = self._undo_stack.pop()
-        self._undo_restore_depth += 1
+        if self._table.state() == QAbstractItemView.State.EditingState:
+            return
+        if not self._undo_stack:
+            self._set_status(tr("status.undo_empty"))
+            return
+        # #region agent log (debug mode)
+        _dbg_log(
+            hypothesis_id="U1",
+            location="main_window.py:_on_undo:entry",
+            message="undo requested",
+            data={
+                "stack_depth": len(self._undo_stack),
+                "pending_engine": len(self._pending_engine_row_ids),
+                "settlement": bool(self._engine_result and self._engine_result.uses_settlement),
+            },
+        )
+        # #endregion
+        self._undo_shortcut_busy = True
         try:
-            self._restore_table_snapshot(snap)
+            entry = self._undo_stack.pop()
+            self._undo_restore_depth += 1
+            try:
+                self._restore_row_undo(entry)
+            finally:
+                self._undo_restore_depth -= 1
+            # #region agent log (debug mode)
+            _dbg_log(
+                hypothesis_id="U1",
+                location="main_window.py:_on_undo:done",
+                message="undo restored",
+                data={"remaining_stack": len(self._undo_stack), "row_id": entry.row_id[:60]},
+            )
+            # #endregion
+            restored_row = self._find_row_by_id(entry.row_id)
+            if restored_row is not None:
+                self._set_status(
+                    tr(
+                        "status.undo_row",
+                        supplier=self._cell_text(restored_row, PaymentColumn.SUPPLIER).strip()[:60],
+                        amount=self._cell_text(restored_row, PaymentColumn.AMOUNT).strip()[:20],
+                    )
+                )
+            else:
+                self._set_status(tr("status.undo"))
         finally:
-            self._undo_restore_depth -= 1
-        self._set_status(tr("status.undo"))
+            self._undo_shortcut_busy = False
 
     def _on_delete_selected_rows(self) -> None:
         selected = self._selected_table_rows()
         if not selected:
             return
-        self._push_undo()
         for r in sorted(selected, reverse=True):
             if 0 <= r < self._table.rowCount():
                 self._table.removeRow(r)
@@ -6541,7 +7120,9 @@ class MainWindow(QMainWindow):
         QShortcut(QKeySequence("Ctrl+R"), self).activated.connect(self._on_reread_pdfs)
         QShortcut(QKeySequence("Ctrl+E"), self).activated.connect(self._on_make_xml)
         QShortcut(QKeySequence("Delete"), self).activated.connect(self._on_delete_selected_rows)
-        QShortcut(QKeySequence.StandardKey.Undo, self).activated.connect(self._on_undo)
+        undo_shortcut = QShortcut(QKeySequence.StandardKey.Undo, self)
+        undo_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        undo_shortcut.activated.connect(self._on_undo)
         QShortcut(QKeySequence("Ctrl+F"), self).activated.connect(
             lambda: self._filter_edit.setFocus()
         )
@@ -7374,6 +7955,7 @@ class MainWindow(QMainWindow):
             int(PaymentColumn.PDF),
         ):
             return
+        self._commit_pending_undo_snapshot()
         # #region agent log (debug mode)
         _dbg_log(
             hypothesis_id="B",
@@ -7427,6 +8009,7 @@ class MainWindow(QMainWindow):
                 "amount",
                 {"value": format_eur_xml(dec), "source": "manual", "confidence": 100},
                 pending_reason="amount_changed",
+                skip_undo=True,
             )
         elif col == PaymentColumn.IBAN:
             raw = item.text().strip()
@@ -7437,6 +8020,7 @@ class MainWindow(QMainWindow):
                     "iban",
                     {"value": ic, "source": "manual", "confidence": 100},
                     pending_reason="iban_changed",
+                    skip_undo=True,
                 )
             else:
                 generic = field_result_from_legacy_dict(
@@ -7490,6 +8074,7 @@ class MainWindow(QMainWindow):
                     "customer_number",
                     {"value": cust, "source": "manual", "confidence": 100},
                     pending_reason="customer_code_changed",
+                    skip_undo=True,
                 )
             else:
                 self._mark_row_pending_engine_update(row, "customer_code_changed")

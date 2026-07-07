@@ -1102,6 +1102,12 @@ class TestBatch8LayoutSnippets:
         r = extract_invoice_number_result(text)
         assert r.value == "125004140"
 
+    def test_english_date_label_month_first(self):
+        text = "Invoice: 2450016881\nDate: Jul 2, 2026\n"
+        r = extract_invoice_date_result(text)
+        assert r.value == "2026-07-02"
+        assert r.source.startswith("invoice_date_label")
+
     def test_unatherm_belegnummer(self):
         text = "Belegnummer 2025-10235\nKundennummer 53516\n"
         r = extract_invoice_number_result(text)

@@ -68,6 +68,7 @@ def profile_learning_block_reason(
     source_file: str | None,
     amount_resolved: bool,
     stored_profile: dict[str, Any] | None = None,
+    allow_profile_update: bool = False,
 ) -> str | None:
     """
     ``None`` = profiel-flow mag; anders een korte code voor logging/tooltips.
@@ -83,7 +84,7 @@ def profile_learning_block_reason(
     missing = profile_field_keys_missing(stored_profile)
     if extraction_source == "profile" and missing:
         pass
-    elif extraction_source and extraction_source != "generic":
+    elif extraction_source and extraction_source != "generic" and not allow_profile_update:
         return "already_profile"
     if not source_file:
         return "no_source_file"
@@ -98,6 +99,7 @@ def can_offer_profile_learning(
     source_file: str | None,
     amount_resolved: bool = False,
     stored_profile: dict[str, Any] | None = None,
+    allow_profile_update: bool = False,
 ) -> bool:
     """Of UI profiel-bevestiging mag aanbieden (zie ``profile_learning_block_reason``)."""
     return (
@@ -106,6 +108,7 @@ def can_offer_profile_learning(
             source_file=source_file,
             amount_resolved=amount_resolved,
             stored_profile=stored_profile,
+            allow_profile_update=allow_profile_update,
         )
         is None
     )
@@ -189,11 +192,18 @@ def _compute_profile_field_outcomes(
             )
         else:
             if field_id == "amount":
-                detail = (
-                    "kon niet aan een vast label in de PDF worden gekoppeld. "
-                    "Controleer het totaal op de factuur en probeer opnieuw, "
-                    "of kies het bedrag via Diagnostics vóór «Profiel aanmaken»."
-                )
+                trace = strategy_trace.get("validation_trace") if strategy_trace else None
+                if isinstance(trace, list) and "value_not_in_raw_text" in trace:
+                    detail = (
+                        "het bevestigde bedrag komt niet voor op deze factuur-PDF. "
+                        "Kies het juiste totaalbedrag in Diagnostics en probeer opnieuw."
+                    )
+                else:
+                    detail = (
+                        "kon niet aan een vast label in de PDF worden gekoppeld. "
+                        "Controleer het totaal op de factuur en probeer opnieuw, "
+                        "of kies het bedrag via Diagnostics vóór «Profiel aanmaken»."
+                    )
             else:
                 detail = "kon niet automatisch worden afgeleid uit de bevestigde waarde."
             if strategy_trace and strategy_trace.get("validation_trace"):

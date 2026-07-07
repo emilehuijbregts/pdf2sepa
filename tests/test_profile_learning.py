@@ -74,6 +74,26 @@ class TestCanOfferProfileLearning:
             snap, source_file=str(pdf), amount_resolved=True, stored_profile=complete
         ) is False
 
+    def test_allows_profile_update_when_complete(self, tmp_path: Path) -> None:
+        pdf = tmp_path / "factuur.pdf"
+        pdf.write_text("x", encoding="utf-8")
+        snap = _base_snapshot(extraction_source="profile", source_file=str(pdf))
+        complete = {
+            "amount": {"label": "T", "strategy": "same_line_last_amount"},
+            "invoice_number": {"label": "F", "strategy": "same_line_after_colon"},
+            "customer_number": {"label": "K", "strategy": "same_line_after_colon"},
+        }
+        assert (
+            profile_learning_block_reason(
+                snap,
+                source_file=str(pdf),
+                amount_resolved=True,
+                stored_profile=complete,
+                allow_profile_update=True,
+            )
+            is None
+        )
+
     def test_allows_profile_when_amount_missing_in_db(self, tmp_path: Path) -> None:
         pdf = tmp_path / "factuur.pdf"
         pdf.write_text("x", encoding="utf-8")

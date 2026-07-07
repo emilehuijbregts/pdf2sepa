@@ -588,7 +588,7 @@ _CUSTOMER_LABEL_RE = re.compile(
 
 _INVOICE_DATE_LABEL_RE = re.compile(
     r"(?i)(?:Factuurdatum|Factuur\s*datum|Fact\.?\s*dat\.?|Invoice\s*date|Date\s*of\s*invoice|"
-    r"Invoice\s*Date|Datum\s*factuur|Factuur\s*d\.?\s*d\.?|(?<![\w-])\bDatum\b(?![\w-]))",
+    r"Invoice\s*Date|Datum\s*factuur|Factuur\s*d\.?\s*d\.?|(?<![\w-])\bDate\s*:|(?<![\w-])\bDatum\b(?![\w-]))",
 )
 
 # Header variant seen on some invoices: "FACTUUR Nr. <id> van 30-01-2026"
@@ -610,6 +610,7 @@ _DATE_EXCLUDE_HINT_RE = re.compile(
 )
 
 _MONTH_NAME_DATE_RE = re.compile(r"(?i)\b(\d{1,2})\s+([A-Za-z]{3,})\.?\s+(\d{4})\b")
+_MONTH_DAY_YEAR_RE = re.compile(r"(?i)\b([A-Za-z]{3,})\.?\s+(\d{1,2}),?\s+(\d{4})\b")
 _MONTHS = {
     # NL
     "jan": 1,
@@ -716,13 +717,14 @@ _NOISE_WORDS = frozenset({
 })
 _TOTAL_LINE_HINT_RE = re.compile(
     r"(?i)\b(?:totaal|total|te\s+betalen|te\s+voldoen|totaalfactuurbedrag|totaal\s+factuurbedrag|"
-    r"factuurbedrag|factuurtotaal|eindbedrag|amount\s+due)\b"
+    r"factuurbedrag|factuurtotaal|eindbedrag|amount\s+due|totale\s+factuur)\b"
 )
 # Labels voor profiel-leren (incl. Pearlpaint-achtige BTW-inclusief regels).
 _AMOUNT_PROFILE_LABEL_RE = re.compile(
     r"(?i)\b(?:"
     r"totaal|total|te\s+betalen|te\s+voldoen|totaalfactuurbedrag|totaal\s+factuurbedrag|"
     r"factuurbedrag|factuurtotaal|eindbedrag|amount\s+due|"
+    r"totale\s+factuur|bedrag\s+totale|"
     r"btw\s*&\s*bedrag\s*inclusief\s*(?:btw|vat)|"
     r"bedrag\s*inclusief\s*(?:btw|vat)|"
     r"opensta(?:and|ande)\s+premie|verschuldigde\s+(?:premie|premies|bedrag)"
@@ -798,6 +800,12 @@ def _first_invoice_date_token(segment: str) -> str | None:
         month = _MONTHS.get(mon_key)
         if month:
             return _iso_from_dmy(day, int(month), int(m_name.group(3)))
+    m_us = _MONTH_DAY_YEAR_RE.search(seg)
+    if m_us:
+        mon_key = re.sub(r"[^a-z]", "", str(m_us.group(1) or "").strip().lower())
+        month = _MONTHS.get(mon_key)
+        if month:
+            return _iso_from_dmy(int(m_us.group(2)), int(month), int(m_us.group(3)))
     return None
 
 
@@ -1005,6 +1013,7 @@ def _extract_invoice_date_from_text(text: str) -> tuple[str | None, str]:
                 and not _DD_MM_YYYY_RE.search(after)
                 and not _ISO_DATE_RE.search(after)
                 and not _MONTH_NAME_DATE_RE.search(after)
+                and not _MONTH_DAY_YEAR_RE.search(after)
                 and (
                     ("dagen" in after_low)
                     or ("dagen" in line_low)
@@ -1066,6 +1075,7 @@ def _extract_invoice_date_from_text(text: str) -> tuple[str | None, str]:
             and not _ISO_DATE_RE.search(line)
             and not _DD_MM_YYYY_RE.search(line)
             and not _MONTH_NAME_DATE_RE.search(line)
+            and not _MONTH_DAY_YEAR_RE.search(line)
         ):
             # Terms headers often have a due date on the next line.
             continue
@@ -1093,6 +1103,14 @@ def _extract_invoice_date_from_text(text: str) -> tuple[str | None, str]:
                 month = _MONTHS.get(mon_key)
                 if month:
                     inv = _iso_from_dmy(day, int(month), int(m_name.group(3)))
+                    if inv:
+                        return inv, "parsed"
+            m_us = _MONTH_DAY_YEAR_RE.search(probe)
+            if m_us:
+                mon_key = re.sub(r"[^a-z]", "", str(m_us.group(1) or "").strip().lower())
+                month = _MONTHS.get(mon_key)
+                if month:
+                    inv = _iso_from_dmy(int(m_us.group(2)), int(month), int(m_us.group(3)))
                     if inv:
                         return inv, "parsed"
 

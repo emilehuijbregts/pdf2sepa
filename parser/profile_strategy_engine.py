@@ -1632,10 +1632,12 @@ def _strategy_unlabeled_prefix_amount(ctx: StrategyContext, lines: list[str]) ->
     target = confirmed_amount_decimal(ctx.confirmed_value)
     if target is None:
         return None
+    best: StrategyAttempt | None = None
     for i, line in enumerate(lines):
         if not _line_eligible_for_amount(line, target):
             continue
-        for m in re.finditer(_AMOUNT_TOKEN, line or ""):
+        matches = list(re.finditer(_AMOUNT_TOKEN, line or ""))
+        for m in reversed(matches):
             d = normalize_amount_decimal(m.group(0))
             if d is None or not amount_decimal_matches(d, target):
                 continue
@@ -1652,7 +1654,12 @@ def _strategy_unlabeled_prefix_amount(ctx: StrategyContext, lines: list[str]) ->
                 "strategy": strategy,
                 "confirmed_value": format_confirmed_amount(ctx.confirmed_value),
             }
-            return _attempt("unlabeled_prefix_amount", spec, candidate=float(target))
+            best = _attempt("unlabeled_prefix_amount", spec, candidate=float(target))
+            break
+        if best is not None:
+            return best
+    if best is not None:
+        return best
     return _attempt("unlabeled_prefix_amount", None, reason="no_unlabeled_line")
 
 
@@ -1689,6 +1696,19 @@ def _strategy_amount_from_context(ctx: StrategyContext, lines: list[str]) -> Str
                         "confirmed_value": format_confirmed_amount(ctx.confirmed_value),
                     }
                     return _attempt("amount_from_context", spec, candidate=float(target))
+        # Polyglass-style: netto + EUR + totaal op één regel zonder klassiek label.
+        decs = positive_amounts_on_line(line)
+        if decs and any(amount_decimal_matches(d, target) for d in decs):
+            if re.search(r"\b(?:EUR|€)\b", line or "", re.IGNORECASE):
+                strategy = "same_line_last_amount"
+                if len(decs) >= 2 and amount_decimal_matches(decs[0], target):
+                    strategy = "same_line_first_amount"
+                spec = {
+                    "label": "EUR",
+                    "strategy": strategy,
+                    "confirmed_value": format_confirmed_amount(ctx.confirmed_value),
+                }
+                return _attempt("amount_from_context", spec, candidate=float(target))
     return _attempt("amount_from_context", None, reason="context_no_match")
 
 
@@ -1718,6 +1738,19 @@ def _strategy_amount_fallback_scan(ctx: StrategyContext, lines: list[str]) -> St
                         "confirmed_value": format_confirmed_amount(ctx.confirmed_value),
                     }
                     return _attempt("amount_fallback_scan", spec, candidate=float(target))
+        # Polyglass-style: netto + EUR + totaal op één regel zonder klassiek label.
+        decs = positive_amounts_on_line(line)
+        if decs and any(amount_decimal_matches(d, target) for d in decs):
+            if re.search(r"\b(?:EUR|€)\b", line or "", re.IGNORECASE):
+                strategy = "same_line_last_amount"
+                if len(decs) >= 2 and amount_decimal_matches(decs[0], target):
+                    strategy = "same_line_first_amount"
+                spec = {
+                    "label": "EUR",
+                    "strategy": strategy,
+                    "confirmed_value": format_confirmed_amount(ctx.confirmed_value),
+                }
+                return _attempt("amount_fallback_scan", spec, candidate=float(target))
     return _attempt("amount_fallback_scan", None, reason="no_eligible_line")
 
 

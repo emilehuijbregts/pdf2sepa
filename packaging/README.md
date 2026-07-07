@@ -116,13 +116,23 @@ Zie [`tesseract/README.md`](tesseract/README.md). CI installeert Tesseract op de
 
 ## App-icoon
 
-Bronbestanden in `packaging/icons/`:
+Bron en generator in `packaging/icons/`:
 
 | Bestand | Gebruik |
 |---------|---------|
+| `generate_app_icon.py` | Exporteert PNG/ICO/ICNS vanuit `app_icon_source.png` |
+| `app_icon_source.png` | **Design-bron** (jouw logo, 1024×1024) — bewerk dit bestand |
 | `app_icon.png` | Qt-venstericoon (gebundeld via `datas` → `icons/`) |
-| `app_icon.ico` | Windows `.exe`-icoon (PyInstaller `EXE(icon=...)`) |
-| `app_icon.icns` | macOS `.app`-icoon (toekomstige Mac-bundle) |
+| `app_icon.ico` | Windows `.exe`-icoon (16–256 px vierkant, met alpha) |
+| `app_icon.icns` | macOS `.app`-icoon |
+
+Opnieuw genereren:
+
+```bash
+python packaging/icons/generate_app_icon.py
+```
+
+**Vorm:** het icoon is een **squircle** (macOS-stijl afgerond vierkant) met **transparante buitenhoeken**, zodat het in Dock en taakbalk netjes oogt — niet als hard blok. Vereisten: `Pillow`; `.icns` vereist macOS (`iconutil`).
 
 In development toont macOS Dock nog het Python-icoon bij `python main.py`; na installatie/build gebruikt de gebundelde app het eigen icoon.
 

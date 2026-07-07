@@ -63,6 +63,38 @@ def _dbg_log_3d66a1(
 
 # #endregion
 
+# #region agent log (debug mode - session e28c78)
+_DEBUG_LOG_E28C78 = "/Users/eh/Documents/Cursor/PDF2SEPA/.cursor/debug-e28c78.log"
+
+
+def _dbg_log_e28c78(
+    *,
+    hypothesis_id: str,
+    location: str,
+    message: str,
+    data: dict | None = None,
+    run_id: str = "pre-fix",
+) -> None:
+    try:
+        import json
+        import time
+
+        payload = {
+            "sessionId": "e28c78",
+            "hypothesisId": hypothesis_id,
+            "location": location,
+            "message": message,
+            "data": data or {},
+            "timestamp": int(time.time() * 1000),
+            "runId": run_id,
+        }
+        with open(_DEBUG_LOG_E28C78, "a", encoding="utf-8") as f:
+            f.write(json.dumps(payload, ensure_ascii=False) + "\n")
+    except Exception:
+        return
+
+
+# #endregion
 
 
 def _display_text(value: str | None) -> str:
@@ -113,6 +145,7 @@ class DiagnosticsDialog(QDialog):
         on_confirm_selection: Callable[[dict[str, Any]], dict | None] | None = None,
         on_save_profile: Callable[[dict[str, Any]], dict | None] | None = None,
         on_save_credit_profile: Callable[[dict[str, Any]], dict | None] | None = None,
+        on_set_document_type: Callable[[str], dict | None] | None = None,
         limited_snapshot: bool = False,
     ) -> None:
         super().__init__(parent)
@@ -126,10 +159,12 @@ class DiagnosticsDialog(QDialog):
         self._on_confirm_selection = on_confirm_selection
         self._on_save_profile = on_save_profile
         self._on_save_credit_profile = on_save_credit_profile
+        self._on_set_document_type = on_set_document_type
         self._diag: dict[str, Any] = {}
         # Local preview selection (no writes). Confirm button commits via callback.
         self._selected_candidates: dict[str, dict[str, Any]] = {}
         self._selected_values: dict[str, Any] = {}
+        self._action_busy: bool = False
 
         root = QVBoxLayout(self)
 
@@ -310,6 +345,7 @@ class DiagnosticsDialog(QDialog):
                     is_error=bool(load_error) or overall == "error",
                 ),
                 lines=self._general_lines(general),
+                extra=self._document_type_extra(general),
             )
         )
 
@@ -439,11 +475,23 @@ class DiagnosticsDialog(QDialog):
 
         QTimer.singleShot(0, _run)
 
+    def _set_action_buttons_enabled(self, enabled: bool) -> None:
+        self._confirm_btn.setEnabled(enabled)
+        self._save_profile_btn.setEnabled(enabled)
+        if hasattr(self, "_save_credit_profile_btn"):
+            self._save_credit_profile_btn.setEnabled(enabled)
+
     def _on_confirm_selection_clicked(self) -> None:
-        if self._on_confirm_selection is None:
+        if self._on_confirm_selection is None or self._action_busy:
             return
         selected = self.selected_by_field()
         # #region agent log (debug mode)
+        _dbg_log_e28c78(
+            hypothesis_id="H2",
+            location="ui/diagnostics_dialog.py:_on_confirm_selection_clicked",
+            message="confirm_button_clicked",
+            data={"selected_keys": sorted(selected.keys())},
+        )
         raw_cust = selected.get("customer_number")
         _dbg_log_3d66a1(
             hypothesis_id="H4",
@@ -458,16 +506,37 @@ class DiagnosticsDialog(QDialog):
             run_id="preview-only",
         )
         # #endregion
-        updated = self._on_confirm_selection(selected)
-        if isinstance(updated, dict):
-            self._schedule_set_diag(updated)
+        self._action_busy = True
+        self._set_action_buttons_enabled(False)
+        try:
+            updated = self._on_confirm_selection(selected)
+            if isinstance(updated, dict):
+                self._schedule_set_diag(updated)
+        finally:
+            self._action_busy = False
+            self._set_action_buttons_enabled(True)
 
     def _on_save_profile_clicked(self) -> None:
-        if self._on_save_profile is None:
+        if self._on_save_profile is None or self._action_busy:
             return
-        updated = self._on_save_profile(self.selected_by_field())
-        if isinstance(updated, dict):
-            self._schedule_set_diag(updated)
+        selected = self.selected_by_field()
+        # #region agent log (debug mode)
+        _dbg_log_e28c78(
+            hypothesis_id="H1",
+            location="ui/diagnostics_dialog.py:_on_save_profile_clicked",
+            message="save_profile_button_clicked",
+            data={"selected_keys": sorted(selected.keys())},
+        )
+        # #endregion
+        self._action_busy = True
+        self._set_action_buttons_enabled(False)
+        try:
+            updated = self._on_save_profile(selected)
+            if isinstance(updated, dict):
+                self._schedule_set_diag(updated)
+        finally:
+            self._action_busy = False
+            self._set_action_buttons_enabled(True)
 
     def _on_save_credit_profile_clicked(self) -> None:
         if self._on_save_credit_profile is None:
@@ -783,6 +852,27 @@ class DiagnosticsDialog(QDialog):
         lines.extend(DiagnosticsDialog._override_trace_lines(iban))
         return lines
 
+    def _document_type_extra(self, general: dict) -> QWidget | None:
+        if self._on_set_document_type is None or not general.get("can_set_document_type"):
+            return None
+        wrap = QWidget()
+        lay = QHBoxLayout(wrap)
+        lay.setContentsMargins(0, 0, 0, 0)
+        invoice_btn = QPushButton(tr("diagnostics.button.mark_invoice"))
+        credit_btn = QPushButton(tr("diagnostics.button.mark_credit_note"))
+
+        def _apply(target_type: str) -> None:
+            updated = self._on_set_document_type(target_type)
+            if isinstance(updated, dict):
+                self.set_diag(updated, restore_scroll_y=self._scroll_y())
+
+        invoice_btn.clicked.connect(lambda: _apply("invoice"))
+        credit_btn.clicked.connect(lambda: _apply("credit_note"))
+        lay.addWidget(invoice_btn)
+        lay.addWidget(credit_btn)
+        lay.addStretch(1)
+        return wrap
+
     @staticmethod
     def _general_lines(general: dict) -> list[str]:
         lines: list[str] = []
@@ -798,6 +888,10 @@ class DiagnosticsDialog(QDialog):
         detail = general.get("decision_reason_detail")
         if detail:
             lines.append(str(detail))
+        doc_type = str(general.get("document_type") or "").strip()
+        if doc_type:
+            key = "diagnostics.document_type.invoice" if doc_type == "invoice" else "diagnostics.document_type.credit_note"
+            lines.append(tr("diagnostics.label.document_type", label=tr(key)))
         return lines
 
     def _field_candidates_extra(

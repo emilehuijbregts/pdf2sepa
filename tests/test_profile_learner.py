@@ -220,6 +220,53 @@ class TestLearnProfileFromResolvedFields:
             field_results=learnable,
         )
         assert profile is not None
-        assert profile["invoice_number"]["strategy"] == "factuur_inline_pagina"
-        assert profile["amount"]["strategy"] == "next_line_last_amount"
-        assert profile["amount"]["label"] == "Te betalen"
+        assert profile["invoice_number"]["strategy"] == "same_line_value_after_label"
+        assert profile["amount"]["strategy"] == "same_line_last_amount"
+        assert profile["amount"]["label"] == "EUR"
+
+    def test_learns_polyglass_totale_factuur_amount(self) -> None:
+        from pathlib import Path
+
+        text = (
+            "Factuur 26FC001584\n"
+            "Datum Nummer\n"
+            "06/07/2026 04816069\n"
+            "% Bedrag TOTALE FACTUUR\n"
+            "1.114,09 EUR 1.348,05\n"
+        )
+        learnable = prepare_learnable_field_results(
+            {},
+            dialog_confirmed={
+                "amount": Decimal("1348.05"),
+                "invoice_number": "26FC001584",
+                "customer_number": "04816069",
+            },
+            legacy_result_dicts={
+                "amount": {
+                    "status": "confirmed",
+                    "value": "1348.05",
+                    "selected_value": "1348.05",
+                    "user_selected": True,
+                    "resolver_finalized": True,
+                    "candidates": [
+                        {
+                            "value": "1348.05",
+                            "context": "1.114,09 EUR 1.348,05",
+                            "source": "generic",
+                            "confidence": 85,
+                        }
+                    ],
+                }
+            },
+        )
+        profile = learn_profile_from_resolved_fields(
+            raw_text=text,
+            source_file="Polyglass 26FC001584.pdf",
+            field_results=learnable,
+        )
+        assert profile is not None
+        assert profile["amount"]["confirmed_value"] == "1348.05"
+        assert profile["amount"]["strategy"] in (
+            "same_line_last_amount",
+            "next_line_last_amount",
+        )

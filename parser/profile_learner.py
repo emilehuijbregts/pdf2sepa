@@ -25,8 +25,11 @@ from parser.profile_extractor import _find_label_line
 from parser.profile_strategy_engine import (
     StrategyContext,
     StrategyFieldResult,
+    amount_decimal_matches,
+    confirmed_amount_decimal,
     extend_label_span,
     locate_string_position,
+    positive_amounts_on_line,
     run_strategies,
     split_lines,
     validate_field_spec,
@@ -129,6 +132,30 @@ def prepare_learnable_field_results(
     return out
 
 
+def _infer_amount_context_line(raw_text: str, confirmed: Any) -> str | None:
+    """Zoek de PDF-regel met het bevestigde bedrag (fallback zonder kandidaat-context)."""
+    target = confirmed_amount_decimal(confirmed)
+    if target is None:
+        return None
+    best: tuple[int, str] | None = None
+    for line in split_lines(raw_text):
+        decs = positive_amounts_on_line(line)
+        if not any(amount_decimal_matches(d, target) for d in decs):
+            continue
+        score = 0
+        low = (line or "").lower()
+        if re.search(r"\b(?:eur|€)\b", low):
+            score += 3
+        if "totale factuur" in low or "te betalen" in low:
+            score += 2
+        if "totaal" in low:
+            score += 1
+        cand = (score, line.strip())
+        if best is None or cand[0] > best[0]:
+            best = cand
+    return best[1] if best else None
+
+
 def _log_strategy_failure(field_id: FieldId, result: StrategyFieldResult) -> None:
     logger.debug(
         "profile_learn_rejected field=%s trace=%s attempts=%s",
@@ -148,11 +175,14 @@ def _learn_field_spec(
         return None
 
     if field_id in STRATEGY_REGISTRY_FIELDS:
+        context_line = fr.resolved_context(target_value=confirmed)
+        if field_id == "amount" and not context_line:
+            context_line = _infer_amount_context_line(raw_text, confirmed)
         ctx = StrategyContext(
             field_id=field_id,
             raw_text=raw_text,
             confirmed_value=confirmed,
-            context_line=fr.resolved_context(target_value=confirmed),
+            context_line=context_line,
             mode="learn",
         )
         result = run_strategies(field_id, ctx)
