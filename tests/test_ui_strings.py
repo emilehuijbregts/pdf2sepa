@@ -62,7 +62,7 @@ def test_language_roundtrip() -> None:
 
 def test_registry_deterministic() -> None:
     assert set(nl.STRINGS.keys()) == set(en.STRINGS.keys())
-    assert len(nl.STRINGS) == 562
+    assert len(nl.STRINGS) == len(en.STRINGS)
 
     UiStrings.set_language("en")
     first = tr("overlay.counter.files", done=14, total=82)

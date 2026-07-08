@@ -63,40 +63,6 @@ def _dbg_log_3d66a1(
 
 # #endregion
 
-# #region agent log (debug mode - session e28c78)
-_DEBUG_LOG_E28C78 = "/Users/eh/Documents/Cursor/PDF2SEPA/.cursor/debug-e28c78.log"
-
-
-def _dbg_log_e28c78(
-    *,
-    hypothesis_id: str,
-    location: str,
-    message: str,
-    data: dict | None = None,
-    run_id: str = "pre-fix",
-) -> None:
-    try:
-        import json
-        import time
-
-        payload = {
-            "sessionId": "e28c78",
-            "hypothesisId": hypothesis_id,
-            "location": location,
-            "message": message,
-            "data": data or {},
-            "timestamp": int(time.time() * 1000),
-            "runId": run_id,
-        }
-        with open(_DEBUG_LOG_E28C78, "a", encoding="utf-8") as f:
-            f.write(json.dumps(payload, ensure_ascii=False) + "\n")
-    except Exception:
-        return
-
-
-# #endregion
-
-
 def _display_text(value: str | None) -> str:
     s = str(value or "").strip()
     if not s:
@@ -485,27 +451,6 @@ class DiagnosticsDialog(QDialog):
         if self._on_confirm_selection is None or self._action_busy:
             return
         selected = self.selected_by_field()
-        # #region agent log (debug mode)
-        _dbg_log_e28c78(
-            hypothesis_id="H2",
-            location="ui/diagnostics_dialog.py:_on_confirm_selection_clicked",
-            message="confirm_button_clicked",
-            data={"selected_keys": sorted(selected.keys())},
-        )
-        raw_cust = selected.get("customer_number")
-        _dbg_log_3d66a1(
-            hypothesis_id="H4",
-            location="ui/diagnostics_dialog.py:_on_confirm_selection_clicked",
-            message="confirm selection",
-            data={
-                "customer_type": type(raw_cust).__name__,
-                "customer_absent": is_customer_absent_pick(
-                    raw_cust if isinstance(raw_cust, dict) else None
-                ),
-            },
-            run_id="preview-only",
-        )
-        # #endregion
         self._action_busy = True
         self._set_action_buttons_enabled(False)
         try:
@@ -520,14 +465,6 @@ class DiagnosticsDialog(QDialog):
         if self._on_save_profile is None or self._action_busy:
             return
         selected = self.selected_by_field()
-        # #region agent log (debug mode)
-        _dbg_log_e28c78(
-            hypothesis_id="H1",
-            location="ui/diagnostics_dialog.py:_on_save_profile_clicked",
-            message="save_profile_button_clicked",
-            data={"selected_keys": sorted(selected.keys())},
-        )
-        # #endregion
         self._action_busy = True
         self._set_action_buttons_enabled(False)
         try:

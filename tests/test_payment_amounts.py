@@ -89,13 +89,22 @@ class TestResolvedPaymentAmountForExport:
         with pytest.raises(ValueError, match="user_selected"):
             resolved_payment_amount_for_export(amount_cell_text="100,00", amount_result=ar)
 
-    def test_confirmed_uses_value_before_cell(self):
+    def test_confirmed_prefers_cell_when_differs(self):
         ar = {
             "status": "confirmed",
             "value": "137.60",
             "selected_amount": "137.60",
         }
         d = resolved_payment_amount_for_export(amount_cell_text="999,99", amount_result=ar)
+        assert d == Decimal("999.99")
+
+    def test_confirmed_uses_snapshot_when_cell_empty(self):
+        ar = {
+            "status": "confirmed",
+            "value": "137.60",
+            "selected_amount": "137.60",
+        }
+        d = resolved_payment_amount_for_export(amount_cell_text="", amount_result=ar)
         assert d == Decimal("137.60")
 
     def test_failed_snapshot_falls_back_to_cell(self):

@@ -9,6 +9,7 @@ from unittest.mock import patch
 from logic.batch_load_pipeline import BatchLoadParams, deduplicate_invoices, run_preprocess, run_resolve_iban_and_engine
 from logic.batch_load_types import IbanRawUiAnswers
 from logic.engine_result import EngineResult
+from logic.credit_override_store import CreditOverrideStore
 from parser.supplier_db import SupplierDBSnapshot
 
 
@@ -56,7 +57,8 @@ def test_run_resolve_engine_uses_v2_only() -> None:
         session_date=date.today(),
         batch_key="test",
         amount_override_session=None,
-        override_store_path="/tmp/credit_overrides.json",
+        document_type_override_session=None,
+        override_store=CreditOverrideStore(Path("/tmp/credit_overrides.json")),
     )
     fake_engine = EngineResult(settlement_groups=[], review_documents=[], legacy_payments=[])
     with patch("logic.batch_load_pipeline.run_engine", return_value=fake_engine) as mock_engine:

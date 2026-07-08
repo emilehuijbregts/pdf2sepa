@@ -58,6 +58,17 @@ def resolved_payment_amount_for_export(
     - Anders: parse de zichtbare cel (nl. dubieuze rijen zonder bevestigde snapshot).
     """
     ar = amount_result if isinstance(amount_result, dict) else None
+    # Defensive rule: if the visible amount cell contains a valid amount that differs
+    # from a non-user-selected snapshot, prefer the cell. This prevents UI-vs-export
+    # divergence when UI operations (e.g. discount) update the displayed amount but
+    # not the stored snapshot.
+    cell_dec: Decimal | None = None
+    try:
+        s0 = (amount_cell_text or "").strip()
+        if s0:
+            cell_dec = amount_to_decimal(s0)
+    except ValueError:
+        cell_dec = None
     if ar is not None:
         if ar.get("user_selected"):
             for key in ("value", "selected_amount"):
@@ -71,10 +82,13 @@ def resolved_payment_amount_for_export(
                 raw = ar.get(key)
                 if raw is not None and str(raw).strip():
                     try:
-                        return amount_to_decimal(str(raw))
+                        snap_dec = amount_to_decimal(str(raw))
+                        if cell_dec is not None and cell_dec != snap_dec:
+                            return cell_dec
+                        return snap_dec
                     except ValueError:
                         break
-    s = (amount_cell_text or "").strip().replace(",", ".")
+    s = (amount_cell_text or "").strip()
     if not s:
         raise ValueError("leeg bedrag")
     return amount_to_decimal(s)

@@ -7,7 +7,6 @@ import json
 import re
 import shutil
 import sys
-import traceback
 import uuid
 import time
 from dataclasses import dataclass
@@ -263,28 +262,6 @@ def _dbg_log_3d66a1(
 
 # #endregion
 
-# #region agent log (debug mode)
-_DEBUG_LOG_PATH = "/Users/eh/Documents/Cursor/PDF2SEPA/.cursor/debug-e28c78.log"
-_DEBUG_SESSION_ID = "e28c78"
-
-
-def _dbg_log(*, hypothesis_id: str, location: str, message: str, data: dict[str, Any] | None = None, run_id: str = "pre-fix") -> None:
-    try:
-        payload = {
-            "sessionId": _DEBUG_SESSION_ID,
-            "hypothesisId": hypothesis_id,
-            "location": location,
-            "message": message,
-            "data": data or {},
-            "timestamp": int(time.time() * 1000),
-            "runId": run_id,
-        }
-        with open(_DEBUG_LOG_PATH, "a", encoding="utf-8") as f:
-            f.write(json.dumps(payload, ensure_ascii=False) + "\n")
-    except Exception:
-        return
-
-# #endregion
 
 # #region agent log (debug mode - session 8539bd)
 _DEBUG_8539_PATH = "/Users/eh/Documents/Cursor/PDF2SEPA/.cursor/debug-8539bd.log"
@@ -495,17 +472,101 @@ _MATCH_STATUS_TO_ENGINE_REASON: dict[str, str] = {
     "load_failed": "pdf_read_failed",
 }
 
-
 def _decision_status_label(status: str) -> str:
     return tr_or_code(f"decision.status.{status}", status)
 
 
+def _looks_like_internal_code(text: str) -> bool:
+    token = str(text or "").strip().split(" — ", 1)[0].strip()
+    if not token:
+        return False
+    for prefix in ("error.reason.", "decision.reason.", "warning."):
+        if UiStrings.has(f"{prefix}{token}"):
+            return True
+    if UiStrings.has(f"validation.row.{token}"):
+        return True
+    return bool(token) and "_" in token and token == token.lower() and " " not in token
+
+
+def _translate_error_token(token: str) -> str:
+    t = str(token or "").strip()
+    if not t:
+        return ""
+    for prefix in ("error.reason.", "decision.reason.", "warning."):
+        key = f"{prefix}{t}"
+        if UiStrings.has(key):
+            return tr(key)
+    val_key = f"validation.row.{t}"
+    if UiStrings.has(val_key):
+        return tr(val_key)
+    if UiStrings.has(t):
+        return tr(t)
+    if _looks_like_internal_code(t):
+        return tr("table.error.unknown")
+    return t
+
+
+def _user_facing_error_text(
+    *,
+    reason_code: str | None = None,
+    reason_detail: str | None = None,
+    warnings: str | None = None,
+    note: str | None = None,
+) -> str:
+    parts: list[str] = []
+    if warnings:
+        for key in [p.strip() for p in str(warnings).split("|") if p.strip()]:
+            translated = _translate_error_token(key)
+            if translated and translated not in parts:
+                parts.append(translated)
+    elif reason_code:
+        code = str(reason_code).strip()
+        if code:
+            main = _translate_error_token(code)
+            if main:
+                parts.append(main)
+        detail = str(reason_detail).strip() if reason_detail is not None else ""
+        if detail and detail != code:
+            if _looks_like_internal_code(detail):
+                translated_detail = _translate_error_token(detail)
+                if translated_detail and translated_detail not in parts:
+                    parts.append(translated_detail)
+            elif not _looks_like_internal_code(code):
+                parts.append(detail)
+    note_s = str(note).strip() if note is not None else ""
+    if note_s and note_s not in parts:
+        parts.append(note_s)
+    return "\n".join(parts)
+
+
+def _sanitize_table_error_message(msg: str) -> str:
+    s = str(msg or "").strip()
+    if not s:
+        return ""
+    lines = [ln.strip() for ln in s.splitlines() if ln.strip()]
+    if len(lines) >= 2 and _looks_like_internal_code(lines[0].split(" — ", 1)[0]):
+        return "\n".join(lines[1:])
+    head = lines[0].split(" — ", 1)[0] if lines else ""
+    if head and _looks_like_internal_code(head):
+        return _user_facing_error_text(reason_code=head)
+    return s
+
+
 def _decision_reason_text(reason_code: str) -> str:
-    return tr_or_code(f"decision.reason.{reason_code}", reason_code)
+    return _translate_error_token(reason_code)
 
 
 def _nl_error_reason(reason: str) -> str:
-    return tr_or_code(f"error.reason.{reason}", _decision_reason_text(reason))
+    return _user_facing_error_text(reason_code=reason)
+
+
+def _nl_payment_warning(warn: object | None) -> str:
+    if not warn:
+        return ""
+    s = str(warn).strip()
+    if not s:
+        return ""
+    return _user_facing_error_text(warnings=s)
 
 
 def _display_supplier_name(name: object) -> str:
@@ -608,18 +669,6 @@ def _core_matches_text(inv: dict[str, Any]) -> str:
     if provisional_labels:
         return tr("matching.display.provisional_1of2", label=provisional_labels[0])
     return tr("matching.display.provisional_0of2")
-
-def _nl_payment_warning(warn: object | None) -> str:
-    if not warn:
-        return ""
-    s = str(warn).strip()
-    parts = [p.strip() for p in s.split("|") if p.strip()]
-    if not parts:
-        return ""
-    out: list[str] = []
-    for key in parts:
-        out.append(tr_or_code(f"warning.{key}", key))
-    return " · ".join(out)
 
 def _pdf_basename_from_dict(d: dict[str, Any]) -> str:
     sf = d.get("_source_file") or d.get("source_file")
@@ -2406,6 +2455,26 @@ class MainWindow(QMainWindow):
         self._table.setSortingEnabled(True)
         self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self._table.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
+        # Windows-only: selection highlight can be too subtle on tinted rows.
+        # Keep the rest of the app OS-native; only adjust table selection colors.
+        try:
+            import sys
+
+            if sys.platform == "win32":
+                self._table.setStyleSheet(
+                    """
+QTableWidget::item:selected {
+    background-color: #2b78ff;
+    color: #ffffff;
+}
+QTableWidget::item:selected:!active {
+    background-color: #2b78ff;
+    color: #ffffff;
+}
+"""
+                )
+        except Exception:
+            pass
         self._table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._table.customContextMenuRequested.connect(self._on_table_context_menu)
         self._table.itemChanged.connect(self._on_table_item_changed)
@@ -2457,19 +2526,6 @@ class MainWindow(QMainWindow):
                 it = self._table.item(r, col)
                 if it is not None:
                     self._table.scrollToItem(it, QAbstractItemView.ScrollHint.PositionAtCenter)
-                # #region agent log (debug mode)
-                _dbg_log(
-                    hypothesis_id="U4",
-                    location="main_window.py:_on_table_cell_editor_closed",
-                    message="edited row followed after resort",
-                    data={
-                        "row_id": edited_row_id[:60],
-                        "row_after_sort": int(r),
-                        "amount": self._cell_text(r, PaymentColumn.AMOUNT).strip()[:20],
-                    },
-                    run_id="post-fix",
-                )
-                # #endregion
 
     def get_debtor_name(self) -> str:
         self._ensure_debtor_dict()
@@ -2620,7 +2676,7 @@ class MainWindow(QMainWindow):
 
         issues = self._count_status_issues()
         if issues > 0:
-            return f"{pdf_part} • ⚠️ {issues} issues"
+            return f"{pdf_part} • ⚠️ {issues} problemen"
 
         if pdf_n > 0:
             return f"{pdf_part} • 🟢 gereed"
@@ -2742,31 +2798,6 @@ class MainWindow(QMainWindow):
 
     def _apply_row_colors(self) -> None:
         # HARD INVARIANT: never grey; only included/needs_review/excluded.
-        # #region agent log (debug mode)
-        try:
-            counts = {"included": 0, "needs_review": 0, "excluded": 0, "other": 0}
-            for _r in range(self._table.rowCount()):
-                if self._is_row_blank(_r):
-                    continue
-                _st = (self._row_decision(_r) or {}).get("status")
-                if _st in counts:
-                    counts[str(_st)] += 1
-                else:
-                    counts["other"] += 1
-            _dbg_log(
-                hypothesis_id="D",
-                location="main_window.py:_apply_row_colors",
-                message="apply_row_colors summary",
-                data={
-                    "counts": counts,
-                    "color_confirmed_rgb": [self._COLOR_CONFIRMED.red(), self._COLOR_CONFIRMED.green(), self._COLOR_CONFIRMED.blue()],
-                    "color_needs_review_rgb": [self._COLOR_NEEDS_REVIEW.red(), self._COLOR_NEEDS_REVIEW.green(), self._COLOR_NEEDS_REVIEW.blue()],
-                },
-                run_id="pre-fix",
-            )
-        except Exception:
-            pass
-        # #endregion
         prev_suppress = self._suppress_table_item_changed
         blocked = self._table.blockSignals(True)
         self._suppress_table_item_changed = True
@@ -3349,15 +3380,6 @@ class MainWindow(QMainWindow):
                     debtor_vat=internal_vat_fingerprint,
                 )
         if matched is None:
-            # #region agent log (debug mode)
-            _dbg_log(
-                hypothesis_id="H8",
-                location="main_window.py:_rematch_rows_after_supplier_sync",
-                message="rematch skipped: no parsed cache",
-                data={"rows": [int(r) for r in rows]},
-                run_id="post-fix",
-            )
-            # #endregion
             return
 
         progress = QProgressDialog(tr("status.rematch_suppliers"), None, 0, 0, self)
@@ -3410,41 +3432,9 @@ class MainWindow(QMainWindow):
                 rid = self._row_id(r)
                 decision_updates[rid] = dec
                 self._set_row_decision(r, dec)
-                # #region agent log (debug mode)
-                _dbg_log(
-                    hypothesis_id="H6",
-                    location="main_window.py:_rematch_rows_after_supplier_sync:decision",
-                    message="supplier sync decision applied",
-                    data={
-                        "row": int(r),
-                        "row_id": rid,
-                        "engine_reason": str((engine_dec or {}).get("reason_code") or ""),
-                        "final_reason": str(dec.get("reason_code") or ""),
-                        "final_status": str(dec.get("status") or ""),
-                    },
-                    run_id="post-fix",
-                )
-                # #endregion
             self._commit_decision_map_patch(decision_updates)
             self._pending_engine_row_ids.difference_update(decision_updates.keys())
             self._apply_row_colors()
-            # #region agent log (debug mode)
-            for r in rows:
-                dec = self._decision_for_row(r)
-                _dbg_log(
-                    hypothesis_id="H5",
-                    location="main_window.py:_rematch_rows_after_supplier_sync:exit",
-                    message="after rematch",
-                    data={
-                        "row": int(r),
-                        "row_id": self._row_id(r),
-                        "decision_status": str(dec.get("status") or ""),
-                        "reason_code": str(dec.get("reason_code") or ""),
-                        "reason_detail": str(dec.get("reason_detail") or ""),
-                    },
-                    run_id="post-fix",
-                )
-            # #endregion
         finally:
             try:
                 progress.close()
@@ -3705,15 +3695,6 @@ class MainWindow(QMainWindow):
         )
 
     def _load_payments_from_sources(self, *, parse_pdfs: bool = True) -> None:
-        _dbg_log(
-            hypothesis_id="A",
-            location="main_window.py:_load_payments_from_sources:entry",
-            message="load start",
-            data={
-                "has_selected_folder": bool(self._selected_folder),
-                "parse_pdfs": bool(parse_pdfs),
-            },
-        )
         if parse_pdfs:
             self._clear_session_amount_overrides()
             self._undo_stack.clear()
@@ -4204,175 +4185,63 @@ class MainWindow(QMainWindow):
         row: int,
         selected_by_field: dict[str, Any],
     ) -> None:
-        # #region agent log (debug mode)
-        _dbg_log(
-            hypothesis_id="H2",
-            location="main_window.py:_confirm_selected_fields_for_row_impl:entry",
-            message="confirm_selection_start",
-            data={
-                "row": row,
-                "row_id": self._row_id(row)[:60],
-                "selected_keys": sorted(selected_by_field.keys()),
-            },
-        )
-        # #endregion
         resolved_by_field: dict[FieldId, dict[str, Any]] = {}
-        try:
-            for field_id in REVIEW_FIELD_IDS:
-                # #region agent log (debug mode)
-                _dbg_log(
-                    hypothesis_id="H2",
-                    location="main_window.py:_confirm_selected_fields_for_row_impl:resolve",
-                    message="confirm_field_resolve_start",
-                    data={"row": row, "field_id": field_id},
+        for field_id in REVIEW_FIELD_IDS:
+            generic_snap = self._field_result_snapshot_for_row(row, field_id) or {}
+            generic = field_result_from_legacy_dict(generic_snap, field_id=field_id)
+            raw_target = selected_by_field.get(field_id)
+            if field_id == "customer_number" and is_customer_absent_pick(
+                raw_target if isinstance(raw_target, dict) else None
+            ):
+                self._apply_customer_absent_pick_to_row(
+                    row,
+                    pending_reason="diagnostics_confirm_selection",
+                    mark_pending=False,
                 )
-                # #endregion
-                try:
-                    generic_snap = self._field_result_snapshot_for_row(row, field_id) or {}
-                    generic = field_result_from_legacy_dict(generic_snap, field_id=field_id)
-                    raw_target = selected_by_field.get(field_id)
-                    if field_id == "customer_number" and is_customer_absent_pick(
-                        raw_target if isinstance(raw_target, dict) else None
-                    ):
-                        # #region agent log (debug mode)
-                        _dbg_log_3d66a1(
-                            hypothesis_id="H4",
-                            location="main_window.py:_confirm_selected_fields_for_row",
-                            message="confirm absent branch",
-                            data={"row": row, "raw_type": type(raw_target).__name__},
-                        )
-                        # #endregion
-                        self._apply_customer_absent_pick_to_row(
-                            row,
-                            pending_reason="diagnostics_confirm_selection",
-                            mark_pending=False,
-                        )
-                        continue
-                    if raw_target is not None:
-                        target = normalize_field_value(field_id, raw_target)
-                    else:
-                        target = normalize_field_value(field_id, generic.selected_value)
+                continue
+            if raw_target is not None:
+                target = normalize_field_value(field_id, raw_target)
+            else:
+                target = normalize_field_value(field_id, generic.selected_value)
 
-                    if target is None:
-                        continue
+            if target is None:
+                continue
 
-                    changed = not self._field_values_equal(field_id, generic.selected_value, target)
-                    generic.selected_value = target
-                    generic.user_selected = True
-                    generic.user_overridden = True
-                    generic.override_reason = "diagnostics_confirm_selection"
+            changed = not self._field_values_equal(field_id, generic.selected_value, target)
+            generic.selected_value = target
+            generic.user_selected = True
+            generic.user_overridden = True
+            generic.override_reason = "diagnostics_confirm_selection"
 
-                    if changed:
-                        user_pick = self._user_pick_for_selected_value(field_id, generic, target)
-                        resolved_fr = resolve_field(field_id, generic, [], user_pick=user_pick)
-                        resolved_fr.resolver_finalized = True
-                        resolved_dict = field_result_to_legacy_dict(resolved_fr)
-                    else:
-                        resolved_dict = field_result_to_legacy_dict(generic)
-                        resolved_dict["user_selected"] = True
-                        resolved_dict["user_overridden"] = True
-                        resolved_dict["override_reason"] = "diagnostics_confirm_selection"
-                        resolved_dict["resolver_finalized"] = True
-                        resolved_dict = canonicalize_legacy_result_dict(
-                            resolved_dict,
-                            field_id=field_id,
-                            resolver_finalized=True,
-                        )
-                    resolved_by_field[field_id] = resolved_dict
-                except Exception as exc:
-                    # #region agent log (debug mode)
-                    _dbg_log(
-                        hypothesis_id="H2",
-                        location="main_window.py:_confirm_selected_fields_for_row_impl:resolve",
-                        message="confirm_field_resolve_failed",
-                        data={
-                            "row": row,
-                            "field_id": field_id,
-                            "error": str(exc),
-                            "traceback": traceback.format_exc()[-2000:],
-                        },
-                    )
-                    # #endregion
-                    raise
-
-                # #region agent log (debug mode)
-                _dbg_log(
-                    hypothesis_id="H2",
-                    location="main_window.py:_confirm_selected_fields_for_row_impl:resolve",
-                    message="confirm_field_resolved",
-                    data={"row": row, "field_id": field_id},
+            if changed:
+                user_pick = self._user_pick_for_selected_value(field_id, generic, target)
+                resolved_fr = resolve_field(field_id, generic, [], user_pick=user_pick)
+                resolved_fr.resolver_finalized = True
+                resolved_dict = field_result_to_legacy_dict(resolved_fr)
+            else:
+                resolved_dict = field_result_to_legacy_dict(generic)
+                resolved_dict["user_selected"] = True
+                resolved_dict["user_overridden"] = True
+                resolved_dict["override_reason"] = "diagnostics_confirm_selection"
+                resolved_dict["resolver_finalized"] = True
+                resolved_dict = canonicalize_legacy_result_dict(
+                    resolved_dict,
+                    field_id=field_id,
+                    resolver_finalized=True,
                 )
-                # #endregion
+            resolved_by_field[field_id] = resolved_dict
 
-            for field_id, resolved_dict in resolved_by_field.items():
-                # #region agent log (debug mode)
-                _dbg_log(
-                    hypothesis_id="H2",
-                    location="main_window.py:_confirm_selected_fields_for_row_impl:apply",
-                    message="confirm_field_apply_start",
-                    data={"row": row, "field_id": field_id},
-                )
-                # #endregion
-                try:
-                    self._apply_resolved_field_result_to_row(
-                        row,
-                        field_id,
-                        resolved_dict,
-                        pending_reason="diagnostics_confirm_selection",
-                        mark_pending=False,
-                    )
-                except Exception as exc:
-                    # #region agent log (debug mode)
-                    _dbg_log(
-                        hypothesis_id="H2",
-                        location="main_window.py:_confirm_selected_fields_for_row_impl:apply",
-                        message="confirm_field_apply_failed",
-                        data={
-                            "row": row,
-                            "field_id": field_id,
-                            "error": str(exc),
-                            "traceback": traceback.format_exc()[-2000:],
-                        },
-                    )
-                    # #endregion
-                    raise
-                # #region agent log (debug mode)
-                _dbg_log(
-                    hypothesis_id="H2",
-                    location="main_window.py:_confirm_selected_fields_for_row_impl:apply",
-                    message="confirm_field_applied",
-                    data={"row": row, "field_id": field_id},
-                )
-                # #endregion
-
-            if resolved_by_field:
-                self._after_diagnostics_confirm_batch(row)
-        except Exception as exc:
-            # #region agent log (debug mode)
-            _dbg_log(
-                hypothesis_id="H2",
-                location="main_window.py:_confirm_selected_fields_for_row_impl",
-                message="confirm_selection_failed",
-                data={"row": row, "error": str(exc), "traceback": traceback.format_exc()[-3000:]},
+        for field_id, resolved_dict in resolved_by_field.items():
+            self._apply_resolved_field_result_to_row(
+                row,
+                field_id,
+                resolved_dict,
+                pending_reason="diagnostics_confirm_selection",
+                mark_pending=False,
             )
-            # #endregion
-            raise
-        # #region agent log (debug mode)
-        _dbg_log(
-            hypothesis_id="H2",
-            location="main_window.py:_confirm_selected_fields_for_row_impl",
-            message="confirm_selection_applied",
-            data={
-                "row": row,
-                "fields": sorted(resolved_by_field.keys()),
-                "amount": str(
-                    (resolved_by_field.get("amount") or {}).get("selected_value")
-                    or (resolved_by_field.get("amount") or {}).get("value")
-                    or ""
-                ),
-            },
-        )
-        # #endregion
+
+        if resolved_by_field:
+            self._after_diagnostics_confirm_batch(row)
 
     def _confirmed_dict_from_selected(
         self,
@@ -4447,14 +4316,6 @@ class MainWindow(QMainWindow):
     ) -> None:
         """Sla profiel op via bestaande confirm_invoice_fields-pipeline."""
         msg_parent = message_parent or self
-        # #region agent log (debug mode)
-        _dbg_log(
-            hypothesis_id="H1-H3",
-            location="main_window.py:_save_profile_from_row:entry",
-            message="profile_save_start",
-            data={"row": row, "row_id": self._row_id(row)[:60]},
-        )
-        # #endregion
         with self._undo_batch(source="profile_save"):
             self._confirm_selected_fields_for_row_impl(row, selected_by_field)
             if not self._row_can_profile_confirm(row, allow_profile_update=True):
@@ -4506,22 +4367,6 @@ class MainWindow(QMainWindow):
                 iban_result=iban_snap if isinstance(iban_snap, dict) else None,
                 post_resolve_snapshot=snap if isinstance(snap, dict) else None,
             )
-            # #region agent log (debug mode)
-            _dbg_log(
-                hypothesis_id="H1-H3",
-                location="main_window.py:_save_profile_from_row",
-                message="profile_save_result",
-                data={
-                    "row": row,
-                    "saved": bool(result.saved),
-                    "amount_outcome": next(
-                        (o.status for o in result.field_outcomes if o.field_id == "amount"),
-                        None,
-                    ),
-                    "confirmed_amount": str(confirmed.get("amount")),
-                },
-            )
-            # #endregion
             self._apply_profile_confirm_to_row_impl(
                 row,
                 result.confirmed,
@@ -4824,18 +4669,6 @@ class MainWindow(QMainWindow):
         if supplier and str(supplier.get("name") or "").strip():
             sup_it = self._table.item(row, PaymentColumn.SUPPLIER)
             if sup_it and match_info.get("iban_match"):
-                # #region agent log (debug mode)
-                _dbg_log(
-                    hypothesis_id="H1",
-                    location="main_window.py:_rematch_row_supplier_on_iban:setText",
-                    message="programmatic supplier setText",
-                    data={
-                        "row": int(row),
-                        "old": (sup_it.text() or "")[:80],
-                        "new": str(supplier.get("name") or "")[:80],
-                    },
-                )
-                # #endregion
                 prev_suppress = self._suppress_table_item_changed
                 blocked = self._table.blockSignals(True)
                 self._suppress_table_item_changed = True
@@ -5422,14 +5255,6 @@ class MainWindow(QMainWindow):
             return refresh(selected)
         except Exception as exc:
             logger.exception("Diagnostics bevestigen mislukt (rij %s)", row_id)
-            # #region agent log (debug mode)
-            _dbg_log(
-                hypothesis_id="H2",
-                location="main_window.py:_run_diagnostics_confirm",
-                message="confirm_callback_failed",
-                data={"row_id": row_id[:60], "error": str(exc), "traceback": traceback.format_exc()[-3000:]},
-            )
-            # #endregion
             QMessageBox.critical(
                 self,
                 tr("diagnostics.section.general"),
@@ -5462,14 +5287,6 @@ class MainWindow(QMainWindow):
             return refresh(selected)
         except Exception as exc:
             logger.exception("Profiel opslaan mislukt (rij %s)", row_id)
-            # #region agent log (debug mode)
-            _dbg_log(
-                hypothesis_id="H1",
-                location="main_window.py:_run_diagnostics_save_profile",
-                message="save_profile_callback_failed",
-                data={"row_id": row_id[:60], "error": str(exc), "traceback": traceback.format_exc()[-3000:]},
-            )
-            # #endregion
             QMessageBox.critical(
                 dlg,
                 tr("dialog.profile.save_title"),
@@ -5681,9 +5498,40 @@ class MainWindow(QMainWindow):
         if base_amount_excl is not None:
             amt_item.setData(_ROW_BASE_EXCL_ROLE, format_eur_xml(base_amount_excl))
         if isinstance(amount_result_snapshot, dict):
-            amt_item.setData(_ROW_AMOUNT_RESULT_ROLE, deepcopy(amount_result_snapshot))
+            # Keep export SSOT consistent with what the user sees: if the visible cell amount
+            # differs from a non-user-selected snapshot (e.g. discount changed display),
+            # promote the visible amount to a user_selected snapshot.
+            snap = deepcopy(amount_result_snapshot)
+            try:
+                cell_dec = amount_to_decimal(amount_display)
+            except Exception:
+                cell_dec = None
+            if cell_dec is not None and not snap.get("user_selected"):
+                snap_dec = None
+                for key in ("value", "selected_amount"):
+                    raw = snap.get(key)
+                    if raw is None or not str(raw).strip():
+                        continue
+                    try:
+                        snap_dec = amount_to_decimal(str(raw))
+                    except Exception:
+                        snap_dec = None
+                    break
+                if snap_dec is not None and snap_dec != cell_dec:
+                    promoted = format_eur_xml(cell_dec)
+                    snap = {
+                        "status": "confirmed",
+                        "amount_status": "confirmed",
+                        "user_selected": True,
+                        "value": promoted,
+                        "selected_amount": promoted,
+                        "confidence": 100,
+                        "source": "UI_DISPLAY_OVERRIDE",
+                        "candidates": [],
+                    }
+            amt_item.setData(_ROW_AMOUNT_RESULT_ROLE, snap)
             base = "Klik om een voorgesteld bedrag te kiezen (PDF-parser)."
-            extra = _field_result_tooltip(amount_result_snapshot)
+            extra = _field_result_tooltip(snap)
             amt_item.setToolTip(base + (("\n" + extra) if extra else ""))
         self._table.setItem(r, PaymentColumn.AMOUNT, amt_item)
         cust_item = self._item_editable(customer_code)
@@ -5742,7 +5590,8 @@ class MainWindow(QMainWindow):
 
         status_item = self._item_readonly(status)
         self._table.setItem(r, PaymentColumn.STATUS, status_item)
-        err_item = self._item_readonly(error_msg)
+        display_error_msg = _sanitize_table_error_message(error_msg)
+        err_item = self._item_readonly(display_error_msg)
         if warning_raw:
             err_item.setData(_ROW_WARNING_RAW_ROLE, warning_raw)
         if decision_trace:
@@ -5751,7 +5600,9 @@ class MainWindow(QMainWindow):
             err_item.setData(_ROW_DECISION_ROLE, normalize_decision(decision))
         # Debug-proof: always provide a way to see full error text (and trace if present),
         # independent of any debug toggle.
-        err_item.setToolTip(self._compose_error_tooltip(error_msg=error_msg, decision_trace=decision_trace))
+        err_item.setToolTip(
+            self._compose_error_tooltip(error_msg=display_error_msg, decision_trace=decision_trace)
+        )
         self._table.setItem(r, PaymentColumn.ERROR, err_item)
         info_item = self._item_readonly("🔍")
         info_item.setToolTip(tr("status.diagnostics_tooltip"))
@@ -6288,6 +6139,22 @@ class MainWindow(QMainWindow):
                 continue
             amt_item.setText(_format_amount_nl(new_amt))
             amt_item.setData(Qt.ItemDataRole.UserRole, format_eur_xml(new_amt))
+            # Keep amount_result snapshot aligned with the new discounted amount so export
+            # cannot fall back to an old parser snapshot.
+            promoted = format_eur_xml(new_amt)
+            amt_item.setData(
+                _ROW_AMOUNT_RESULT_ROLE,
+                {
+                    "status": "confirmed",
+                    "amount_status": "confirmed",
+                    "user_selected": True,
+                    "value": promoted,
+                    "selected_amount": promoted,
+                    "confidence": 100,
+                    "source": "DISCOUNT_APPLIED",
+                    "candidates": [],
+                },
+            )
             self._mark_row_pending_engine_update(r, "discount_reapplied")
             updated += 1
             _agent_log(
@@ -6668,30 +6535,12 @@ class MainWindow(QMainWindow):
 
     def _on_sync_button_clicked(self) -> None:
         """Slot wrapper: altijd feedback; vangt stille crashes in de sync-logica af."""
-        # #region agent log (debug mode)
-        _dbg_log(
-            hypothesis_id="H7",
-            location="main_window.py:_on_sync_button_clicked",
-            message="sync button signal",
-            data={},
-            run_id="post-fix",
-        )
-        # #endregion
         self._set_status(tr("status.supplier_saving"))
         QApplication.processEvents()
         try:
             self._on_sync_selected_to_suppliers()
         except Exception as exc:
             logger.exception("supplier sync failed")
-            # #region agent log (debug mode)
-            _dbg_log(
-                hypothesis_id="H7",
-                location="main_window.py:_on_sync_button_clicked:error",
-                message=str(exc),
-                data={"type": type(exc).__name__},
-                run_id="post-fix",
-            )
-            # #endregion
             QMessageBox.critical(
                 self,
                 tr("dialog.suppliers.msgbox_title"),
@@ -6701,15 +6550,6 @@ class MainWindow(QMainWindow):
     def _on_sync_selected_to_suppliers(self) -> None:
         """Voeg toe / update: schrijf leverancier naar DB en herbereken betalingen (zoals voorheen)."""
         rows = self._selected_table_rows()
-        # #region agent log (debug mode)
-        _dbg_log(
-            hypothesis_id="H7",
-            location="main_window.py:_on_sync_selected_to_suppliers:entry",
-            message="sync handler entered",
-            data={"selected_rows": [int(r) for r in rows]},
-            run_id="post-fix",
-        )
-        # #endregion
         if not rows:
             QMessageBox.information(
                 self,
@@ -6806,15 +6646,6 @@ class MainWindow(QMainWindow):
                     )
 
             QTimer.singleShot(0, _reload_after_sync)
-        # #region agent log (debug mode)
-        _dbg_log(
-            hypothesis_id="H7",
-            location="main_window.py:_on_sync_selected_to_suppliers:exit",
-            message="sync done",
-            data={"ok": int(ok), "failed": int(failed), "changed": bool(changed)},
-            run_id="post-fix",
-        )
-        # #endregion
 
     def _selected_table_rows(self) -> list[int]:
         n = self._table.rowCount()
@@ -6926,18 +6757,6 @@ class MainWindow(QMainWindow):
                 it = self._table.item(row, PaymentColumn.SUPPLIER)
                 if it is not None:
                     self._table.scrollToItem(it, QAbstractItemView.ScrollHint.PositionAtCenter)
-        # #region agent log (debug mode)
-        _dbg_log(
-            hypothesis_id="U3",
-            location="main_window.py:_restore_row_undo",
-            message="row snapshot restored",
-            data={
-                "row_id": entry.row_id[:60],
-                "row": row,
-                "amount": self._cell_text(row, PaymentColumn.AMOUNT).strip()[:20] if row is not None else "",
-            },
-        )
-        # #endregion
         return row
 
     def _restore_table_snapshot(self, snap: _TableSnapshot) -> None:
@@ -6959,23 +6778,6 @@ class MainWindow(QMainWindow):
         self._refresh_filter_and_sort_after_row_change(allow_sort=False)
         self._refresh_export_batch_status_label()
         self._refresh_profile_button_state()
-        # #region agent log (debug mode)
-        sample: list[dict[str, str]] = []
-        for r in range(min(self._table.rowCount(), 6)):
-            sample.append(
-                {
-                    "row": str(r),
-                    "row_id": self._row_id(r)[:40],
-                    "amount": self._cell_text(r, PaymentColumn.AMOUNT).strip()[:20],
-                }
-            )
-        _dbg_log(
-            hypothesis_id="U3",
-            location="main_window.py:_restore_table_snapshot",
-            message="snapshot restored",
-            data={"rows": sample},
-        )
-        # #endregion
 
     def _capture_pending_undo_snapshot(self, row: int, column: int) -> None:
         """Bewaar rijstaat bij start inline-edit; commit pas bij itemChanged."""
@@ -6998,20 +6800,6 @@ class MainWindow(QMainWindow):
             had_session_amount_override=had_override,
             edited_column=column,
         )
-        # #region agent log (debug mode)
-        _dbg_log(
-            hypothesis_id="U5",
-            location="main_window.py:_capture_pending_undo_snapshot",
-            message="pre-edit snapshot captured",
-            data={
-                "row_id": row_id[:60],
-                "row": int(row),
-                "column": int(column),
-                "amount_at_capture": self._cell_text(row, PaymentColumn.AMOUNT).strip()[:20],
-            },
-            run_id="post-fix",
-        )
-        # #endregion
 
     def _finalize_pending_undo_on_edit_close(self) -> None:
         """Commit undo als de cel echt gewijzigd is; anders weggooien."""
@@ -7036,18 +6824,6 @@ class MainWindow(QMainWindow):
             return
         snap = self._pending_undo_snapshot
         self._pending_undo_snapshot = None
-        # #region agent log (debug mode)
-        _dbg_log(
-            hypothesis_id="U2",
-            location="main_window.py:_commit_pending_undo_snapshot",
-            message="row snapshot pushed",
-            data={
-                "source": "inline_edit_commit",
-                "row_id": snap.row_id[:40],
-                "stack_depth_after": len(self._undo_stack) + 1,
-            },
-        )
-        # #endregion
         self._undo_stack.append(snap)
         if len(self._undo_stack) > _UNDO_STACK_LIMIT:
             self._undo_stack.pop(0)
@@ -7063,18 +6839,6 @@ class MainWindow(QMainWindow):
         if not self._undo_stack:
             self._set_status(tr("status.undo_empty"))
             return
-        # #region agent log (debug mode)
-        _dbg_log(
-            hypothesis_id="U1",
-            location="main_window.py:_on_undo:entry",
-            message="undo requested",
-            data={
-                "stack_depth": len(self._undo_stack),
-                "pending_engine": len(self._pending_engine_row_ids),
-                "settlement": bool(self._engine_result and self._engine_result.uses_settlement),
-            },
-        )
-        # #endregion
         self._undo_shortcut_busy = True
         try:
             entry = self._undo_stack.pop()
@@ -7083,14 +6847,6 @@ class MainWindow(QMainWindow):
                 self._restore_row_undo(entry)
             finally:
                 self._undo_restore_depth -= 1
-            # #region agent log (debug mode)
-            _dbg_log(
-                hypothesis_id="U1",
-                location="main_window.py:_on_undo:done",
-                message="undo restored",
-                data={"remaining_stack": len(self._undo_stack), "row_id": entry.row_id[:60]},
-            )
-            # #endregion
             restored_row = self._find_row_by_id(entry.row_id)
             if restored_row is not None:
                 self._set_status(
@@ -7345,37 +7101,25 @@ class MainWindow(QMainWindow):
         reason_code = str(dec.get("reason_code") or "").strip() or REASON_MISSING_DECISION_IN_STORE
         reason_detail = dec.get("reason_detail")
         detail_s = str(reason_detail).strip() if reason_detail is not None else ""
-        raw_line = f"{reason_code} — {detail_s}" if detail_s else reason_code
-        nl_line = _decision_reason_text(reason_code)
-        if not nl_line.strip():
-            nl_line = "—"
         # For clean UX: when a row is exportable/OK, keep the "foutmelding" column empty.
-        # The decision remains available via the stored payload and tooltip (for debugging/inspection).
+        # The decision remains available via the stored payload (for debugging/inspection).
         show_message = not (
             dec.get("status") == DECISION_INCLUDED
             and not bool(dec.get("requires_rerun"))
             and not note
         )
-        message = (raw_line + "\n" + nl_line) if show_message else ""
-        if note:
-            message = message + "\n" + str(note)
+        message = (
+            _user_facing_error_text(
+                reason_code=reason_code,
+                reason_detail=detail_s or None,
+                note=note,
+            )
+            if show_message
+            else ""
+        )
         err_it = self._item_readonly(message)
         err_it.setData(_ROW_DECISION_ROLE, dec)
-        tooltip_msg = (raw_line + "\n" + nl_line) if not note else (raw_line + "\n" + nl_line + "\n" + str(note))
-        err_it.setToolTip(self._compose_error_tooltip(error_msg=tooltip_msg, decision_trace=None))
-        # #region agent log (debug mode)
-        try:
-            if not show_message:
-                _dbg_log(
-                    hypothesis_id="E",
-                    location="main_window.py:_set_row_decision",
-                    message="cleared error column for included/exportable decision",
-                    data={"row": int(row), "reason_code": reason_code},
-                    run_id="pre-fix",
-                )
-        except Exception:
-            pass
-        # #endregion
+        err_it.setToolTip(self._compose_error_tooltip(error_msg=message, decision_trace=None))
         prev_suppress = self._suppress_table_item_changed
         blocked = self._table.blockSignals(True)
         self._suppress_table_item_changed = True
@@ -7526,7 +7270,11 @@ class MainWindow(QMainWindow):
                 causal_inputs=["row_state", "decision_store"],
                 input_fields={"expected": expected, "actual": actual, "row_id": self._row_id(row)},
             )
-            self._set_row_decision(row, mismatch_dec, note="Herlaad of herbereken deze rij.")
+            self._set_row_decision(
+                row,
+                mismatch_dec,
+                note=tr("decision.note.reload_or_recalculate"),
+            )
             raise RuntimeError(f"UI/engine mismatch detected for row {row}")
 
     def _is_row_blank(self, row: int) -> bool:
@@ -7695,19 +7443,6 @@ class MainWindow(QMainWindow):
         raise ValueError(f"row not found for row_id: {row_id}")
 
     def _mark_row_pending_engine_update(self, row: int, reason: str) -> None:
-        _dbg_log(
-            hypothesis_id="B",
-            location="main_window.py:_mark_row_pending_engine_update",
-            message="pending set",
-            data={
-                "row": int(row),
-                "row_id": self._row_id(row),
-                "reason": str(reason),
-                "suppress": bool(self._suppress_table_item_changed),
-                "tableSignalsBlocked": bool(self._table.signalsBlocked()),
-            },
-            run_id="post-fix",
-        )
         self._engine_cache.invalidate(f"field_change:{reason}")
         row_id = self._row_id(row)
         prev = self._decision_for_row(row)
@@ -7808,18 +7543,6 @@ class MainWindow(QMainWindow):
         )
 
     def _commit_pending_engine_updates(self) -> None:
-        # #region agent log (debug mode)
-        _dbg_log(
-            hypothesis_id="H2",
-            location="main_window.py:_commit_pending_engine_updates:entry",
-            message="timer fired",
-            data={
-                "pending_count": len(self._pending_engine_row_ids),
-                "idempotency_count": len(self._pending_engine_idempotency),
-                "pending_row_ids": sorted(self._pending_engine_row_ids),
-            },
-        )
-        # #endregion
         if not self._pending_engine_row_ids:
             return
         row_ids = set(self._pending_engine_row_ids)
@@ -7828,28 +7551,11 @@ class MainWindow(QMainWindow):
             return
         self._pending_engine_idempotency.clear()
         rows = self._table_rows_for_row_ids(row_ids)
-        # #region agent log (debug mode)
-        _dbg_log(
-            hypothesis_id="H2",
-            location="main_window.py:_commit_pending_engine_updates:resolved",
-            message="resolved row indices",
-            data={"row_ids": sorted(row_ids), "rows": rows},
-            run_id="post-fix",
-        )
-        # #endregion
         if not rows:
             return
         self._rerun_engine_for_rows(rows)
 
     def _rerun_engine_for_rows(self, rows: list[int]) -> None:
-        # #region agent log (debug mode)
-        _dbg_log(
-            hypothesis_id="H3",
-            location="main_window.py:_rerun_engine_for_rows:entry",
-            message="rerun start",
-            data={"rows": [int(r) for r in rows]},
-        )
-        # #endregion
         inputs: list[EngineInputRow] = []
         for row in rows:
             if row < 0 or row >= self._table.rowCount() or self._is_row_blank(row):
@@ -7956,18 +7662,6 @@ class MainWindow(QMainWindow):
         ):
             return
         self._commit_pending_undo_snapshot()
-        # #region agent log (debug mode)
-        _dbg_log(
-            hypothesis_id="B",
-            location="main_window.py:_on_table_item_changed:entry",
-            message="editable item changed",
-            data={
-                "col": int(col),
-                "row": int(row),
-            },
-            run_id="post-fix",
-        )
-        # #endregion
         if col == PaymentColumn.INVOICE_DATE:
             item.setData(_ROW_INVOICE_DATE_SOURCE_ROLE, "manual")
             t = item.text().strip()
@@ -8051,20 +7745,6 @@ class MainWindow(QMainWindow):
                     item.setData(_ROW_SUPPLIER_ORIGINAL_ROLE, now)
             except Exception:
                 pass
-            # #region agent log (debug mode)
-            _dbg_log(
-                hypothesis_id="H1",
-                location="main_window.py:_on_table_item_changed:supplier",
-                message="supplier cell changed",
-                data={
-                    "row": int(row),
-                    "text": (item.text() or "")[:80],
-                    "original_role": str(item.data(_ROW_SUPPLIER_ORIGINAL_ROLE) or "")[:80],
-                    "suppress": bool(self._suppress_table_item_changed),
-                    "decision_before": str((self._decision_for_row(row) or {}).get("reason_code") or ""),
-                },
-            )
-            # #endregion
             self._mark_row_pending_engine_update(row, "supplier_changed")
         elif col == PaymentColumn.CUSTOMER_CODE:
             cust = item.text().strip()
@@ -8172,7 +7852,10 @@ class MainWindow(QMainWindow):
         snap = amt_it.data(_ROW_AMOUNT_RESULT_ROLE) if amt_it else None
         err_prev = self._table.item(row, PaymentColumn.ERROR)
         prev_trace = err_prev.data(_ROW_DECISION_TRACE_ROLE) if err_prev else None
-        err = self._item_readonly(message)
+        display_message = _sanitize_table_error_message(message) or _user_facing_error_text(
+            reason_code="amount_invalid_format"
+        )
+        err = self._item_readonly(display_message)
         if isinstance(snap, dict):
             err.setData(
                 _ROW_DECISION_TRACE_ROLE,
@@ -8184,7 +7867,7 @@ class MainWindow(QMainWindow):
         tr = err.data(_ROW_DECISION_TRACE_ROLE)
         err.setToolTip(
             self._compose_error_tooltip(
-                error_msg=message,
+                error_msg=display_message,
                 decision_trace=tr if isinstance(tr, dict) else None,
             )
         )
@@ -8322,6 +8005,40 @@ class MainWindow(QMainWindow):
             )
         else:
             amount_val = None
+        # Defensive export guard: if the visible cell amount differs from a non-user-selected
+        # snapshot, persist a promoted user_selected snapshot so future exports can't regress.
+        if require_resolved_amount and isinstance(amt_snap, dict) and not amt_snap.get("user_selected"):
+            try:
+                cell_dec = amount_to_decimal(amt_cell_txt)
+            except Exception:
+                cell_dec = None
+            if cell_dec is not None:
+                snap_dec = None
+                for key in ("value", "selected_amount"):
+                    raw = amt_snap.get(key)
+                    if raw is None or not str(raw).strip():
+                        continue
+                    try:
+                        snap_dec = amount_to_decimal(str(raw))
+                    except Exception:
+                        snap_dec = None
+                    break
+                if snap_dec is not None and snap_dec != cell_dec:
+                    promoted = format_eur_xml(cell_dec)
+                    promoted_snap = {
+                        "status": "confirmed",
+                        "amount_status": "confirmed",
+                        "user_selected": True,
+                        "value": promoted,
+                        "selected_amount": promoted,
+                        "confidence": 100,
+                        "source": "EXPORT_GUARD_CELL_WINS",
+                        "candidates": [],
+                    }
+                    amt_it = self._table.item(row, PaymentColumn.AMOUNT)
+                    if amt_it is not None:
+                        amt_it.setData(_ROW_AMOUNT_RESULT_ROLE, deepcopy(promoted_snap))
+                    amt_snap = promoted_snap
         supplier_item = self._table.item(row, PaymentColumn.SUPPLIER)
         supplier_name = self._cell_text(row, PaymentColumn.SUPPLIER)
         if supplier_item is not None:
