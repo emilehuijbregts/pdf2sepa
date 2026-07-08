@@ -154,13 +154,24 @@ def offer_update_if_available(*, auto_accept: bool = False) -> bool:
             (
                 f"Er is een nieuwe versie beschikbaar ({info.version}).\n"
                 f"Huidige versie: {__version__}\n\n"
-                "Wil je nu updaten? Uw gegevens blijven behouden."
+                "Wil je nu updaten? Je gegevens en instellingen blijven behouden."
             ),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
         if reply != QMessageBox.StandardButton.Yes:
             return False
+
+        QMessageBox.information(
+            None,
+            "Update wordt gedownload",
+            (
+                "PDF2SEPA downloadt nu de update. Dit kan enkele minuten duren,\n"
+                "afhankelijk van uw internetverbinding.\n\n"
+                "De applicatie sluit hierna zodat de updater kan starten.\n"
+                "Zodra de update klaar is, wordt de nieuwe versie automatisch geopend."
+            ),
+        )
 
     try:
         zip_path = download_update(info)
@@ -173,7 +184,11 @@ def offer_update_if_available(*, auto_accept: bool = False) -> bool:
             QMessageBox.warning(
                 None,
                 "Update mislukt",
-                "De update kon niet worden gestart. Probeer het later opnieuw.",
+                (
+                    "De update kon niet worden gedownload of gestart.\n\n"
+                    "Je huidige versie van PDF2SEPA blijft gewoon werken.\n"
+                    "Je kunt het later opnieuw proberen via het opnieuw starten van PDF2SEPA."
+                ),
             )
         return False
 

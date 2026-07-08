@@ -30,6 +30,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Source: "dist\PDF2SEPA\*"; DestDir: "{localappdata}\PDF2SEPA\app"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
+Name: "{group}\{#MyAppName}"; Filename: "{localappdata}\PDF2SEPA\app\PDF2SEPA.exe"
 Name: "{userdesktop}\{#MyAppName}"; Filename: "{localappdata}\PDF2SEPA\app\PDF2SEPA.exe"; Tasks: desktopicon
 
 [Tasks]

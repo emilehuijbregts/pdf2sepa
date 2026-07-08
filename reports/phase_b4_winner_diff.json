@@ -2,9 +2,621 @@
   "phase": "B4",
   "note": "Phase B4: resolver unified on rank_key/rank_candidates; production winners must match Phase A.1/B3 snapshot.",
   "summary": {
-    "production_winner_changes": 6
+    "production_winner_changes": 124
   },
   "production_winner_changes": [
+    {
+      "pdf": "2ba Fact-2BA-20260114-260789-Duister.pdf",
+      "field": "customer_number",
+      "old_winner": {
+        "confidence": 94,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "113073/17078"
+      },
+      "new_winner": {
+        "value": "113073/17078",
+        "source": "label_block_same_line",
+        "status": "confirmed",
+        "confidence": 94
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "2ba Fact-2BA-20260114-260789-Duister.pdf",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL69INGB0662728483"
+      },
+      "new_winner": {
+        "value": "NL69INGB0662728483",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "ASF Fischer 100460 26005032 29-01-2026.pdf",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL16RABO0112554784"
+      },
+      "new_winner": {
+        "value": "NL16RABO0112554784",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Ankofit Handelsonderneming Duister B.V. _ 401121.pdf",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL45RABO0159891329"
+      },
+      "new_winner": {
+        "value": "NL45RABO0159891329",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Atlantic Factuur van Groupe Atlantic Nederland  - Fact. 26403880.pdf",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL56BNPA0227745442"
+      },
+      "new_winner": {
+        "value": "NL56BNPA0227745442",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Besli Factuur 30322950.pdf",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL02INGB0684236044"
+      },
+      "new_winner": {
+        "value": "NL02INGB0684236044",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Besli Factuur 30322950.pdf",
+      "field": "email_domain",
+      "old_winner": {
+        "confidence": 87,
+        "source": "email",
+        "status": "confirmed",
+        "value": "duister.eu"
+      },
+      "new_winner": {
+        "value": "besli.nl",
+        "source": "email",
+        "status": "confirmed",
+        "confidence": 87
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Besli Factuur 30323154.pdf",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL02INGB0684236044"
+      },
+      "new_winner": {
+        "value": "NL02INGB0684236044",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Besli Factuur 30323154.pdf",
+      "field": "email_domain",
+      "old_winner": {
+        "confidence": 87,
+        "source": "email",
+        "status": "confirmed",
+        "value": "duister.eu"
+      },
+      "new_winner": {
+        "value": "besli.nl",
+        "source": "email",
+        "status": "confirmed",
+        "confidence": 87
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Bonfix Factuur Handelsonderneming Duister _ 2610903.pdf",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL87RABO0330742493"
+      },
+      "new_winner": {
+        "value": "NL87RABO0330742493",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Bosta Factuur NL01D00074953_2.pdf",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL58INGB0006364795"
+      },
+      "new_winner": {
+        "value": "NL58INGB0006364795",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Bram T.E. Solutions 2025092.pdf",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL25RABO0327935847"
+      },
+      "new_winner": {
+        "value": "NL25RABO0327935847",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Brouwers zink 382005.pdf",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL45ABNA0869677888"
+      },
+      "new_winner": {
+        "value": "NL45ABNA0869677888",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Caleffi Invoice Caleffi NV N° 1210001330  of 24.03.2026. pdf.pdf",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL55BNPA0227691334"
+      },
+      "new_winner": {
+        "value": "NL55BNPA0227691334",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Cevetech Factuur_verkooporders__01_2602561_2026-02-11_07-43-32_.PDF",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL48INGB0654030774"
+      },
+      "new_winner": {
+        "value": "NL48INGB0654030774",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "DSG Factuur 025261476.pdf",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL16INGB0105635448"
+      },
+      "new_winner": {
+        "value": "NL16INGB0105635448",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "De waal Factuur 2861.pdf",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL06RABO0180558269"
+      },
+      "new_winner": {
+        "value": "NL06RABO0180558269",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "DiscountOffice.nl-factuur-F2661213.pdf",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "profile",
+        "status": "confirmed",
+        "value": "NL72RABO0116071966"
+      },
+      "new_winner": {
+        "value": "NL72RABO0116071966",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "DiscountOffice.nl-factuur-F2661213.pdf",
+      "field": "vat_number",
+      "old_winner": {
+        "confidence": 90,
+        "source": "vat",
+        "status": "confirmed",
+        "value": "NL805302013B01"
+      },
+      "new_winner": {
+        "value": "NL805302013B01",
+        "source": "ocr",
+        "status": "tentative",
+        "confidence": 70
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Dissel 288582.PDF",
+      "field": "vat_number",
+      "old_winner": {
+        "confidence": 90,
+        "source": "vat",
+        "status": "confirmed",
+        "value": "NL821256889B01"
+      },
+      "new_winner": {
+        "value": "NL821256889B01",
+        "source": "ocr",
+        "status": "tentative",
+        "confidence": 70
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Dissel 288582.PDF",
+      "field": "email_domain",
+      "old_winner": {
+        "confidence": 86,
+        "source": "email",
+        "status": "confirmed",
+        "value": "disselbv.nl"
+      },
+      "new_winner": {
+        "value": "",
+        "source": "fallback_missing",
+        "status": "tentative",
+        "confidence": 5
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "E-Check BV Factuur 25151.pdf",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL33RABO0143928449"
+      },
+      "new_winner": {
+        "value": "NL33RABO0143928449",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Emgas Uitgaande factuur_1425948_20260115_112738.pdf",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL84RABO0111617316"
+      },
+      "new_winner": {
+        "value": "NL84RABO0111617316",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Emgas Uitgaande factuur_1425948_20260115_112738.pdf",
+      "field": "email_domain",
+      "old_winner": {
+        "confidence": 87,
+        "source": "email",
+        "status": "confirmed",
+        "value": "emgas.nl"
+      },
+      "new_winner": {
+        "value": "emgas.nl",
+        "source": "email",
+        "status": "confirmed",
+        "confidence": 86
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Eplucon Factuur 260312.pdf",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL80INGB0676080626"
+      },
+      "new_winner": {
+        "value": "NL80INGB0676080626",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Eurosalt 25704611_20254628_20250630_122726.pdf",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL76RABO0121476928"
+      },
+      "new_winner": {
+        "value": "NL76RABO0121476928",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Felison Mutatienota Factuurnummer  1510781(27466124).pdf",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL05ABNA0413390705"
+      },
+      "new_winner": {
+        "value": "NL05ABNA0413390705",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Felison Mutatienota Factuurnummer  1510781(27466124).pdf",
+      "field": "vat_number",
+      "old_winner": {
+        "confidence": 90,
+        "source": "vat",
+        "status": "confirmed",
+        "value": "NL805301021B01"
+      },
+      "new_winner": {
+        "value": "NL805301021B01",
+        "source": "ocr",
+        "status": "tentative",
+        "confidence": 70
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Felison Mutatienota Factuurnummer  1510781(27466124).pdf",
+      "field": "kvk_number",
+      "old_winner": {
+        "confidence": 88,
+        "source": "kvk",
+        "status": "confirmed",
+        "value": "34095053"
+      },
+      "new_winner": {
+        "value": "",
+        "source": "fallback_missing",
+        "status": "tentative",
+        "confidence": 5
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Felison Mutatienota Factuurnummer  1510781(27466124).pdf",
+      "field": "email_domain",
+      "old_winner": {
+        "confidence": 87,
+        "source": "email",
+        "status": "confirmed",
+        "value": "felison.nl"
+      },
+      "new_winner": {
+        "value": "",
+        "source": "fallback_missing",
+        "status": "tentative",
+        "confidence": 5
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Frige SALESINVOICE-102088613.pdf",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL20RABO0337693749"
+      },
+      "new_winner": {
+        "value": "NL20RABO0337693749",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Frige SALESINVOICE-102089217.pdf",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL20RABO0337693749"
+      },
+      "new_winner": {
+        "value": "NL20RABO0337693749",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Grainplastics 25003233.pdf",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL41RABO0362292280"
+      },
+      "new_winner": {
+        "value": "NL41RABO0362292280",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "IHS Lewo factuur 26402381.pdf",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL45RABO0372422888"
+      },
+      "new_winner": {
+        "value": "NL45RABO0372422888",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Installatiebalie Verkoopfactuur VF26-05543.pdf",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL86INGB0008220774"
+      },
+      "new_winner": {
+        "value": "NL86INGB0008220774",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "JSK Handelsonderneming Factuur 1225540.pdf",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL27RABO0102224668"
+      },
+      "new_winner": {
+        "value": "NL27RABO0102224668",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
     {
       "pdf": "Korver Holland Uitgaande factuur 1083663.pdf",
       "field": "invoice_number",
@@ -34,6 +646,23 @@
       "new_winner": {
         "value": "D3269",
         "source": "header_table_customer",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Korver Holland Uitgaande factuur 1083663.pdf",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL94INGB0793999782"
+      },
+      "new_winner": {
+        "value": "NL94INGB0793999782",
+        "source": "pdf_text",
         "status": "confirmed",
         "confidence": 88
       },
@@ -74,6 +703,23 @@
       "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
     },
     {
+      "pdf": "Korver Holland Uitgaande factuur 1094659.pdf",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL94INGB0793999782"
+      },
+      "new_winner": {
+        "value": "NL94INGB0793999782",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
       "pdf": "Korver Uitgaande factuur 1131590.pdf",
       "field": "invoice_number",
       "old_winner": {
@@ -104,6 +750,1366 @@
         "source": "header_table_customer",
         "status": "confirmed",
         "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Korver Uitgaande factuur 1131590.pdf",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL94INGB0793999782"
+      },
+      "new_winner": {
+        "value": "NL94INGB0793999782",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "L. den Hartog Service- en Handelsonderneming Factuur 251788.pdf",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL12INGB0009040204"
+      },
+      "new_winner": {
+        "value": "NL12INGB0009040204",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Labor Factuur_verkooporders__01_F2600915_2026-01-12_11-39-22_.PDF",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL21RABO0108195902"
+      },
+      "new_winner": {
+        "value": "NL21RABO0108195902",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Lewo factuur 26402688.pdf",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL45RABO0372422888"
+      },
+      "new_winner": {
+        "value": "NL45RABO0372422888",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Majestic Factuur Majestic Products nr 9002335421.pdf",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL65INGB0669776963"
+      },
+      "new_winner": {
+        "value": "NL65INGB0669776963",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Martendo stoelen FCT20250716.PDF",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL76RABO0116617810"
+      },
+      "new_winner": {
+        "value": "NL76RABO0116617810",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Martendo stoelen FCT20250716.PDF",
+      "field": "vat_number",
+      "old_winner": {
+        "confidence": 90,
+        "source": "vat",
+        "status": "confirmed",
+        "value": "NL866409890B01"
+      },
+      "new_winner": {
+        "value": "NL866409890B01",
+        "source": "ocr",
+        "status": "tentative",
+        "confidence": 70
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Martendo stoelen FCT20250716.PDF",
+      "field": "kvk_number",
+      "old_winner": {
+        "confidence": 88,
+        "source": "kvk",
+        "status": "confirmed",
+        "value": "93457707"
+      },
+      "new_winner": {
+        "value": "",
+        "source": "fallback_missing",
+        "status": "tentative",
+        "confidence": 5
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Martendo stoelen FCT20250716.PDF",
+      "field": "email_domain",
+      "old_winner": {
+        "confidence": 88,
+        "source": "email",
+        "status": "confirmed",
+        "value": "martendo.nl"
+      },
+      "new_winner": {
+        "value": "",
+        "source": "fallback_missing",
+        "status": "tentative",
+        "confidence": 5
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Masterwatt inv25702553.PDF",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL37INGB0391553143"
+      },
+      "new_winner": {
+        "value": "NL37INGB0391553143",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Nedsale FCT00081032.PDF",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL16RABO0121226875"
+      },
+      "new_winner": {
+        "value": "NL16RABO0121226875",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "OEG FactuurHA13451308.pdf",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "DE03265700900050035500"
+      },
+      "new_winner": {
+        "value": "DE03265700900050035500",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "OEG FactuurHA13451308.pdf",
+      "field": "vat_number",
+      "old_winner": {
+        "confidence": 72,
+        "source": "vat",
+        "status": "tentative",
+        "value": "NR13147563"
+      },
+      "new_winner": {
+        "value": "KG805003351",
+        "source": "vat",
+        "status": "tentative",
+        "confidence": 72
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Option tape Verkoopfactuur VF2602902.pdf",
+      "field": "customer_number",
+      "old_winner": {
+        "confidence": 94,
+        "source": "label_block_same_line",
+        "status": "confirmed",
+        "value": "K014135"
+      },
+      "new_winner": {
+        "value": "K014135",
+        "source": "db_master",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Option tape Verkoopfactuur VF2602902.pdf",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "BE98001759308093"
+      },
+      "new_winner": {
+        "value": "BE98001759308093",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "PGB 1800001827.pdf",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "BE78290016060086"
+      },
+      "new_winner": {
+        "value": "BE78290016060086",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Pearl paint 2610I000151.pdf",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL23INGB0008745902"
+      },
+      "new_winner": {
+        "value": "NL23INGB0008745902",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Pipelife Factuur 0266069151.PDF",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL52KRED0633000574"
+      },
+      "new_winner": {
+        "value": "NL52KRED0633000574",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Pipelife Factuur 0266069151.PDF",
+      "field": "email_domain",
+      "old_winner": {
+        "confidence": 87,
+        "source": "email",
+        "status": "confirmed",
+        "value": "pipelite.nl"
+      },
+      "new_winner": {
+        "value": "pipelife.nl",
+        "source": "email",
+        "status": "confirmed",
+        "confidence": 87
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Pm Coded Factuur 15.pdf",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL54RABO0331334690"
+      },
+      "new_winner": {
+        "value": "NL54RABO0331334690",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Polaris Eerste herinnering Factuurnummer  2606(26892143).pdf",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL34ABNA0135735831"
+      },
+      "new_winner": {
+        "value": "NL34ABNA0135735831",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Polaris Eerste herinnering Factuurnummer  2606(26892143).pdf",
+      "field": "vat_number",
+      "old_winner": {
+        "confidence": 90,
+        "source": "vat",
+        "status": "confirmed",
+        "value": "NL805301021B01"
+      },
+      "new_winner": {
+        "value": "",
+        "source": "fallback_missing",
+        "status": "tentative",
+        "confidence": 5
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Polaris Eerste herinnering Factuurnummer  2606(26892143).pdf",
+      "field": "kvk_number",
+      "old_winner": {
+        "confidence": 88,
+        "source": "kvk",
+        "status": "confirmed",
+        "value": "34095053"
+      },
+      "new_winner": {
+        "value": "",
+        "source": "fallback_missing",
+        "status": "tentative",
+        "confidence": 5
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Polaris Eerste herinnering Factuurnummer  2606(26892143).pdf",
+      "field": "email_domain",
+      "old_winner": {
+        "confidence": 87,
+        "source": "email",
+        "status": "confirmed",
+        "value": "polaris-werkvitaalverzekeren.nl"
+      },
+      "new_winner": {
+        "value": "",
+        "source": "fallback_missing",
+        "status": "tentative",
+        "confidence": 5
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Polyglass 26FC000498.pdf",
+      "field": "customer_number",
+      "old_winner": {
+        "confidence": 91,
+        "source": "label_block_next_line",
+        "status": "confirmed",
+        "value": "04816069"
+      },
+      "new_winner": {
+        "value": "04816069",
+        "source": "label_block_next_line",
+        "status": "confirmed",
+        "confidence": 90
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Polyglass 26FC000498.pdf",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL60HSBC1057811001"
+      },
+      "new_winner": {
+        "value": "NL60HSBC1057811001",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Polyglass 26FC000498.pdf",
+      "field": "email_domain",
+      "old_winner": {
+        "confidence": 88,
+        "source": "email",
+        "status": "confirmed",
+        "value": "polyglass.nl"
+      },
+      "new_winner": {
+        "value": "polyglass.nl",
+        "source": "profile",
+        "status": "confirmed",
+        "confidence": 100
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Qblades INV_2026_00364.pdf",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL31RABO0172459192"
+      },
+      "new_winner": {
+        "value": "NL31RABO0172459192",
+        "source": "pdf_text",
+        "status": "tentative",
+        "confidence": 68
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Rems Rechnung-2612498.pdf",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "DE86600501010405684227"
+      },
+      "new_winner": {
+        "value": "DE86600501010405684227",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Rems Rechnung-2617127.pdf",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "DE86600501010405684227"
+      },
+      "new_winner": {
+        "value": "DE86600501010405684227",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Rexel 113023143_0.pdf",
+      "field": "customer_number",
+      "old_winner": {
+        "confidence": 88,
+        "source": "header_table_customer",
+        "status": "confirmed",
+        "value": "52111087"
+      },
+      "new_winner": {
+        "value": "52111087",
+        "source": "header_table_customer",
+        "status": "confirmed",
+        "confidence": 87
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Rexel 113233634_0.pdf",
+      "field": "customer_number",
+      "old_winner": {
+        "confidence": 88,
+        "source": "header_table_customer",
+        "status": "confirmed",
+        "value": "52111087"
+      },
+      "new_winner": {
+        "value": "52111087",
+        "source": "header_table_customer",
+        "status": "confirmed",
+        "confidence": 87
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Roba INV-0396393.PDF",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL02ABNA0556739590"
+      },
+      "new_winner": {
+        "value": "NL02ABNA0556739590",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "S for Software (IAprog B.V.) Factuur 2026001645.pdf",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL17RABO0100918549"
+      },
+      "new_winner": {
+        "value": "NL17RABO0100918549",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Samedia R1126096.pdf",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "DE87512108005895011200"
+      },
+      "new_winner": {
+        "value": "DE87512108005895011200",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Samedia R1128903.pdf",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "DE87512108005895011200"
+      },
+      "new_winner": {
+        "value": "DE87512108005895011200",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Samedia R1128903.pdf",
+      "field": "email_domain",
+      "old_winner": {
+        "confidence": 87,
+        "source": "email",
+        "status": "confirmed",
+        "value": "samedia.com.pom"
+      },
+      "new_winner": {
+        "value": "samedia.com",
+        "source": "email",
+        "status": "confirmed",
+        "confidence": 87
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Schoonwijk Factuur 260241.pdf",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL80RABO0198899637"
+      },
+      "new_winner": {
+        "value": "NL80RABO0198899637",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Sealeco 202630925.pdf",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL17RABO0114964246"
+      },
+      "new_winner": {
+        "value": "NL17RABO0114964246",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Skylux Factuur_VF25-058813.pdf",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "BE68385011181234"
+      },
+      "new_winner": {
+        "value": "BE68385011181234",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Skylux Factuur_VF25-058813.pdf",
+      "field": "vat_number",
+      "old_winner": {
+        "confidence": 72,
+        "source": "vat",
+        "status": "tentative",
+        "value": "VF25058813"
+      },
+      "new_winner": {
+        "value": "BE6838501118",
+        "source": "vat",
+        "status": "tentative",
+        "confidence": 72
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Solar_factuur_2911621756.pdf",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL19INGB0651444888"
+      },
+      "new_winner": {
+        "value": "NL19INGB0651444888",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Tu 636671785.PDF",
+      "field": "kvk_number",
+      "old_winner": {
+        "confidence": 88,
+        "source": "kvk",
+        "status": "confirmed",
+        "value": "38235014"
+      },
+      "new_winner": {
+        "value": "33235014",
+        "source": "kvk",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Tu 636671785.PDF",
+      "field": "email_domain",
+      "old_winner": {
+        "confidence": 87,
+        "source": "email",
+        "status": "confirmed",
+        "value": "technischeunie.cof"
+      },
+      "new_winner": {
+        "value": "technischeunie.com.op",
+        "source": "email",
+        "status": "confirmed",
+        "confidence": 87
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Ubbink INV_SIN_10567557_101900683_Origineel_0_M.pdf",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL71INGB0674192974"
+      },
+      "new_winner": {
+        "value": "NL71INGB0674192974",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "VTE Verkoopfactuur VF2601788+.pdf",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL38INGB0675408105"
+      },
+      "new_winner": {
+        "value": "NL38INGB0675408105",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "VTE Verkoopfactuur VF2601788+.pdf",
+      "field": "vat_number",
+      "old_winner": {
+        "confidence": 90,
+        "source": "vat",
+        "status": "confirmed",
+        "value": "NL809101178B01"
+      },
+      "new_winner": {
+        "value": "NL809101178B01",
+        "source": "parsed",
+        "status": "tentative",
+        "confidence": 70
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Van Delft staal Factuur 321546 8  juli 2025.pdf",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL71RABO0308406494"
+      },
+      "new_winner": {
+        "value": "NL71RABO0308406494",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Van Gestel dakbedekking VF260027.pdf",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL26RABO0106995243"
+      },
+      "new_winner": {
+        "value": "NL26RABO0106995243",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Van den Borne Factuur_4126VF01369.PDF",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL73RABO0152910123"
+      },
+      "new_winner": {
+        "value": "NL73RABO0152910123",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Van den Borne Factuur_4126VF01369.PDF",
+      "field": "email_domain",
+      "old_winner": {
+        "confidence": 86,
+        "source": "email",
+        "status": "confirmed",
+        "value": "vandenborne.nl"
+      },
+      "new_winner": {
+        "value": "vandenborne.nl",
+        "source": "email",
+        "status": "confirmed",
+        "confidence": 87
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Vent axia 26801599.PDF",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL21INGB0004686488"
+      },
+      "new_winner": {
+        "value": "NL21INGB0004686488",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Venttrade Factuur_1100_220_10020159.pdf",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL25RABO0309081084"
+      },
+      "new_winner": {
+        "value": "NL25RABO0309081084",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Venttrade Factuur_1100_220_10022887.pdf",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL25RABO0309081084"
+      },
+      "new_winner": {
+        "value": "NL25RABO0309081084",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Vinkverf 12511794.PDF",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL34ABNA0532811151"
+      },
+      "new_winner": {
+        "value": "NL34ABNA0532811151",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Vloerbedekking webwinkel Factuur 2025-4606 Handelsonderneming Duister.pdf",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL81RABO0177458739"
+      },
+      "new_winner": {
+        "value": "NL81RABO0177458739",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Voets Bedrijfskleding Factuur 20256627.pdf",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL24RABO0112909272"
+      },
+      "new_winner": {
+        "value": "NL24RABO0112909272",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Wasco 8714252002430_5660148.pdf",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL43INGB0675875943"
+      },
+      "new_winner": {
+        "value": "NL43INGB0675875943",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Wasco 8714252002430_6305463.pdf",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL43INGB0675875943"
+      },
+      "new_winner": {
+        "value": "NL43INGB0675875943",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Wavin Factuur 7012239207.pdf",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL25CITI0266075452"
+      },
+      "new_winner": {
+        "value": "NL25CITI0266075452",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Wentzel Verkoopfactuur_VF00269858.pdf",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL87ABNA0466392842"
+      },
+      "new_winner": {
+        "value": "NL87ABNA0466392842",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 84
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Werova 1620543.pdf",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL93RABO0133581543"
+      },
+      "new_winner": {
+        "value": "NL93RABO0133581543",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Werova 1621391.pdf",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL93RABO0133581543"
+      },
+      "new_winner": {
+        "value": "NL93RABO0133581543",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Wintec inv25700050.PDF",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL72INGB0008995377"
+      },
+      "new_winner": {
+        "value": "NL72INGB0008995377",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Zettex Verkoopfactuur V012600089.pdf",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL54ABNA0141473894"
+      },
+      "new_winner": {
+        "value": "NL54ABNA0141473894",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Zettex Verkoopfactuur V012600089.pdf",
+      "field": "vat_number",
+      "old_winner": {
+        "confidence": 90,
+        "source": "vat",
+        "status": "confirmed",
+        "value": "NL809483403B01"
+      },
+      "new_winner": {
+        "value": "NL809483403B01",
+        "source": "ocr",
+        "status": "tentative",
+        "confidence": 70
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Zettex Verkoopfactuur V012600089.pdf",
+      "field": "kvk_number",
+      "old_winner": {
+        "confidence": 88,
+        "source": "kvk",
+        "status": "confirmed",
+        "value": "24316789"
+      },
+      "new_winner": {
+        "value": "",
+        "source": "fallback_missing",
+        "status": "tentative",
+        "confidence": 5
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "Zettex Verkoopfactuur V012600089.pdf",
+      "field": "email_domain",
+      "old_winner": {
+        "confidence": 86,
+        "source": "email",
+        "status": "confirmed",
+        "value": "zettex.com"
+      },
+      "new_winner": {
+        "value": "zettex.com",
+        "source": "email",
+        "status": "tentative",
+        "confidence": 70
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "beerten Factuur-VF250202.pdf",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL33RABO0351700218"
+      },
+      "new_winner": {
+        "value": "NL33RABO0351700218",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "dataio factuur-968161.pdf",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL18RABO0145363252"
+      },
+      "new_winner": {
+        "value": "NL18RABO0145363252",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "esdonk Factuur200184.pdf",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL28INGB0006306553"
+      },
+      "new_winner": {
+        "value": "NL28INGB0006306553",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "esdonk Factuur200184.pdf",
+      "field": "kvk_number",
+      "old_winner": {
+        "confidence": 88,
+        "source": "kvk",
+        "status": "confirmed",
+        "value": "83445781"
+      },
+      "new_winner": {
+        "value": "83445781",
+        "source": "kvk",
+        "status": "tentative",
+        "confidence": 75
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "goossens K_FC_STD_25000090_21-05-2025_14u37.pdf",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "BE74734054989107"
+      },
+      "new_winner": {
+        "value": "BE74734054989107",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "goossens K_FC_STD_25000090_21-05-2025_14u37.pdf",
+      "field": "vat_number",
+      "old_winner": {
+        "confidence": 72,
+        "source": "vat",
+        "status": "tentative",
+        "value": "KG11300001"
+      },
+      "new_winner": {
+        "value": "BE7473405498",
+        "source": "vat",
+        "status": "tentative",
+        "confidence": 72
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "magnum heating 12580464.pdf",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL37INGB0655775129"
+      },
+      "new_winner": {
+        "value": "NL37INGB0655775129",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "sst Factuur 26230303.pdf",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL11INGB0007651085"
+      },
+      "new_winner": {
+        "value": "NL11INGB0007651085",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "van Walraven Factuur_801083_VP601987.pdf",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL27RABO0135262577"
+      },
+      "new_winner": {
+        "value": "NL27RABO0135262577",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "vd donk Factuur 25041 Wouter Duister.pdf",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL15RABO0133696146"
+      },
+      "new_winner": {
+        "value": "NL15RABO0133696146",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "wildkamp Factuur-125004140.pdf",
+      "field": "iban",
+      "old_winner": {
+        "confidence": 92,
+        "source": "db_master",
+        "status": "confirmed",
+        "value": "NL73RABO0348902794"
+      },
+      "new_winner": {
+        "value": "NL73RABO0348902794",
+        "source": "pdf_text",
+        "status": "confirmed",
+        "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
+    },
+    {
+      "pdf": "wildkamp Factuur-125004140.pdf",
+      "field": "vat_number",
+      "old_winner": {
+        "confidence": 90,
+        "source": "vat",
+        "status": "confirmed",
+        "value": "NL863075009B01"
+      },
+      "new_winner": {
+        "value": "NL007996640B01",
+        "source": "vat",
+        "status": "confirmed",
+        "confidence": 90
       },
       "reason": "production_pipeline_drift_vs_b3_baseline_snapshot"
     }

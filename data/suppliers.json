@@ -1000,13 +1000,47 @@
       ],
       "default_payment_term_days": 30,
       "vat_rate": 21,
-      "vat_numbers": [],
+      "vat_numbers": [
+        "NL866696179B01"
+      ],
       "kvk_numbers": [
         "94258392"
       ],
       "email_domains": [
         "polyglass.nl"
-      ]
+      ],
+      "extraction_profile": {
+        "learned_from": "Polyglass 26FC001584.pdf",
+        "invoice_number": {
+          "label": "06/07/2026",
+          "strategy": "same_line_value_after_label",
+          "confirmed_value": "26FC001584",
+          "confidence": 100
+        },
+        "customer_number": {
+          "label": "Datum Nummer",
+          "strategy": "next_line_first_token",
+          "confirmed_value": "04816069",
+          "confidence": 100
+        },
+        "iban": {
+          "strategy": "iban_full_text_scan",
+          "confirmed_value": "NL60HSBC1057811001",
+          "confidence": 88
+        },
+        "email_domain": {
+          "label": "Email: ",
+          "strategy": "same_line_after_colon",
+          "confirmed_value": "polyglass.nl",
+          "confidence": 100
+        },
+        "amount": {
+          "label": "EUR",
+          "strategy": "same_line_last_amount",
+          "confirmed_value": "1348.05",
+          "confidence": 100
+        }
+      }
     },
     {
       "name": "Profolux",
@@ -1669,7 +1703,8 @@
       "discount": 0.0,
       "aliases": [
         "Habraken Van Walraven B.V.",
-        "Van Walraven B.V."
+        "Van Walraven B.V.",
+        "Van Walraven B.V. (test)"
       ],
       "customer_codes": [
         "801083"
@@ -2474,7 +2509,34 @@
       "kvk_numbers": [],
       "email_domains": [
         "bruil.nl"
-      ]
+      ],
+      "extraction_profile": {
+        "learned_from": "Bruil Factuur288469.pdf",
+        "amount": {
+          "label": "Te betalen",
+          "strategy": "next_line_last_amount",
+          "confirmed_value": "971.03",
+          "confidence": 100
+        },
+        "invoice_number": {
+          "label": "Uw BTW nummer : 001740777B35 Factuurnummer :",
+          "strategy": "same_line_after_colon",
+          "confirmed_value": "288469",
+          "confidence": 100
+        },
+        "customer_number": {
+          "label": "Debiteurnummer :",
+          "strategy": "same_line_after_colon",
+          "confirmed_value": "212554",
+          "confidence": 100
+        },
+        "invoice_date": {
+          "label": "Factuurdatum : ",
+          "strategy": "same_line_after_colon",
+          "confirmed_value": "2026-07-03",
+          "confidence": 100
+        }
+      }
     },
     {
       "name": "Data IO Nederland B.V.",

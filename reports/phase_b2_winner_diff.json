@@ -2,7 +2,7 @@
   "phase": "B2",
   "note": "Phase B2: resolver delegates to rank_key; production winners must match Phase A.1 snapshot. rank_key_mismatches must be 0.",
   "summary": {
-    "production_winner_changes": 123,
+    "production_winner_changes": 124,
     "rank_key_mismatches": 0
   },
   "production_winner_changes": [
@@ -1193,6 +1193,23 @@
         "source": "pdf_text",
         "status": "confirmed",
         "confidence": 88
+      },
+      "reason": "production_pipeline_drift_vs_phase_a1_snapshot"
+    },
+    {
+      "pdf": "Polyglass 26FC000498.pdf",
+      "field": "email_domain",
+      "old_winner": {
+        "confidence": 88,
+        "source": "email",
+        "status": "confirmed",
+        "value": "polyglass.nl"
+      },
+      "new_winner": {
+        "value": "polyglass.nl",
+        "source": "profile",
+        "status": "confirmed",
+        "confidence": 100
       },
       "reason": "production_pipeline_drift_vs_phase_a1_snapshot"
     },

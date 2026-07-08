@@ -15,15 +15,63 @@
         ]
       }
     },
-    "b40f305d1d0fd0d93813d4c94c0e494f64269e9a09cca92b562245e5f8633762": {
-      "2026001645|S for Software (IAprog B.V.) Factuur 2026001645.pdf": {
+    "026736e3659a63d7605df5dfe55d95e7804bfae886256b84c9dda04db19e5cbe": {
+      "2911930893|Solar_factuur_2911930893.pdf": {
         "status": "included",
         "reason_code": "user_approved",
         "reason_detail": "context_menu_approve",
         "editable": false,
         "requires_rerun": false,
         "reason_code_version": 1,
-        "input_field_fingerprint": "f569acea7685f37c0ea371e1f249ed052f1da36c17b9a55b69de40c47fc19d28",
+        "input_field_fingerprint": "6547d04689744a79d54d01ca93f49893bee32a00357781910e4740df30bbf292",
+        "causal_inputs": [
+          "user_approve"
+        ]
+      },
+      "24067506|Bauder 24067506.pdf": {
+        "status": "included",
+        "reason_code": "user_approved",
+        "reason_detail": "context_menu_approve",
+        "editable": false,
+        "requires_rerun": false,
+        "reason_code_version": 1,
+        "input_field_fingerprint": "d6a26406f011b112bda22c2e319f2a89be12f99d577aac1ebb613f8efb57551f",
+        "causal_inputs": [
+          "user_approve"
+        ]
+      },
+      "GVF93068|DTC Kabel B.V. - Factuur GVF93068.pdf": {
+        "status": "included",
+        "reason_code": "user_approved",
+        "reason_detail": "context_menu_approve",
+        "editable": false,
+        "requires_rerun": false,
+        "reason_code_version": 1,
+        "input_field_fingerprint": "fb9e9aaff2b337456ce7a1d844d37792c913be9b2f8795e39261120c7c9704dc",
+        "causal_inputs": [
+          "user_approve"
+        ]
+      },
+      "2450016881|SFS Invoice 2450016881 - SFS Group the Netherlands.PDF": {
+        "status": "included",
+        "reason_code": "user_approved",
+        "reason_detail": "context_menu_approve",
+        "editable": false,
+        "requires_rerun": false,
+        "reason_code_version": 1,
+        "input_field_fingerprint": "21135f16498a392f390ed2ab2cff9736dffdfc62e1037b1435c982cedc658bff",
+        "causal_inputs": [
+          "user_approve"
+        ]
+      },
+      "26804263|Vent axia 26804263.PDF": {
+        "status": "included",
+        "reason_code": "user_approved",
+        "reason_detail": "context_menu_approve",
+        "editable": false,
+        "requires_rerun": false,
+        "reason_code_version": 1,
+        "input_field_fingerprint": "1139bb4421bbf71bf960a5ed95f4cb5446c17b5a4f1f460169903e557c37ad32",
         "causal_inputs": [
           "user_approve"
         ]
