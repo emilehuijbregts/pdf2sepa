@@ -14,7 +14,7 @@ from parser.field_resolver import (
     profile_confidence_for_field,
     resolve_field,
 )
-from parser.profile_extractor import extract_with_profile, validate_profile, amount_field_spec_matches
+from parser.profile_extractor import extract_with_profile, validate_profile, validate_profile_structure, amount_field_spec_matches
 from parser.supplier_db import SupplierDB, customer_number_mode_from_profile, CUSTOMER_NUMBER_MODE_NONE
 
 _HYBRID_FIELD_IDS: tuple[FieldId, ...] = (
@@ -284,7 +284,7 @@ def apply_hybrid_field_extraction(
     profile_validated = False
     if profile and raw:
         extracted = extract_with_profile(raw, profile)
-        profile_validated = validate_profile(raw, profile)
+        profile_validated = validate_profile_structure(raw, profile)
     elif not use_profile:
         profile = None
 

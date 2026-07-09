@@ -367,6 +367,30 @@ class TestGolden2baPdf:
         assert validate_profile(raw, profile, confirmed)
 
 
+class TestProfileRuntimeGeneralizesAmount:
+    def test_same_layout_different_amount_than_learned(self):
+        """Runtime profiel gebruikt label+strategie, niet het trainingsbedrag als filter."""
+        text_train = "Factuurnummer: 2911621756\nKlantnummer: 2075618\nFactuurbedrag EUR 1.452,92\n"
+        text_other = "Factuurnummer: 2911999999\nKlantnummer: 2075618\nFactuurbedrag EUR 987,65\n"
+        profile = {
+            "learned_from": "Solar_factuur_2911621756.pdf",
+            "amount": {
+                "label": "Factuurbedrag",
+                "strategy": "same_line_last_amount",
+                "confirmed_value": "1452.92",
+            },
+        }
+        from parser.profile_extractor import validate_profile_structure
+
+        assert extract_with_profile(text_train, profile)["amount"] == pytest.approx(
+            1452.92, abs=0.01
+        )
+        out_other = extract_with_profile(text_other, profile)
+        assert out_other["amount"] == pytest.approx(987.65, abs=0.01)
+        assert validate_profile_structure(text_other, profile)
+        assert not validate_profile(text_other, profile, None)
+
+
 class TestStrategiesConstant:
     def test_strategies_include_derived_excl_plus_vat(self):
         assert "derived_excl_plus_vat" in STRATEGIES

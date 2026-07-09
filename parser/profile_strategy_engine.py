@@ -739,15 +739,26 @@ def is_valid_field_spec(spec: dict[str, Any], field_id: FieldId) -> bool:
     return bool(spec.get("label"))
 
 
-def execute_spec(raw_text: str, field_id: FieldId, spec: dict[str, Any]) -> Any | None:
+def execute_spec(
+    raw_text: str,
+    field_id: FieldId,
+    spec: dict[str, Any],
+    *,
+    anchor_to_confirmed: bool = False,
+) -> Any | None:
     """Runtime execution of one persisted field spec."""
     if not is_valid_field_spec(spec, field_id):
         return None
     lines = split_lines(raw_text)
     strategy_s = str(spec["strategy"])
     confirmed = spec.get("confirmed_value")
-    string_target = str(confirmed).strip() if confirmed is not None and field_id != "amount" else None
-    amount_target = confirmed_amount_decimal(confirmed) if field_id == "amount" else None
+    string_target = None
+    amount_target = None
+    if anchor_to_confirmed and confirmed is not None:
+        if field_id == "amount":
+            amount_target = confirmed_amount_decimal(confirmed)
+        else:
+            string_target = str(confirmed).strip()
 
     if strategy_s == "derived_excl_plus_vat":
         derived = extract_derived_excl_plus_vat(
@@ -831,7 +842,7 @@ def _resolve_attempt(
     spec_copy = copy.deepcopy(spec)
     if not is_valid_field_spec(spec_copy, field_id):
         return None
-    extracted = execute_spec(raw_text, field_id, spec_copy)
+    extracted = execute_spec(raw_text, field_id, spec_copy, anchor_to_confirmed=True)
     if not values_match(field_id, extracted, confirmed_value):
         return None
     raw_fp, value_key, identity_key = compute_value_fingerprints(field_id, extracted)

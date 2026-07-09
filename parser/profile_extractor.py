@@ -91,12 +91,10 @@ def extract_with_profile(raw_text: str, profile: dict[str, Any]) -> dict[str, fl
         if spec is None:
             continue
         val = execute_spec(raw_text, field, spec)  # type: ignore[arg-type]
-        confirmed = spec.get("confirmed_value")
-        if val is not None and confirmed is not None:
-            if not values_match(field, val, confirmed):
-                val = None
-        if val is None and confirmed is not None:
-            fallback = run_runtime_fallback(field, raw_text, confirmed)  # type: ignore[arg-type]
+        if val is None and spec.get("confirmed_value") is not None:
+            fallback = run_runtime_fallback(
+                field, raw_text, spec.get("confirmed_value")
+            )  # type: ignore[arg-type]
             if fallback.value is not None:
                 val = fallback.value
         if val is not None:
@@ -126,6 +124,17 @@ def _merge_confirmed(
         if spec and spec.get("confirmed_value") is not None:
             out[field] = spec["confirmed_value"]
     return out
+
+
+def validate_profile_structure(raw_text: str, profile: dict[str, Any]) -> bool:
+    """Runtime check: persisted specs extract a value on this document (any amount/number)."""
+    extracted = extract_with_profile(raw_text, profile)
+    for field in FIELD_KEYS:
+        if field not in profile or not _field_spec(profile, field):
+            continue
+        if extracted.get(field) is None:
+            return False
+    return True
 
 
 def validate_profile(
