@@ -8,10 +8,14 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
+
+from logic.auto_update import UpdateInfo, download_update
+from logic.update_qt_bootstrap import bootstrap_pyside6
 
 
 def _configure_logging(install_root: Path) -> logging.Logger:
@@ -147,21 +151,131 @@ def _apply_update(zip_path: Path, app_dir: Path, install_root: Path) -> None:
             shutil.rmtree(staging_dir, ignore_errors=True)
 
 
-def run_update(
+def _log_file_hint(install_root: Path) -> str:
+    return str(install_root / "logs" / "update.log")
+
+
+def _run_with_gui(
     *,
-    zip_path: Path,
+    zip_path: Path | None,
+    update_info: UpdateInfo | None,
     app_dir: Path,
     install_root: Path,
     pid: int,
+    logger: logging.Logger,
+) -> int:
+    bootstrap_pyside6(install_root)
+
+    from PySide6.QtWidgets import QApplication
+
+    from ui.update_progress_window import UpdateProgressWindow
+
+    app = QApplication(sys.argv)
+    version = update_info.version if update_info is not None else ""
+    window = UpdateProgressWindow(version=version)
+    window.show_downloading()
+    app.processEvents()
+
+    backups_dir = install_root / "backups"
+    resolved_zip = zip_path
+    try:
+        if resolved_zip is None:
+            if update_info is None:
+                raise ValueError("Missing update download info")
+            window.show_downloading()
+            app.processEvents()
+
+            def _on_progress(done: int, total: int) -> None:
+                window.set_download_progress(done, total)
+                app.processEvents()
+
+            resolved_zip = download_update(update_info, progress_cb=_on_progress)
+
+        logger.info("Waiting for process %s to exit", pid)
+        _wait_for_pid(pid)
+
+        window.show_installing()
+        app.processEvents()
+
+        data_dir = install_root / "data"
+        _backup_data(data_dir, backups_dir)
+        _apply_update(resolved_zip, app_dir, install_root)
+        logger.info("Update applied successfully")
+
+        window.show_restarting()
+        app.processEvents()
+        _restart_app(app_dir)
+        logger.info("Restarted app from %s", app_dir / "PDF2SEPA.exe")
+        window.close_on_success()
+        app.processEvents()
+        return 0
+    except Exception:
+        logger.exception("Update failed")
+        latest_backup = sorted(backups_dir.glob("app_pre_update_*"), reverse=True)
+        app_backup = latest_backup[0] if latest_backup else None
+        if app_backup is not None and app_backup.is_dir() and not (app_dir / "PDF2SEPA.exe").is_file():
+            try:
+                _rollback_app(app_backup, app_dir)
+                logger.info("Rolled back to %s", app_backup)
+                _restart_app(app_dir)
+                logger.info("Restarted app from rollback at %s", app_dir / "PDF2SEPA.exe")
+            except Exception:
+                logger.exception("Rollback failed")
+        window.show_error(
+            "De update is mislukt. PDF2SEPA blijft op de huidige versie werken.\n\n"
+            f"Zie {_log_file_hint(install_root)} voor details."
+        )
+        app.exec()
+        return 1
+
+
+def run_update(
+    *,
+    zip_path: Path | None,
+    update_info: UpdateInfo | None,
+    app_dir: Path,
+    install_root: Path,
+    pid: int,
+    use_gui: bool = True,
 ) -> int:
     logger = _configure_logging(install_root)
-    backups_dir = install_root / "backups"
-    data_dir = install_root / "data"
+    logger.info(
+        "Updater started zip=%s url=%s app_dir=%s",
+        zip_path,
+        update_info.url if update_info else None,
+        app_dir,
+    )
 
-    logger.info("Updater started zip=%s app_dir=%s", zip_path, app_dir)
-    if not zip_path.is_file():
+    if zip_path is not None and not zip_path.is_file():
         logger.error("Zip not found: %s", zip_path)
         return 1
+
+    if zip_path is None and update_info is None:
+        logger.error("Neither zip path nor update info provided")
+        return 1
+
+    if use_gui and sys.platform.startswith("win"):
+        try:
+            return _run_with_gui(
+                zip_path=zip_path,
+                update_info=update_info,
+                app_dir=app_dir,
+                install_root=install_root,
+                pid=pid,
+                logger=logger,
+            )
+        except Exception:
+            logger.exception("GUI update flow failed; falling back to headless mode")
+
+    if zip_path is None:
+        if update_info is None:
+            logger.error("Missing update download info")
+            return 1
+        try:
+            zip_path = download_update(update_info)
+        except Exception:
+            logger.exception("Download failed")
+            return 1
 
     try:
         _wait_for_pid(pid)
@@ -170,6 +284,8 @@ def run_update(
         return 1
 
     try:
+        backups_dir = install_root / "backups"
+        data_dir = install_root / "data"
         _backup_data(data_dir, backups_dir)
         _apply_update(zip_path, app_dir, install_root)
         logger.info("Update applied successfully")
@@ -193,16 +309,28 @@ def run_update(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="PDF2SEPA updater")
-    parser.add_argument("--zip", required=True, help="Path to update zip")
+    parser.add_argument("--zip", help="Path to update zip (optional if --url is set)")
+    parser.add_argument("--url", help="Update download URL")
+    parser.add_argument("--sha256", help="Expected SHA256 of update zip")
+    parser.add_argument("--version", help="Target update version")
     parser.add_argument("--pid", type=int, default=0, help="PID to wait for")
     parser.add_argument("--app-dir", required=True, help="App install directory")
     parser.add_argument("--install-root", required=True, help="PDF2SEPA root directory")
+    parser.add_argument("--no-gui", action="store_true", help="Run without progress window")
     args = parser.parse_args()
+
+    zip_path = Path(args.zip) if args.zip else None
+    update_info: UpdateInfo | None = None
+    if args.url and args.sha256 and args.version:
+        update_info = UpdateInfo(version=args.version, url=args.url, sha256=args.sha256)
+
     code = run_update(
-        zip_path=Path(args.zip),
+        zip_path=zip_path,
+        update_info=update_info,
         app_dir=Path(args.app_dir),
         install_root=Path(args.install_root),
         pid=args.pid,
+        use_gui=not args.no_gui,
     )
     raise SystemExit(code)
 

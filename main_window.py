@@ -8396,18 +8396,6 @@ def main() -> None:
     # wordt de app gewoon geopend. Bij een beschikbare update krijgt de
     # gebruiker eerst een duidelijke vraag en uitleg.
     if offer_update_if_available(auto_accept=False):
-        from PySide6.QtWidgets import QMessageBox
-
-        QMessageBox.information(
-            None,
-            "PDF2SEPA wordt bijgewerkt",
-            (
-                "PDF2SEPA wordt nu bijgewerkt naar de nieuwste versie.\n\n"
-                "De applicatie wordt afgesloten en de updater wordt gestart.\n"
-                "Zodra de update klaar is, wordt de nieuwe versie automatisch geopend.\n\n"
-                "Sluit dit venster pas wanneer PDF2SEPA opnieuw is gestart."
-            ),
-        )
         sys.exit(0)
     icon_path = app_icon_path()
     if icon_path is not None:

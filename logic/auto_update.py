@@ -11,6 +11,7 @@ import sys
 import tempfile
 import urllib.error
 import urllib.request
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -23,6 +24,7 @@ UPDATE_MANIFEST_URL = (
     "https://github.com/emilehuijbregts/pdf2sepa/releases/latest/download/latest.json"
 )
 _FETCH_TIMEOUT_SEC = 8
+ProgressCallback = Callable[[int, int], None]
 
 
 @dataclass(frozen=True)
@@ -87,17 +89,30 @@ def verify_sha256(path: Path, expected: str) -> bool:
     return digest.hexdigest().lower() == expected.lower()
 
 
-def download_update(info: UpdateInfo, dest_dir: Path | None = None) -> Path:
+def download_update(
+    info: UpdateInfo,
+    dest_dir: Path | None = None,
+    *,
+    progress_cb: ProgressCallback | None = None,
+) -> Path:
     target_dir = dest_dir or Path(tempfile.gettempdir())
     target_dir.mkdir(parents=True, exist_ok=True)
     zip_path = target_dir / f"PDF2SEPA-update-{info.version}.zip"
     req = urllib.request.Request(info.url, headers={"User-Agent": "PDF2SEPA-updater"})
     with urllib.request.urlopen(req, timeout=120) as resp, zip_path.open("wb") as out:
+        total_header = resp.headers.get("Content-Length")
+        total = int(total_header) if total_header and total_header.isdigit() else 0
+        downloaded = 0
+        if progress_cb is not None:
+            progress_cb(0, total)
         while True:
             chunk = resp.read(1024 * 1024)
             if not chunk:
                 break
             out.write(chunk)
+            downloaded += len(chunk)
+            if progress_cb is not None:
+                progress_cb(downloaded, total)
     if not verify_sha256(zip_path, info.sha256):
         zip_path.unlink(missing_ok=True)
         raise ValueError("Downloaded update failed SHA256 verification")
@@ -112,7 +127,7 @@ def updater_exe_path() -> Path:
     raise FileNotFoundError(f"Missing updater executable: {candidate}")
 
 
-def launch_updater(zip_path: Path) -> None:
+def launch_updater(info: UpdateInfo) -> None:
     updater = updater_exe_path()
     pid = os.getpid()
     app_dir = str(install_root() / "app")
@@ -120,8 +135,12 @@ def launch_updater(zip_path: Path) -> None:
     subprocess.Popen(
         [
             str(updater),
-            "--zip",
-            str(zip_path),
+            "--url",
+            info.url,
+            "--sha256",
+            info.sha256,
+            "--version",
+            info.version,
             "--pid",
             str(pid),
             "--app-dir",
@@ -137,8 +156,8 @@ def launch_updater(zip_path: Path) -> None:
 def offer_update_if_available(*, auto_accept: bool = False) -> bool:
     """Return True if an update was accepted and the updater was launched.
 
-    When auto_accept=True, the app will download and launch the updater without
-    prompting. Failures are handled fail-safe (no update, app continues).
+    When auto_accept=True, the app will launch the updater without prompting.
+    Failures are handled fail-safe (no update, app continues).
     """
     if not sys.platform.startswith("win"):
         return False
@@ -162,20 +181,8 @@ def offer_update_if_available(*, auto_accept: bool = False) -> bool:
         if reply != QMessageBox.StandardButton.Yes:
             return False
 
-        QMessageBox.information(
-            None,
-            "Update wordt gedownload",
-            (
-                "PDF2SEPA downloadt nu de update. Dit kan enkele minuten duren,\n"
-                "afhankelijk van uw internetverbinding.\n\n"
-                "De applicatie sluit hierna zodat de updater kan starten.\n"
-                "Zodra de update klaar is, wordt de nieuwe versie automatisch geopend."
-            ),
-        )
-
     try:
-        zip_path = download_update(info)
-        launch_updater(zip_path)
+        launch_updater(info)
     except Exception:
         logger.exception("Update start failed")
         if not auto_accept:
@@ -185,7 +192,7 @@ def offer_update_if_available(*, auto_accept: bool = False) -> bool:
                 None,
                 "Update mislukt",
                 (
-                    "De update kon niet worden gedownload of gestart.\n\n"
+                    "De update kon niet worden gestart.\n\n"
                     "Je huidige versie van PDF2SEPA blijft gewoon werken.\n"
                     "Je kunt het later opnieuw proberen via het opnieuw starten van PDF2SEPA."
                 ),

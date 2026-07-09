@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import sys
 import zipfile
 from pathlib import Path
+from unittest.mock import MagicMock
+
+import pytest
 
 from logic.app_updater import (
     _apply_update,
@@ -11,6 +15,7 @@ from logic.app_updater import (
     _verify_app,
     run_update,
 )
+from logic.auto_update import UpdateInfo
 
 
 def _write_valid_app(app_dir: Path, *, version: str) -> None:
@@ -62,9 +67,11 @@ def test_run_update_keeps_old_app_when_zip_is_invalid(tmp_path: Path, monkeypatc
 
     result = run_update(
         zip_path=zip_path,
+        update_info=None,
         app_dir=app_dir,
         install_root=install_root,
         pid=0,
+        use_gui=False,
     )
 
     assert result == 1
@@ -86,11 +93,63 @@ def test_run_update_applies_valid_zip(tmp_path: Path, monkeypatch) -> None:
 
     result = run_update(
         zip_path=zip_path,
+        update_info=None,
         app_dir=app_dir,
         install_root=install_root,
         pid=0,
+        use_gui=False,
     )
 
     assert result == 0
     assert (app_dir / "PDF2SEPA.exe").read_text(encoding="utf-8") == "version=new"
     assert restarted == [app_dir]
+
+
+def test_run_update_downloads_from_manifest_when_no_zip(tmp_path: Path, monkeypatch) -> None:
+    install_root = tmp_path / "PDF2SEPA"
+    app_dir = install_root / "app"
+    zip_path = tmp_path / "update.zip"
+    _write_valid_app(app_dir, version="old")
+    _write_update_zip(zip_path, version="new")
+
+    info = UpdateInfo(version="new", url="https://example.com/update.zip", sha256="abc")
+
+    monkeypatch.setattr("logic.app_updater._wait_for_pid", lambda _pid: None)
+    monkeypatch.setattr("logic.app_updater._restart_app", lambda _app_dir: None)
+    monkeypatch.setattr("logic.app_updater.download_update", lambda _info, **_kwargs: zip_path)
+
+    result = run_update(
+        zip_path=None,
+        update_info=info,
+        app_dir=app_dir,
+        install_root=install_root,
+        pid=0,
+        use_gui=False,
+    )
+
+    assert result == 0
+    assert (app_dir / "PDF2SEPA.exe").read_text(encoding="utf-8") == "version=new"
+
+
+def test_run_update_uses_gui_flow_when_enabled(tmp_path: Path, monkeypatch) -> None:
+    install_root = tmp_path / "PDF2SEPA"
+    app_dir = install_root / "app"
+    zip_path = tmp_path / "update.zip"
+    _write_valid_app(app_dir, version="old")
+    _write_update_zip(zip_path, version="new")
+
+    gui_runner = MagicMock(return_value=0)
+    monkeypatch.setattr("logic.app_updater._run_with_gui", gui_runner)
+    monkeypatch.setattr(sys, "platform", "win32")
+
+    result = run_update(
+        zip_path=zip_path,
+        update_info=None,
+        app_dir=app_dir,
+        install_root=install_root,
+        pid=0,
+        use_gui=True,
+    )
+
+    assert result == 0
+    gui_runner.assert_called_once()
