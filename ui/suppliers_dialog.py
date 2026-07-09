@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 from logic.payment_amounts import normalize_supplier_vat_rate_pct
 from parser.supplier_db import SupplierDB
 from ui.i18n import tr
+from ui.message_box import ask_yes_no
 
 
 def _discount_edit_text(discount_val: object) -> str:
@@ -537,13 +538,10 @@ class SuppliersDialog(QDialog):
                 tr("dialog.suppliers.select_first"),
             )
             return
-        if (
-            QMessageBox.question(
-                self,
-                tr("dialog.suppliers.msgbox_title"),
-                tr("dialog.suppliers.delete_confirm", name=key),
-            )
-            != QMessageBox.StandardButton.Yes
+        if not ask_yes_no(
+            self,
+            tr("dialog.suppliers.msgbox_title"),
+            tr("dialog.suppliers.delete_confirm", name=key),
         ):
             return
         if self._db.delete_supplier(key):

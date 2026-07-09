@@ -121,6 +121,8 @@ STRINGS: dict[str, str] = {
     'dialog.batch_load.failed.title': 'Laden',
     'dialog.batch_load.no_cache.message': 'Geen geparste facturen in cache. Klik eerst op ‘PDF’s uitlezen’.',
     'dialog.batch_load.no_cache.title': 'Laden',
+    'dialog.button.no': 'Nee',
+    'dialog.button.yes': 'Ja',
     'dialog.confirm.data_dir_switch.message': 'De gekozen map bevat al settings.json en/of suppliers.json.\n\nOverschakelen en die bestanden gebruiken? (Daarna worden de velden in dit venster alsnog naar die map opgeslagen.)',
     'dialog.confirm.data_dir_switch.title': 'Gegevensmap',
     'dialog.credit_override.auto_split': 'Verdeel automatisch over facturen',

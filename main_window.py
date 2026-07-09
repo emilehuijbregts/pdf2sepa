@@ -87,6 +87,7 @@ from logic.credit_profile_learning import (
 )
 from ui.diagnostics_dialog import DiagnosticsDialog
 from ui.i18n import UiStrings, tr, tr_or_code
+from ui.message_box import ask_yes_no
 from ui.loading_overlay import LoadingOverlay
 from ui.field_picker import (
     append_customer_absent_menu_action,
@@ -2227,14 +2228,12 @@ class MainWindow(QMainWindow):
         new_sup = new_r / "suppliers.json"
 
         if new_settings.exists() or new_sup.exists():
-            answer = QMessageBox.question(
+            answer = ask_yes_no(
                 dialog_parent,
                 tr("dialog.confirm.data_dir_switch.title"),
                 tr("dialog.confirm.data_dir_switch.message"),
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.No,
             )
-            if answer != QMessageBox.StandardButton.Yes:
+            if not answer:
                 return False
             if not write_user_data_root(new_r, APP_BASE):
                 QMessageBox.warning(
@@ -3474,7 +3473,7 @@ QTableWidget::item:selected:!active {
         )
 
     def _render_iban_dialog(self, spec: IbanAmbiguityDialogSpec) -> bool:
-        answer = QMessageBox.question(
+        return ask_yes_no(
             self,
             tr(f"{spec.key}.title"),
             tr(
@@ -3484,10 +3483,7 @@ QTableWidget::item:selected:!active {
                 pdf_iban=spec.pdf_iban,
                 count=spec.count,
             ),
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
         )
-        return answer == QMessageBox.StandardButton.Yes
 
     def _collect_iban_raw_answers(self, checkpoint: PreprocessCheckpoint) -> IbanRawUiAnswers:
         specs = checkpoint.iban_dialog_specs
@@ -8304,14 +8300,12 @@ QTableWidget::item:selected:!active {
             if len(duplicates) > 10:
                 lines.append(tr("dialog.export.duplicate_more", count=len(duplicates) - 10))
             detail = "\n".join(lines)
-            dup_answer = QMessageBox.warning(
+            if not ask_yes_no(
                 self,
                 tr("dialog.export.duplicate_title"),
                 tr("dialog.export.duplicate_message", count=len(duplicates), detail=detail),
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.No,
-            )
-            if dup_answer != QMessageBox.StandardButton.Yes:
+                icon=QMessageBox.Icon.Warning,
+            ):
                 self._set_status(tr("status.export_cancelled_duplicates"))
                 return
 
@@ -8332,14 +8326,12 @@ QTableWidget::item:selected:!active {
                 tr("dialog.export.weekend_title"),
                 tr("dialog.export.weekend_message", dates="\n".join(nl_labels)),
             )
-        confirm = QMessageBox.question(
+        if not ask_yes_no(
             self,
             tr("dialog.export.confirm_title"),
             tr("dialog.export.confirm_message", summary=summary),
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.Yes,
-        )
-        if confirm != QMessageBox.StandardButton.Yes:
+            default_yes=True,
+        ):
             self._set_status(tr("status.export_cancelled"))
             return
 

@@ -121,6 +121,8 @@ STRINGS: dict[str, str] = {
     'dialog.batch_load.failed.title': 'Loading',
     'dialog.batch_load.no_cache.message': "No parsed invoices in cache. Click 'Parse PDFs' first.",
     'dialog.batch_load.no_cache.title': 'Loading',
+    'dialog.button.no': 'No',
+    'dialog.button.yes': 'Yes',
     'dialog.confirm.data_dir_switch.message': 'The chosen folder already contains settings.json and/or suppliers.json.\n\nSwitch and use those files? (Fields in this window will then be saved to that folder.)',
     'dialog.confirm.data_dir_switch.title': 'Data folder',
     'dialog.credit_override.auto_split': 'Verdeel automatisch over facturen',

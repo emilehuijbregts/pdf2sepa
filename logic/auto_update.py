@@ -165,9 +165,9 @@ def offer_update_if_available(*, auto_accept: bool = False) -> bool:
     if info is None:
         return False
     if not auto_accept:
-        from PySide6.QtWidgets import QMessageBox
+        from ui.message_box import ask_yes_no
 
-        reply = QMessageBox.question(
+        if not ask_yes_no(
             None,
             "Update beschikbaar",
             (
@@ -175,10 +175,7 @@ def offer_update_if_available(*, auto_accept: bool = False) -> bool:
                 f"Huidige versie: {__version__}\n\n"
                 "Wil je nu updaten? Je gegevens en instellingen blijven behouden."
             ),
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )
-        if reply != QMessageBox.StandardButton.Yes:
+        ):
             return False
 
     try:

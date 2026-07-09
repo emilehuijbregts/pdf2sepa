@@ -18,30 +18,10 @@ from logic.auto_update import (
 )
 
 
-def _install_fake_message_box(monkeypatch: pytest.MonkeyPatch, *, accept: bool) -> None:
-    class FakeMessageBox:
-        class StandardButton:
-            Yes = 1
-            No = 2
-
-        @staticmethod
-        def question(*_args, **_kwargs):
-            return FakeMessageBox.StandardButton.Yes if accept else FakeMessageBox.StandardButton.No
-
-        @staticmethod
-        def information(*_args, **_kwargs):
-            return None
-
-        @staticmethod
-        def warning(*_args, **_kwargs):
-            return None
-
-    fake_widgets = types.ModuleType("PySide6.QtWidgets")
-    fake_widgets.QMessageBox = FakeMessageBox
-    fake_pyside6 = types.ModuleType("PySide6")
-    fake_pyside6.QtWidgets = fake_widgets
-    monkeypatch.setitem(sys.modules, "PySide6", fake_pyside6)
-    monkeypatch.setitem(sys.modules, "PySide6.QtWidgets", fake_widgets)
+def _install_fake_ask_yes_no(monkeypatch: pytest.MonkeyPatch, *, accept: bool) -> None:
+    fake_module = types.ModuleType("ui.message_box")
+    fake_module.ask_yes_no = lambda *_args, **_kwargs: accept
+    monkeypatch.setitem(sys.modules, "ui.message_box", fake_module)
 
 
 def test_version_tuple_parses_semver() -> None:
@@ -69,7 +49,7 @@ def test_offer_update_if_available_returns_false_when_user_declines(monkeypatch:
     monkeypatch.setattr(sys, "platform", "win32")
     info = UpdateInfo(version="9.9.9", url="https://example.com/update.zip", sha256="abc")
     monkeypatch.setattr("logic.auto_update.check_for_update", lambda: info)
-    _install_fake_message_box(monkeypatch, accept=False)
+    _install_fake_ask_yes_no(monkeypatch, accept=False)
 
     assert offer_update_if_available(auto_accept=False) is False
 
@@ -78,7 +58,7 @@ def test_offer_update_if_available_launches_updater_when_user_accepts(monkeypatc
     monkeypatch.setattr(sys, "platform", "win32")
     info = UpdateInfo(version="9.9.9", url="https://example.com/update.zip", sha256="abc")
     monkeypatch.setattr("logic.auto_update.check_for_update", lambda: info)
-    _install_fake_message_box(monkeypatch, accept=True)
+    _install_fake_ask_yes_no(monkeypatch, accept=True)
 
     launch_updater = MagicMock()
     monkeypatch.setattr("logic.auto_update.launch_updater", launch_updater)
