@@ -11,9 +11,11 @@ import pytest
 from logic.auto_update import (
     UpdateInfo,
     download_update,
+    ensure_updater_at_install_root,
     is_newer_version,
     launch_updater,
     offer_update_if_available,
+    updater_exe_path,
     version_tuple,
 )
 
@@ -69,14 +71,16 @@ def test_offer_update_if_available_launches_updater_when_user_accepts(monkeypatc
 
 def test_launch_updater_passes_manifest_args(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     info = UpdateInfo(version="2.0.0", url="https://example.com/update.zip", sha256="deadbeef")
-    updater_exe = tmp_path / "PDF2SEPAUpdater.exe"
+    install_root = tmp_path / "PDF2SEPA"
+    updater_exe = install_root / "PDF2SEPAUpdater.exe"
+    updater_exe.parent.mkdir(parents=True, exist_ok=True)
     updater_exe.write_text("updater", encoding="utf-8")
 
     popen = MagicMock()
-    monkeypatch.setattr("logic.auto_update.updater_exe_path", lambda: updater_exe)
+    monkeypatch.setattr("logic.auto_update.ensure_updater_at_install_root", lambda: updater_exe)
     monkeypatch.setattr("logic.auto_update.subprocess.Popen", popen)
     monkeypatch.setattr("logic.auto_update.os.getpid", lambda: 4242)
-    monkeypatch.setattr("logic.auto_update.install_root", lambda: tmp_path / "PDF2SEPA")
+    monkeypatch.setattr("logic.auto_update.install_root", lambda: install_root)
 
     launch_updater(info)
 
@@ -91,6 +95,49 @@ def test_launch_updater_passes_manifest_args(monkeypatch: pytest.MonkeyPatch, tm
     assert info.version in command
     assert "--pid" in command
     assert "4242" in command
+
+
+def test_updater_exe_path_prefers_install_root(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    install_root = tmp_path / "PDF2SEPA"
+    root_updater = install_root / "PDF2SEPAUpdater.exe"
+    legacy_updater = tmp_path / "app" / "PDF2SEPAUpdater.exe"
+
+    root_updater.parent.mkdir(parents=True, exist_ok=True)
+    legacy_updater.parent.mkdir(parents=True, exist_ok=True)
+    root_updater.write_text("root", encoding="utf-8")
+    legacy_updater.write_text("legacy", encoding="utf-8")
+
+    monkeypatch.setattr("logic.auto_update.install_root", lambda: install_root)
+    monkeypatch.setattr("logic.auto_update.app_root", lambda: legacy_updater.parent)
+
+    assert updater_exe_path() == root_updater
+
+
+def test_updater_exe_path_falls_back_to_legacy_app_bundle(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    install_root = tmp_path / "PDF2SEPA"
+    legacy_updater = tmp_path / "app" / "PDF2SEPAUpdater.exe"
+    legacy_updater.parent.mkdir(parents=True, exist_ok=True)
+    legacy_updater.write_text("legacy", encoding="utf-8")
+
+    monkeypatch.setattr("logic.auto_update.install_root", lambda: install_root)
+    monkeypatch.setattr("logic.auto_update.app_root", lambda: legacy_updater.parent)
+
+    assert updater_exe_path() == legacy_updater
+
+
+def test_ensure_updater_at_install_root_migrates_from_app(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    install_root = tmp_path / "PDF2SEPA"
+    legacy_updater = tmp_path / "app" / "PDF2SEPAUpdater.exe"
+    legacy_updater.parent.mkdir(parents=True, exist_ok=True)
+    legacy_updater.write_text("legacy", encoding="utf-8")
+
+    monkeypatch.setattr("logic.auto_update.install_root", lambda: install_root)
+    monkeypatch.setattr("logic.auto_update.app_root", lambda: legacy_updater.parent)
+
+    target = ensure_updater_at_install_root()
+
+    assert target == install_root / "PDF2SEPAUpdater.exe"
+    assert target.read_text(encoding="utf-8") == "legacy"
 
 
 def test_download_update_reports_progress(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:

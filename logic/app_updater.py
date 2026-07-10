@@ -14,7 +14,7 @@ import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-from logic.auto_update import UpdateInfo, download_update
+from logic.auto_update import UPDATER_EXE_NAME, UpdateInfo, download_update
 from logic.update_qt_bootstrap import bootstrap_pyside6
 
 
@@ -93,17 +93,33 @@ def _extract_zip_to_staging(zip_path: Path, staging_dir: Path) -> None:
     _extract_zip(zip_path, staging_dir)
 
 
-def _swap_staged_app(staging_dir: Path, app_dir: Path, backups_dir: Path) -> Path | None:
-    """Atomically replace app_dir with verified staging contents.
+def _swap_staged_app(
+    staging_dir: Path,
+    app_dir: Path,
+    backups_dir: Path,
+    install_root: Path,
+) -> Path | None:
+    """Atomically replace app_dir with verified staging contents via rename.
 
     Returns the backup path of the previous app install, if any.
     """
     app_backup: Path | None = None
+    retired_dir: Path | None = None
     if app_dir.is_dir():
         app_backup = _backup_app(app_dir, backups_dir, "pre_update")
-        shutil.rmtree(app_dir)
-    shutil.move(str(staging_dir), str(app_dir))
+        retired_dir = install_root / f"app_retired_{_timestamp()}"
+        app_dir.rename(retired_dir)
+    staging_dir.rename(app_dir)
+    if retired_dir is not None:
+        shutil.rmtree(retired_dir, ignore_errors=True)
     return app_backup
+
+
+def _find_python_runtime_dll(internal_dir: Path) -> Path | None:
+    for candidate in sorted(internal_dir.glob("python3*.dll")):
+        if candidate.is_file():
+            return candidate
+    return None
 
 
 def _verify_app(app_dir: Path) -> None:
@@ -113,6 +129,53 @@ def _verify_app(app_dir: Path) -> None:
         raise FileNotFoundError(f"Missing {exe}")
     if not internal.is_dir():
         raise FileNotFoundError(f"Missing {internal}")
+    python_dll = _find_python_runtime_dll(internal)
+    if python_dll is None:
+        raise FileNotFoundError(f"Missing Python runtime DLL in {internal}")
+
+
+def _is_app_healthy(app_dir: Path) -> bool:
+    try:
+        _verify_app(app_dir)
+    except (FileNotFoundError, OSError):
+        return False
+    return True
+
+
+def _relocate_updater_to_install_root(app_dir: Path, install_root: Path) -> None:
+    """Move updater out of app/ so future swaps do not lock it inside app/."""
+    bundled_updater = app_dir / UPDATER_EXE_NAME
+    if not bundled_updater.is_file():
+        return
+    target = install_root / UPDATER_EXE_NAME
+    install_root.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(bundled_updater, target)
+    bundled_updater.unlink(missing_ok=True)
+
+
+def _attempt_rollback(
+    *,
+    app_dir: Path,
+    backups_dir: Path,
+    install_root: Path,
+    logger: logging.Logger,
+    restart: bool,
+) -> bool:
+    latest_backup = sorted(backups_dir.glob("app_pre_update_*"), reverse=True)
+    app_backup = latest_backup[0] if latest_backup else None
+    if app_backup is None or not app_backup.is_dir() or _is_app_healthy(app_dir):
+        return False
+    try:
+        _rollback_app(app_backup, app_dir)
+        _relocate_updater_to_install_root(app_dir, install_root)
+        logger.info("Rolled back to %s", app_backup)
+        if restart:
+            _restart_app(app_dir)
+            logger.info("Restarted app from rollback at %s", app_dir / "PDF2SEPA.exe")
+        return True
+    except Exception:
+        logger.exception("Rollback failed")
+        return False
 
 
 def _rollback_app(backup_dir: Path, app_dir: Path) -> None:
@@ -143,9 +206,12 @@ def _apply_update(zip_path: Path, app_dir: Path, install_root: Path) -> None:
         _extract_zip_to_staging(zip_path, staging_dir)
         _verify_app(staging_dir)
         logger.info("Staging verification succeeded for %s", staging_dir)
-        app_backup = _swap_staged_app(staging_dir, app_dir, backups_dir)
+        app_backup = _swap_staged_app(staging_dir, app_dir, backups_dir, install_root)
         if app_backup is not None:
             logger.info("Previous app backed up to %s", app_backup)
+        _verify_app(app_dir)
+        _relocate_updater_to_install_root(app_dir, install_root)
+        logger.info("Post-swap verification succeeded for %s", app_dir)
     finally:
         if staging_dir.exists():
             shutil.rmtree(staging_dir, ignore_errors=True)
@@ -211,16 +277,13 @@ def _run_with_gui(
         return 0
     except Exception:
         logger.exception("Update failed")
-        latest_backup = sorted(backups_dir.glob("app_pre_update_*"), reverse=True)
-        app_backup = latest_backup[0] if latest_backup else None
-        if app_backup is not None and app_backup.is_dir() and not (app_dir / "PDF2SEPA.exe").is_file():
-            try:
-                _rollback_app(app_backup, app_dir)
-                logger.info("Rolled back to %s", app_backup)
-                _restart_app(app_dir)
-                logger.info("Restarted app from rollback at %s", app_dir / "PDF2SEPA.exe")
-            except Exception:
-                logger.exception("Rollback failed")
+        _attempt_rollback(
+            app_dir=app_dir,
+            backups_dir=backups_dir,
+            install_root=install_root,
+            logger=logger,
+            restart=True,
+        )
         window.show_error(
             "De update is mislukt. PDF2SEPA blijft op de huidige versie werken.\n\n"
             f"Zie {_log_file_hint(install_root)} voor details."
@@ -294,16 +357,13 @@ def run_update(
         return 0
     except Exception:
         logger.exception("Update failed")
-        latest_backup = sorted(backups_dir.glob("app_pre_update_*"), reverse=True)
-        app_backup = latest_backup[0] if latest_backup else None
-        if app_backup is not None and app_backup.is_dir() and not (app_dir / "PDF2SEPA.exe").is_file():
-            try:
-                _rollback_app(app_backup, app_dir)
-                logger.info("Rolled back to %s", app_backup)
-                _restart_app(app_dir)
-                logger.info("Restarted app from rollback at %s", app_dir / "PDF2SEPA.exe")
-            except Exception:
-                logger.exception("Rollback failed")
+        _attempt_rollback(
+            app_dir=app_dir,
+            backups_dir=backups_dir,
+            install_root=install_root,
+            logger=logger,
+            restart=True,
+        )
         return 1
 
 

@@ -6,6 +6,7 @@ import hashlib
 import json
 import logging
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -119,16 +120,41 @@ def download_update(
     return zip_path
 
 
+UPDATER_EXE_NAME = "PDF2SEPAUpdater.exe"
+
+
+def _legacy_updater_exe_path() -> Path | None:
+    candidate = app_root() / UPDATER_EXE_NAME
+    return candidate if candidate.is_file() else None
+
+
 def updater_exe_path() -> Path:
-    root = app_root()
-    candidate = root / "PDF2SEPAUpdater.exe"
-    if candidate.is_file():
-        return candidate
-    raise FileNotFoundError(f"Missing updater executable: {candidate}")
+    """Return the updater executable path (install root preferred)."""
+    root_candidate = install_root() / UPDATER_EXE_NAME
+    if root_candidate.is_file():
+        return root_candidate
+    legacy = _legacy_updater_exe_path()
+    if legacy is not None:
+        return legacy
+    raise FileNotFoundError(f"Missing updater executable: {root_candidate}")
+
+
+def ensure_updater_at_install_root() -> Path:
+    """Stage updater at install root so it does not run from app/ during swap."""
+    root = install_root()
+    root.mkdir(parents=True, exist_ok=True)
+    target = root / UPDATER_EXE_NAME
+    legacy = _legacy_updater_exe_path()
+    if legacy is None and not target.is_file():
+        raise FileNotFoundError(f"Missing updater executable: {target}")
+    if legacy is not None:
+        if not target.is_file() or legacy.stat().st_mtime > target.stat().st_mtime:
+            shutil.copy2(legacy, target)
+    return target
 
 
 def launch_updater(info: UpdateInfo) -> None:
-    updater = updater_exe_path()
+    updater = ensure_updater_at_install_root()
     pid = os.getpid()
     app_dir = str(install_root() / "app")
     install = str(install_root())

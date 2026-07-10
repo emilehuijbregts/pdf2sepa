@@ -28,6 +28,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Files]
 Source: "dist\PDF2SEPA\*"; DestDir: "{localappdata}\PDF2SEPA\app"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "dist\PDF2SEPAUpdater.exe"; DestDir: "{localappdata}\PDF2SEPA"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{localappdata}\PDF2SEPA\app\PDF2SEPA.exe"

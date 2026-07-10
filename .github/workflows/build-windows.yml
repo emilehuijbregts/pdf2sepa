@@ -74,12 +74,6 @@ jobs:
         shell: pwsh
         run: pyinstaller --distpath packaging/dist --workpath packaging/build packaging/pdf2sepa_updater.spec
 
-      - name: Bundle updater into app
-        shell: pwsh
-        run: |
-          Copy-Item packaging\dist\PDF2SEPAUpdater.exe packaging\dist\PDF2SEPA\PDF2SEPAUpdater.exe -Force
-          Write-Host "Copied PDF2SEPAUpdater.exe into app bundle"
-
       - name: Verify build output
         shell: pwsh
         run: |
@@ -108,7 +102,16 @@ jobs:
             Write-Error "Missing Dutch OCR model: $nld"
             exit 1
           }
-          Write-Host "Build output verified: exe, bundle, Tesseract and nld tessdata present"
+          $updater = "packaging/dist/PDF2SEPAUpdater.exe"
+          if (-not (Test-Path $updater)) {
+            Write-Error "Missing updater executable: $updater"
+            exit 1
+          }
+          if (Test-Path "packaging/dist/PDF2SEPA/PDF2SEPAUpdater.exe") {
+            Write-Error "Updater must not be bundled inside app/ (breaks in-place updates)"
+            exit 1
+          }
+          Write-Host "Build output verified: exe, updater, bundle, Tesseract and nld tessdata present"
 
       - name: Create zip archive
         shell: pwsh

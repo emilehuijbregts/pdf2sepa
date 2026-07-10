@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import sys
 import zipfile
 from pathlib import Path
@@ -11,25 +12,39 @@ import pytest
 
 from logic.app_updater import (
     _apply_update,
+    _attempt_rollback,
     _extract_zip,
+    _is_app_healthy,
+    _relocate_updater_to_install_root,
+    _swap_staged_app,
     _verify_app,
     run_update,
 )
-from logic.auto_update import UpdateInfo
+from logic.auto_update import UPDATER_EXE_NAME, UpdateInfo
 
 
-def _write_valid_app(app_dir: Path, *, version: str) -> None:
+def _write_valid_app(app_dir: Path, *, version: str, include_python_dll: bool = True) -> None:
     app_dir.mkdir(parents=True, exist_ok=True)
     (app_dir / "PDF2SEPA.exe").write_text(f"version={version}", encoding="utf-8")
     (app_dir / "_internal").mkdir(parents=True, exist_ok=True)
     (app_dir / "_internal" / "marker.txt").write_text(version, encoding="utf-8")
+    if include_python_dll:
+        (app_dir / "_internal" / "python312.dll").write_bytes(b"python-runtime")
 
 
-def _write_update_zip(zip_path: Path, *, version: str, include_exe: bool = True) -> None:
+def _write_update_zip(
+    zip_path: Path,
+    *,
+    version: str,
+    include_exe: bool = True,
+    include_python_dll: bool = True,
+) -> None:
     with zipfile.ZipFile(zip_path, "w") as zf:
         if include_exe:
             zf.writestr("PDF2SEPA.exe", f"version={version}")
         zf.writestr("_internal/marker.txt", version)
+        if include_python_dll:
+            zf.writestr("_internal/python312.dll", b"python-runtime")
 
 
 def test_extract_zip_and_verify_app(tmp_path: Path) -> None:
@@ -153,3 +168,73 @@ def test_run_update_uses_gui_flow_when_enabled(tmp_path: Path, monkeypatch) -> N
 
     assert result == 0
     gui_runner.assert_called_once()
+
+
+def test_verify_app_requires_python_dll(tmp_path: Path) -> None:
+    app_dir = tmp_path / "app"
+    _write_valid_app(app_dir, version="old", include_python_dll=False)
+
+    with pytest.raises(FileNotFoundError, match="Python runtime DLL"):
+        _verify_app(app_dir)
+
+
+def test_swap_uses_rename_not_rmtree(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    install_root = tmp_path / "PDF2SEPA"
+    app_dir = install_root / "app"
+    staging_dir = install_root / "staging"
+    backups_dir = install_root / "backups"
+
+    _write_valid_app(app_dir, version="old")
+    _write_valid_app(staging_dir, version="new")
+
+    rmtree_calls: list[Path] = []
+    original_rmtree = __import__("shutil").rmtree
+
+    def _track_rmtree(path: Path, *args, **kwargs) -> None:
+        rmtree_calls.append(Path(path))
+        original_rmtree(path, *args, **kwargs)
+
+    monkeypatch.setattr("logic.app_updater.shutil.rmtree", _track_rmtree)
+
+    _swap_staged_app(staging_dir, app_dir, backups_dir, install_root)
+
+    assert (app_dir / "PDF2SEPA.exe").read_text(encoding="utf-8") == "version=new"
+    assert not any(call == app_dir for call in rmtree_calls)
+
+
+def test_rollback_on_unhealthy_app(tmp_path: Path) -> None:
+    install_root = tmp_path / "PDF2SEPA"
+    app_dir = install_root / "app"
+    backups_dir = install_root / "backups"
+
+    _write_valid_app(app_dir, version="old")
+    backup = backups_dir / "app_pre_update_test"
+    _write_valid_app(backup, version="old")
+
+    (app_dir / "PDF2SEPA.exe").write_text("broken", encoding="utf-8")
+    (app_dir / "_internal" / "python312.dll").unlink()
+
+    logger = logging.getLogger("test.updater")
+    rolled_back = _attempt_rollback(
+        app_dir=app_dir,
+        backups_dir=backups_dir,
+        install_root=install_root,
+        logger=logger,
+        restart=False,
+    )
+
+    assert rolled_back is True
+    assert _is_app_healthy(app_dir)
+    assert (app_dir / "PDF2SEPA.exe").read_text(encoding="utf-8") == "version=old"
+
+
+def test_relocate_updater_to_install_root(tmp_path: Path) -> None:
+    install_root = tmp_path / "PDF2SEPA"
+    app_dir = install_root / "app"
+    _write_valid_app(app_dir, version="new")
+    (app_dir / UPDATER_EXE_NAME).write_text("updater", encoding="utf-8")
+
+    _relocate_updater_to_install_root(app_dir, install_root)
+
+    assert (install_root / UPDATER_EXE_NAME).read_text(encoding="utf-8") == "updater"
+    assert not (app_dir / UPDATER_EXE_NAME).exists()
