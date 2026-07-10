@@ -146,6 +146,80 @@ def test_run_update_downloads_from_manifest_when_no_zip(tmp_path: Path, monkeypa
     assert (app_dir / "PDF2SEPA.exe").read_text(encoding="utf-8") == "version=new"
 
 
+def test_run_with_gui_hands_off_install_to_headless_process(tmp_path: Path, monkeypatch) -> None:
+    install_root = tmp_path / "PDF2SEPA"
+    app_dir = install_root / "app"
+    zip_path = tmp_path / "update.zip"
+    _write_valid_app(app_dir, version="old")
+    zip_path.write_bytes(b"zip")
+
+    spawn = MagicMock()
+    monkeypatch.setattr("logic.app_updater.bootstrap_pyside6", lambda _root: None)
+    monkeypatch.setattr("logic.app_updater._spawn_headless_install", spawn)
+    monkeypatch.setattr("logic.app_updater.os.getpid", lambda: 7777)
+
+    fake_qt = MagicMock()
+    fake_window = MagicMock()
+    fake_qt.QApplication.return_value = MagicMock()
+    monkeypatch.setitem(sys.modules, "PySide6.QtWidgets", fake_qt)
+    monkeypatch.setitem(
+        sys.modules,
+        "ui.update_progress_window",
+        MagicMock(UpdateProgressWindow=MagicMock(return_value=fake_window)),
+    )
+
+    from logic.app_updater import _run_with_gui
+
+    result = _run_with_gui(
+        zip_path=zip_path,
+        update_info=None,
+        app_dir=app_dir,
+        install_root=install_root,
+        pid=4242,
+        logger=logging.getLogger("test.updater"),
+    )
+
+    assert result == 0
+    spawn.assert_called_once_with(
+        zip_path=zip_path,
+        app_dir=app_dir,
+        install_root=install_root,
+        pid=4242,
+        parent_pid=7777,
+    )
+    fake_window.close_on_success.assert_called_once()
+
+
+def test_run_update_waits_for_parent_pid_before_apply(tmp_path: Path, monkeypatch) -> None:
+    install_root = tmp_path / "PDF2SEPA"
+    app_dir = install_root / "app"
+    zip_path = tmp_path / "update.zip"
+    _write_valid_app(app_dir, version="old")
+    _write_update_zip(zip_path, version="new")
+
+    waited: list[int] = []
+
+    def _wait(pid: int) -> None:
+        waited.append(pid)
+
+    monkeypatch.setattr("logic.app_updater._wait_for_pid", _wait)
+    monkeypatch.setattr("logic.app_updater._restart_app", lambda _app_dir: None)
+
+    result = run_update(
+        zip_path=zip_path,
+        update_info=None,
+        app_dir=app_dir,
+        install_root=install_root,
+        pid=11,
+        parent_pid=22,
+        use_gui=False,
+    )
+
+    assert result == 0
+    assert waited == [11, 22]
+    assert (app_dir / "PDF2SEPA.exe").read_text(encoding="utf-8") == "version=new"
+
+
 def test_run_update_uses_gui_flow_when_enabled(tmp_path: Path, monkeypatch) -> None:
     install_root = tmp_path / "PDF2SEPA"
     app_dir = install_root / "app"

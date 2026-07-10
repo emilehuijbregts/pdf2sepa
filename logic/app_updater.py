@@ -221,6 +221,56 @@ def _log_file_hint(install_root: Path) -> str:
     return str(install_root / "logs" / "update.log")
 
 
+def _updater_executable() -> Path:
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve()
+    return Path(__file__).resolve().parent.parent / "packaging" / "updater_main.py"
+
+
+def _spawn_headless_install(
+    *,
+    zip_path: Path,
+    app_dir: Path,
+    install_root: Path,
+    pid: int,
+    parent_pid: int,
+) -> None:
+    """Start install in a fresh process without Qt DLLs loaded from app/."""
+    updater = _updater_executable()
+    command = [
+        str(updater),
+        "--zip",
+        str(zip_path),
+        "--pid",
+        str(pid),
+        "--parent-pid",
+        str(parent_pid),
+        "--app-dir",
+        str(app_dir),
+        "--install-root",
+        str(install_root),
+        "--no-gui",
+    ]
+    if not getattr(sys, "frozen", False):
+        command = [sys.executable, *command]
+    subprocess.Popen(
+        command,
+        creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0,
+        close_fds=True,
+    )
+
+
+def _show_windows_error(title: str, message: str) -> None:
+    if not sys.platform.startswith("win"):
+        return
+    try:
+        import ctypes
+
+        ctypes.windll.user32.MessageBoxW(None, message, title, 0x10)
+    except Exception:
+        pass
+
+
 def _run_with_gui(
     *,
     zip_path: Path | None,
@@ -257,21 +307,23 @@ def _run_with_gui(
 
             resolved_zip = download_update(update_info, progress_cb=_on_progress)
 
-        logger.info("Waiting for process %s to exit", pid)
-        _wait_for_pid(pid)
-
+        # Install in a separate process: this GUI process loads Qt DLLs from
+        # app/_internal, which locks files on Windows and blocks app/ replacement.
         window.show_installing()
         app.processEvents()
-
-        data_dir = install_root / "data"
-        _backup_data(data_dir, backups_dir)
-        _apply_update(resolved_zip, app_dir, install_root)
-        logger.info("Update applied successfully")
-
-        window.show_restarting()
-        app.processEvents()
-        _restart_app(app_dir)
-        logger.info("Restarted app from %s", app_dir / "PDF2SEPA.exe")
+        parent_pid = os.getpid()
+        logger.info(
+            "Handing off install to headless updater (parent_pid=%s, target_pid=%s)",
+            parent_pid,
+            pid,
+        )
+        _spawn_headless_install(
+            zip_path=resolved_zip,
+            app_dir=app_dir,
+            install_root=install_root,
+            pid=pid,
+            parent_pid=parent_pid,
+        )
         window.close_on_success()
         app.processEvents()
         return 0
@@ -299,6 +351,7 @@ def run_update(
     app_dir: Path,
     install_root: Path,
     pid: int,
+    parent_pid: int = 0,
     use_gui: bool = True,
 ) -> int:
     logger = _configure_logging(install_root)
@@ -342,6 +395,9 @@ def run_update(
 
     try:
         _wait_for_pid(pid)
+        if parent_pid > 0:
+            logger.info("Waiting for GUI updater process %s to exit", parent_pid)
+            _wait_for_pid(parent_pid)
     except TimeoutError as exc:
         logger.error("%s", exc)
         return 1
@@ -364,6 +420,13 @@ def run_update(
             logger=logger,
             restart=True,
         )
+        _show_windows_error(
+            "Update mislukt",
+            (
+                "De update is mislukt. PDF2SEPA blijft op de huidige versie werken.\n\n"
+                f"Zie {_log_file_hint(install_root)} voor details."
+            ),
+        )
         return 1
 
 
@@ -374,6 +437,12 @@ def main() -> None:
     parser.add_argument("--sha256", help="Expected SHA256 of update zip")
     parser.add_argument("--version", help="Target update version")
     parser.add_argument("--pid", type=int, default=0, help="PID to wait for")
+    parser.add_argument(
+        "--parent-pid",
+        type=int,
+        default=0,
+        help="GUI updater PID to wait for before applying (releases DLL locks)",
+    )
     parser.add_argument("--app-dir", required=True, help="App install directory")
     parser.add_argument("--install-root", required=True, help="PDF2SEPA root directory")
     parser.add_argument("--no-gui", action="store_true", help="Run without progress window")
@@ -390,6 +459,7 @@ def main() -> None:
         app_dir=Path(args.app_dir),
         install_root=Path(args.install_root),
         pid=args.pid,
+        parent_pid=args.parent_pid,
         use_gui=not args.no_gui,
     )
     raise SystemExit(code)
