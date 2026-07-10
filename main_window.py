@@ -2797,6 +2797,9 @@ QTableWidget::item:selected:!active {
 
     def _apply_row_colors(self) -> None:
         # HARD INVARIANT: never grey; only included/needs_review/excluded.
+        # Use _decision_for_row (store-first) per dev_rules §11: DecisionStore is
+        # the single source of truth. _row_decision (table-item only) can lose
+        # Python-object data on Windows after Qt sort operations.
         prev_suppress = self._suppress_table_item_changed
         blocked = self._table.blockSignals(True)
         self._suppress_table_item_changed = True
@@ -2806,7 +2809,7 @@ QTableWidget::item:selected:!active {
                     continue
                 if self._is_settlement_child_row(r):
                     continue
-                dec = self._row_decision(r)
+                dec = self._decision_for_row(r)
                 st = dec.get("status")
                 if self._is_detached_credit_header_row(r):
                     color = self._COLOR_ERROR
