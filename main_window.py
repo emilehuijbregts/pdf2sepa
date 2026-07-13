@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any, NamedTuple, Optional
 
 from PySide6.QtCore import Qt, QSize, QTimer, QThread
-from PySide6.QtGui import QColor, QCursor, QFont, QIcon, QKeySequence, QShortcut
+from PySide6.QtGui import QColor, QCursor, QFont, QIcon, QKeySequence, QPalette, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -184,6 +184,7 @@ from logic.settings import (
     sync_debtor_vat_output,
     validate_debtor_for_export,
 )
+from version import __version__
 from parser.field_candidates import normalize_internal_vat_numbers_for_storage
 from output.sepa_xml import (
     exportable_payments_from_decisions,
@@ -1165,9 +1166,25 @@ class SettingsDialog(QDialog):
         self.setMinimumWidth(560)
         self.resize(560, 520)
         root = QVBoxLayout(self)
+
+        header = QHBoxLayout()
         info = QLabel(tr("dialog.settings.intro"))
         info.setWordWrap(True)
-        root.addWidget(info)
+        header.addWidget(info, stretch=1)
+
+        version_label = QLabel(tr("dialog.settings.version", version=__version__))
+        version_label.setAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop
+        )
+        muted = QApplication.palette().color(QPalette.ColorRole.PlaceholderText)
+        version_font = version_label.font()
+        if version_font.pointSize() > 0:
+            version_font.setPointSize(max(version_font.pointSize() - 1, 9))
+        version_label.setFont(version_font)
+        version_label.setStyleSheet(f"color: {muted.name()};")
+        header.addWidget(version_label, alignment=Qt.AlignmentFlag.AlignTop)
+
+        root.addLayout(header)
         form = QFormLayout()
         root.addLayout(form)
         self._field_edits: dict[str, QLineEdit] = {}
@@ -1331,8 +1348,6 @@ class MainWindow(QMainWindow):
     Biedt mapselectie voor facturen, een bewerkbaar overzicht van betalingen
     en een actie om SEPA XML te genereren.
     """
-
-    APP_VERSION = "1.0.8"
 
     def __init__(self) -> None:
         super().__init__()
@@ -6969,7 +6984,7 @@ QTableWidget::item:selected:!active {
         QMessageBox.about(
             self,
             tr("app.about.title"),
-            tr("app.about.html", version=self.APP_VERSION),
+            tr("app.about.html", version=__version__),
         )
 
     def _on_select_folder(self) -> None:

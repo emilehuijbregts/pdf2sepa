@@ -210,6 +210,7 @@ STRINGS: dict[str, str] = {
     'dialog.settings.kvk_vat_tooltip': 'Wordt niet in de SEPA-XML gezet. Wel om uw eigen KvK/BTW op facturen uit te sluiten bij het herkennen van leveranciers (wordt nooit als leverancier-KvK of -BTW gebruikt). Meerdere BTW-nummers: comma-gescheiden.',
     'dialog.settings.save': 'Opslaan',
     'dialog.settings.title': 'Instellingen',
+    'dialog.settings.version': 'Versie {version}',
     'dialog.settings.xml_hint': 'Deze gegevens (naam, IBAN en BIC) worden gebruikt voor het genereren van de SEPA XML. Vul ze in via Instellingen.',
     'dialog.suppliers.add_failed': 'Kon niet toevoegen (bestaat mogelijk al).',
     'dialog.suppliers.added': "Leverancier '{name}' toegevoegd.",
