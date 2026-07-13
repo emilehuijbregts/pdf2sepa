@@ -120,6 +120,7 @@ def download_update(
     return zip_path
 
 
+UPDATER_DIR_NAME = "updater"
 UPDATER_EXE_NAME = "PDF2SEPAUpdater.exe"
 
 
@@ -128,29 +129,45 @@ def _legacy_updater_exe_path() -> Path | None:
     return candidate if candidate.is_file() else None
 
 
+def _legacy_root_updater_exe_path() -> Path | None:
+    candidate = install_root() / UPDATER_EXE_NAME
+    return candidate if candidate.is_file() else None
+
+
 def updater_exe_path() -> Path:
-    """Return the updater executable path (install root preferred)."""
-    root_candidate = install_root() / UPDATER_EXE_NAME
-    if root_candidate.is_file():
+    """Return the updater executable path (updater/ onedir preferred)."""
+    root = install_root()
+    onedir_candidate = root / UPDATER_DIR_NAME / UPDATER_EXE_NAME
+    if onedir_candidate.is_file():
+        return onedir_candidate
+    root_candidate = _legacy_root_updater_exe_path()
+    if root_candidate is not None:
         return root_candidate
     legacy = _legacy_updater_exe_path()
     if legacy is not None:
         return legacy
-    raise FileNotFoundError(f"Missing updater executable: {root_candidate}")
+    raise FileNotFoundError(f"Missing updater executable: {onedir_candidate}")
 
 
 def ensure_updater_at_install_root() -> Path:
-    """Stage updater at install root so it does not run from app/ during swap."""
+    """Return updater executable, migrating legacy locations into updater/ when needed."""
     root = install_root()
-    root.mkdir(parents=True, exist_ok=True)
-    target = root / UPDATER_EXE_NAME
+    target_dir = root / UPDATER_DIR_NAME
+    target_exe = target_dir / UPDATER_EXE_NAME
+    if target_exe.is_file():
+        return target_exe
+
     legacy = _legacy_updater_exe_path()
-    if legacy is None and not target.is_file():
-        raise FileNotFoundError(f"Missing updater executable: {target}")
-    if legacy is not None:
-        if not target.is_file() or legacy.stat().st_mtime > target.stat().st_mtime:
-            shutil.copy2(legacy, target)
-    return target
+    legacy_root = _legacy_root_updater_exe_path()
+    if legacy is None and legacy_root is None:
+        raise FileNotFoundError(f"Missing updater executable: {target_exe}")
+
+    target_dir.mkdir(parents=True, exist_ok=True)
+    source = legacy if legacy is not None else legacy_root
+    assert source is not None
+    if not target_exe.is_file() or source.stat().st_mtime > target_exe.stat().st_mtime:
+        shutil.copy2(source, target_exe)
+    return target_exe
 
 
 def launch_updater(info: UpdateInfo) -> None:
@@ -174,7 +191,7 @@ def launch_updater(info: UpdateInfo) -> None:
             "--install-root",
             install,
         ],
-        cwd=install,
+        cwd=str(updater.parent),
         creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0,
         close_fds=True,
     )

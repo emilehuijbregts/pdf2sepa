@@ -15,15 +15,18 @@ from logic.app_updater import (
     _attempt_rollback,
     _extract_zip,
     _is_app_healthy,
+    _refresh_updater,
     _release_cwd_lock,
     _relocate_updater_to_install_root,
     _rename_with_retry,
     _replace_app_from_staging,
+    _resolve_app_staging_root,
+    _resolve_updater_staging_root,
     _swap_staged_app,
     _verify_app,
     run_update,
 )
-from logic.auto_update import UPDATER_EXE_NAME, UpdateInfo
+from logic.auto_update import UPDATER_DIR_NAME, UPDATER_EXE_NAME, UpdateInfo
 
 
 def _write_valid_app(app_dir: Path, *, version: str, include_python_dll: bool = True) -> None:
@@ -96,6 +99,10 @@ def test_run_update_keeps_old_app_when_zip_is_invalid(tmp_path: Path, monkeypatc
     assert (app_dir / "PDF2SEPA.exe").read_text(encoding="utf-8") == "version=old"
 
 
+def _patch_successful_headless_exit(monkeypatch) -> None:
+    monkeypatch.setattr("logic.app_updater._terminate_updater_success", lambda: None)
+
+
 def test_run_update_applies_valid_zip(tmp_path: Path, monkeypatch) -> None:
     install_root = tmp_path / "PDF2SEPA"
     app_dir = install_root / "app"
@@ -108,6 +115,7 @@ def test_run_update_applies_valid_zip(tmp_path: Path, monkeypatch) -> None:
 
     monkeypatch.setattr("logic.app_updater._wait_for_pid", lambda _pid: None)
     monkeypatch.setattr("logic.app_updater._restart_app", lambda app_path: restarted.append(app_path))
+    _patch_successful_headless_exit(monkeypatch)
 
     result = run_update(
         zip_path=zip_path,
@@ -135,6 +143,7 @@ def test_run_update_downloads_from_manifest_when_no_zip(tmp_path: Path, monkeypa
     monkeypatch.setattr("logic.app_updater._wait_for_pid", lambda _pid: None)
     monkeypatch.setattr("logic.app_updater._restart_app", lambda _app_dir: None)
     monkeypatch.setattr("logic.app_updater.download_update", lambda _info, **_kwargs: zip_path)
+    _patch_successful_headless_exit(monkeypatch)
 
     result = run_update(
         zip_path=None,
@@ -213,6 +222,7 @@ def test_run_update_waits_for_parent_pid_before_apply(tmp_path: Path, monkeypatc
         lambda sec: sleep_calls.append(sec),
     )
     monkeypatch.setattr(sys, "platform", "win32")
+    _patch_successful_headless_exit(monkeypatch)
 
     result = run_update(
         zip_path=zip_path,
@@ -371,6 +381,68 @@ def test_rollback_on_unhealthy_app(tmp_path: Path) -> None:
     assert (app_dir / "PDF2SEPA.exe").read_text(encoding="utf-8") == "version=old"
 
 
+def _write_nested_update_zip(
+    zip_path: Path,
+    *,
+    version: str,
+    include_updater: bool = False,
+) -> None:
+    with zipfile.ZipFile(zip_path, "w") as zf:
+        zf.writestr("app/PDF2SEPA.exe", f"version={version}")
+        zf.writestr("app/_internal/marker.txt", version)
+        zf.writestr("app/_internal/python312.dll", b"python-runtime")
+        if include_updater:
+            zf.writestr(f"{UPDATER_DIR_NAME}/{UPDATER_EXE_NAME}", f"updater={version}")
+            zf.writestr(f"{UPDATER_DIR_NAME}/_internal/marker.txt", version)
+
+
+def test_resolve_nested_update_zip_layout(tmp_path: Path) -> None:
+    staging = tmp_path / "staging"
+    staging.mkdir()
+    (staging / "app").mkdir()
+    (staging / "app" / "PDF2SEPA.exe").write_text("version=new", encoding="utf-8")
+    updater_dir = staging / UPDATER_DIR_NAME
+    updater_dir.mkdir()
+    (updater_dir / UPDATER_EXE_NAME).write_text("updater=new", encoding="utf-8")
+
+    assert _resolve_app_staging_root(staging).name == "app"
+    assert _resolve_updater_staging_root(staging) == updater_dir
+
+
+def test_apply_update_refreshes_updater_from_nested_zip(tmp_path: Path) -> None:
+    install_root = tmp_path / "PDF2SEPA"
+    app_dir = install_root / "app"
+    zip_path = tmp_path / "update.zip"
+
+    _write_valid_app(app_dir, version="old")
+    (install_root / UPDATER_EXE_NAME).write_text("legacy-updater", encoding="utf-8")
+    _write_nested_update_zip(zip_path, version="new", include_updater=True)
+
+    _apply_update(zip_path, app_dir, install_root)
+
+    assert (app_dir / "PDF2SEPA.exe").read_text(encoding="utf-8") == "version=new"
+    updater_exe = install_root / UPDATER_DIR_NAME / UPDATER_EXE_NAME
+    assert updater_exe.read_text(encoding="utf-8") == "updater=new"
+    assert not (install_root / UPDATER_EXE_NAME).exists()
+
+
+def test_refresh_updater_replaces_existing_tree(tmp_path: Path) -> None:
+    install_root = tmp_path / "PDF2SEPA"
+    staging = tmp_path / "staging_updater"
+    staging.mkdir()
+    (staging / UPDATER_EXE_NAME).write_text("fresh", encoding="utf-8")
+
+    target_dir = install_root / UPDATER_DIR_NAME
+    target_dir.mkdir(parents=True)
+    (target_dir / UPDATER_EXE_NAME).write_text("old", encoding="utf-8")
+    (install_root / UPDATER_EXE_NAME).write_text("legacy", encoding="utf-8")
+
+    _refresh_updater(staging, install_root)
+
+    assert (target_dir / UPDATER_EXE_NAME).read_text(encoding="utf-8") == "fresh"
+    assert not (install_root / UPDATER_EXE_NAME).exists()
+
+
 def test_relocate_updater_to_install_root(tmp_path: Path) -> None:
     install_root = tmp_path / "PDF2SEPA"
     app_dir = install_root / "app"
@@ -379,5 +451,6 @@ def test_relocate_updater_to_install_root(tmp_path: Path) -> None:
 
     _relocate_updater_to_install_root(app_dir, install_root)
 
-    assert (install_root / UPDATER_EXE_NAME).read_text(encoding="utf-8") == "updater"
+    assert (install_root / UPDATER_DIR_NAME / UPDATER_EXE_NAME).read_text(encoding="utf-8") == "updater"
     assert not (app_dir / UPDATER_EXE_NAME).exists()
+    assert not (install_root / UPDATER_EXE_NAME).exists()

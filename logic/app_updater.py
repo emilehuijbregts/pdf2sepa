@@ -14,7 +14,7 @@ import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-from logic.auto_update import UPDATER_EXE_NAME, UpdateInfo, download_update
+from logic.auto_update import UPDATER_DIR_NAME, UPDATER_EXE_NAME, UpdateInfo, download_update
 from logic.update_qt_bootstrap import bootstrap_pyside6
 
 
@@ -97,9 +97,14 @@ def _replace_app_from_staging(staging_dir: Path, app_dir: Path) -> None:
             shutil.copy2(child, dest)
 
 
+def _terminate_updater_success() -> None:
+    """Exit without PyInstaller onefile temp-dir cleanup (avoids Windows warning dialog)."""
+    os._exit(0)
+
+
 def _terminate_gui_updater() -> None:
     """Exit immediately so Qt DLLs from app/_internal are released without teardown delay."""
-    os._exit(0)
+    _terminate_updater_success()
 
 
 def _timestamp() -> str:
@@ -146,7 +151,33 @@ def _extract_zip_to_staging(zip_path: Path, staging_dir: Path) -> None:
     if staging_dir.exists():
         shutil.rmtree(staging_dir)
     staging_dir.mkdir(parents=True, exist_ok=True)
-    _extract_zip(zip_path, staging_dir)
+    with zipfile.ZipFile(zip_path, "r") as zf:
+        zf.extractall(staging_dir)
+
+
+def _resolve_app_staging_root(staging_dir: Path) -> Path:
+    nested = staging_dir / "app"
+    if nested.is_dir() and (nested / "PDF2SEPA.exe").is_file():
+        return nested
+    if (staging_dir / "PDF2SEPA.exe").is_file():
+        return staging_dir
+    raise FileNotFoundError(f"Update zip missing PDF2SEPA.exe under {staging_dir}")
+
+
+def _resolve_updater_staging_root(staging_dir: Path) -> Path | None:
+    nested = staging_dir / UPDATER_DIR_NAME
+    if nested.is_dir() and (nested / UPDATER_EXE_NAME).is_file():
+        return nested
+    return None
+
+
+def _refresh_updater(staging_updater: Path, install_root: Path) -> None:
+    target_dir = install_root / UPDATER_DIR_NAME
+    if target_dir.exists():
+        shutil.rmtree(target_dir)
+    shutil.copytree(staging_updater, target_dir)
+    legacy_root = install_root / UPDATER_EXE_NAME
+    legacy_root.unlink(missing_ok=True)
 
 
 def _swap_staged_app(
@@ -221,13 +252,25 @@ def _is_app_healthy(app_dir: Path) -> bool:
 
 def _relocate_updater_to_install_root(app_dir: Path, install_root: Path) -> None:
     """Move updater out of app/ so future swaps do not lock it inside app/."""
+    bundled_dir = app_dir / UPDATER_DIR_NAME
     bundled_updater = app_dir / UPDATER_EXE_NAME
+    target_dir = install_root / UPDATER_DIR_NAME
+    target_exe = target_dir / UPDATER_EXE_NAME
+
+    if bundled_dir.is_dir() and (bundled_dir / UPDATER_EXE_NAME).is_file():
+        if target_dir.exists():
+            shutil.rmtree(target_dir)
+        shutil.copytree(bundled_dir, target_dir)
+        shutil.rmtree(bundled_dir)
+        return
+
     if not bundled_updater.is_file():
         return
-    target = install_root / UPDATER_EXE_NAME
-    install_root.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(bundled_updater, target)
+
+    target_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(bundled_updater, target_exe)
     bundled_updater.unlink(missing_ok=True)
+    (install_root / UPDATER_EXE_NAME).unlink(missing_ok=True)
 
 
 def _attempt_rollback(
@@ -281,12 +324,17 @@ def _apply_update(zip_path: Path, app_dir: Path, install_root: Path) -> None:
     try:
         logger.info("Extracting update to staging dir %s", staging_dir)
         _extract_zip_to_staging(zip_path, staging_dir)
-        _verify_app(staging_dir)
-        logger.info("Staging verification succeeded for %s", staging_dir)
-        app_backup = _swap_staged_app(staging_dir, app_dir, backups_dir, install_root)
+        app_staging = _resolve_app_staging_root(staging_dir)
+        updater_staging = _resolve_updater_staging_root(staging_dir)
+        _verify_app(app_staging)
+        logger.info("Staging verification succeeded for %s", app_staging)
+        app_backup = _swap_staged_app(app_staging, app_dir, backups_dir, install_root)
         if app_backup is not None:
             logger.info("Previous app backed up to %s", app_backup)
         _verify_app(app_dir)
+        if updater_staging is not None:
+            _refresh_updater(updater_staging, install_root)
+            logger.info("Updater refreshed from %s", updater_staging)
         _relocate_updater_to_install_root(app_dir, install_root)
         logger.info("Post-swap verification succeeded for %s", app_dir)
     finally:
@@ -332,7 +380,7 @@ def _spawn_headless_install(
         command = [sys.executable, *command]
     subprocess.Popen(
         command,
-        cwd=str(install_root),
+        cwd=str(updater.parent),
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
@@ -496,7 +544,8 @@ def run_update(
         logger.info("Update applied successfully")
         _restart_app(app_dir)
         logger.info("Restarted app from %s", app_dir / "PDF2SEPA.exe")
-        return 0
+        _terminate_updater_success()
+        return 0  # unreachable when _terminate_updater_success calls os._exit(0)
     except Exception:
         logger.exception("Update failed")
         _attempt_rollback(

@@ -97,7 +97,22 @@ def test_launch_updater_passes_manifest_args(monkeypatch: pytest.MonkeyPatch, tm
     assert "4242" in command
 
 
-def test_updater_exe_path_prefers_install_root(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+def test_updater_exe_path_prefers_onedir_updater(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    install_root = tmp_path / "PDF2SEPA"
+    onedir_updater = install_root / "updater" / "PDF2SEPAUpdater.exe"
+    legacy_updater = install_root / "PDF2SEPAUpdater.exe"
+
+    onedir_updater.parent.mkdir(parents=True, exist_ok=True)
+    onedir_updater.write_text("onedir", encoding="utf-8")
+    legacy_updater.write_text("legacy", encoding="utf-8")
+
+    monkeypatch.setattr("logic.auto_update.install_root", lambda: install_root)
+    monkeypatch.setattr("logic.auto_update.app_root", lambda: tmp_path / "app")
+
+    assert updater_exe_path() == onedir_updater
+
+
+def test_updater_exe_path_prefers_install_root_legacy(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     install_root = tmp_path / "PDF2SEPA"
     root_updater = install_root / "PDF2SEPAUpdater.exe"
     legacy_updater = tmp_path / "app" / "PDF2SEPAUpdater.exe"
@@ -136,7 +151,7 @@ def test_ensure_updater_at_install_root_migrates_from_app(monkeypatch: pytest.Mo
 
     target = ensure_updater_at_install_root()
 
-    assert target == install_root / "PDF2SEPAUpdater.exe"
+    assert target == install_root / "updater" / "PDF2SEPAUpdater.exe"
     assert target.read_text(encoding="utf-8") == "legacy"
 
 
