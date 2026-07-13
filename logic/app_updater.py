@@ -46,6 +46,62 @@ def _wait_for_pid(pid: int, timeout_sec: float = 120.0) -> None:
     raise TimeoutError(f"Process {pid} did not exit within {timeout_sec}s")
 
 
+def _wait_for_pids(*pids: int, timeout_sec: float = 120.0) -> None:
+    for pid in pids:
+        if pid > 0:
+            _wait_for_pid(pid, timeout_sec=timeout_sec)
+
+
+def _release_cwd_lock(app_dir: Path, install_root: Path) -> None:
+    """Windows blocks renaming a directory that is any process's current directory."""
+    install_root.mkdir(parents=True, exist_ok=True)
+    try:
+        cwd = Path.cwd().resolve()
+        app_resolved = app_dir.resolve()
+    except OSError:
+        os.chdir(install_root)
+        return
+    if cwd == app_resolved or app_resolved in cwd.parents:
+        os.chdir(install_root)
+
+
+def _rename_with_retry(
+    src: Path,
+    dst: Path,
+    *,
+    attempts: int = 30,
+    delay_sec: float = 1.0,
+) -> None:
+    last_exc: PermissionError | None = None
+    for attempt in range(attempts):
+        try:
+            src.rename(dst)
+            return
+        except PermissionError as exc:
+            last_exc = exc
+            if attempt + 1 < attempts:
+                time.sleep(delay_sec)
+    if last_exc is not None:
+        raise last_exc
+    raise PermissionError(f"Could not rename {src} -> {dst}")
+
+
+def _replace_app_from_staging(staging_dir: Path, app_dir: Path) -> None:
+    """Fallback when app/ cannot be renamed: replace contents in place."""
+    _clear_dir_contents(app_dir)
+    for child in staging_dir.iterdir():
+        dest = app_dir / child.name
+        if child.is_dir():
+            shutil.copytree(child, dest)
+        else:
+            shutil.copy2(child, dest)
+
+
+def _terminate_gui_updater() -> None:
+    """Exit immediately so Qt DLLs from app/_internal are released without teardown delay."""
+    os._exit(0)
+
+
 def _timestamp() -> str:
     return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
@@ -103,15 +159,36 @@ def _swap_staged_app(
 
     Returns the backup path of the previous app install, if any.
     """
-    app_backup: Path | None = None
-    retired_dir: Path | None = None
-    if app_dir.is_dir():
+    logger = logging.getLogger("pdf2sepa.updater")
+    _release_cwd_lock(app_dir, install_root)
+
+    if not app_dir.is_dir():
+        _rename_with_retry(staging_dir, app_dir)
+        return None
+
+    retired_dir = install_root / f"app_retired_{_timestamp()}"
+    try:
+        _rename_with_retry(app_dir, retired_dir)
+    except PermissionError:
+        logger.warning(
+            "Could not rename %s aside; falling back to in-place replace",
+            app_dir,
+        )
         app_backup = _backup_app(app_dir, backups_dir, "pre_update")
-        retired_dir = install_root / f"app_retired_{_timestamp()}"
-        app_dir.rename(retired_dir)
-    staging_dir.rename(app_dir)
-    if retired_dir is not None:
-        shutil.rmtree(retired_dir, ignore_errors=True)
+        _replace_app_from_staging(staging_dir, app_dir)
+        shutil.rmtree(staging_dir, ignore_errors=True)
+        return app_backup
+
+    try:
+        _rename_with_retry(staging_dir, app_dir)
+    except Exception:
+        logger.exception("Staging swap failed; restoring previous app directory")
+        if not app_dir.exists() and retired_dir.exists():
+            _rename_with_retry(retired_dir, app_dir)
+        raise
+
+    app_backup = _backup_app(retired_dir, backups_dir, "pre_update")
+    shutil.rmtree(retired_dir, ignore_errors=True)
     return app_backup
 
 
@@ -255,6 +332,10 @@ def _spawn_headless_install(
         command = [sys.executable, *command]
     subprocess.Popen(
         command,
+        cwd=str(install_root),
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
         creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0,
         close_fds=True,
     )
@@ -326,7 +407,7 @@ def _run_with_gui(
         )
         window.close_on_success()
         app.processEvents()
-        return 0
+        _terminate_gui_updater()
     except Exception:
         logger.exception("Update failed")
         _attempt_rollback(
@@ -394,10 +475,15 @@ def run_update(
             return 1
 
     try:
-        _wait_for_pid(pid)
         if parent_pid > 0:
             logger.info("Waiting for GUI updater process %s to exit", parent_pid)
-            _wait_for_pid(parent_pid)
+        if pid > 0:
+            logger.info("Waiting for target process %s to exit", pid)
+        _wait_for_pids(pid, parent_pid)
+        _release_cwd_lock(app_dir, install_root)
+        if sys.platform.startswith("win"):
+            logger.info("Waiting for Windows to release file handles on %s", app_dir)
+            time.sleep(2.0)
     except TimeoutError as exc:
         logger.error("%s", exc)
         return 1

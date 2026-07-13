@@ -15,7 +15,10 @@ from logic.app_updater import (
     _attempt_rollback,
     _extract_zip,
     _is_app_healthy,
+    _release_cwd_lock,
     _relocate_updater_to_install_root,
+    _rename_with_retry,
+    _replace_app_from_staging,
     _swap_staged_app,
     _verify_app,
     run_update,
@@ -156,6 +159,7 @@ def test_run_with_gui_hands_off_install_to_headless_process(tmp_path: Path, monk
     spawn = MagicMock()
     monkeypatch.setattr("logic.app_updater.bootstrap_pyside6", lambda _root: None)
     monkeypatch.setattr("logic.app_updater._spawn_headless_install", spawn)
+    monkeypatch.setattr("logic.app_updater._terminate_gui_updater", lambda: None)
     monkeypatch.setattr("logic.app_updater.os.getpid", lambda: 7777)
 
     fake_qt = MagicMock()
@@ -170,7 +174,7 @@ def test_run_with_gui_hands_off_install_to_headless_process(tmp_path: Path, monk
 
     from logic.app_updater import _run_with_gui
 
-    result = _run_with_gui(
+    _run_with_gui(
         zip_path=zip_path,
         update_info=None,
         app_dir=app_dir,
@@ -179,7 +183,6 @@ def test_run_with_gui_hands_off_install_to_headless_process(tmp_path: Path, monk
         logger=logging.getLogger("test.updater"),
     )
 
-    assert result == 0
     spawn.assert_called_once_with(
         zip_path=zip_path,
         app_dir=app_dir,
@@ -198,12 +201,18 @@ def test_run_update_waits_for_parent_pid_before_apply(tmp_path: Path, monkeypatc
     _write_update_zip(zip_path, version="new")
 
     waited: list[int] = []
+    sleep_calls: list[float] = []
 
-    def _wait(pid: int) -> None:
-        waited.append(pid)
-
-    monkeypatch.setattr("logic.app_updater._wait_for_pid", _wait)
+    monkeypatch.setattr(
+        "logic.app_updater._wait_for_pids",
+        lambda *pids: waited.extend(p for p in pids if p > 0),
+    )
     monkeypatch.setattr("logic.app_updater._restart_app", lambda _app_dir: None)
+    monkeypatch.setattr(
+        "logic.app_updater.time.sleep",
+        lambda sec: sleep_calls.append(sec),
+    )
+    monkeypatch.setattr(sys, "platform", "win32")
 
     result = run_update(
         zip_path=zip_path,
@@ -217,7 +226,67 @@ def test_run_update_waits_for_parent_pid_before_apply(tmp_path: Path, monkeypatc
 
     assert result == 0
     assert waited == [11, 22]
+    assert sleep_calls == [2.0]
     assert (app_dir / "PDF2SEPA.exe").read_text(encoding="utf-8") == "version=new"
+
+
+def test_release_cwd_lock_moves_out_of_app_dir(tmp_path: Path, monkeypatch) -> None:
+    install_root = tmp_path / "PDF2SEPA"
+    app_dir = install_root / "app"
+    app_dir.mkdir(parents=True)
+    monkeypatch.chdir(app_dir)
+
+    _release_cwd_lock(app_dir, install_root)
+
+    assert Path.cwd().resolve() == install_root.resolve()
+
+
+def test_swap_falls_back_to_in_place_replace_when_rename_blocked(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    install_root = tmp_path / "PDF2SEPA"
+    app_dir = install_root / "app"
+    staging_dir = install_root / "staging"
+    backups_dir = install_root / "backups"
+
+    _write_valid_app(app_dir, version="old")
+    _write_valid_app(staging_dir, version="new")
+
+    def _fail_rename(src: Path, dst: Path, **_kwargs) -> None:
+        if src == app_dir:
+            raise PermissionError("locked")
+
+    monkeypatch.setattr("logic.app_updater._rename_with_retry", _fail_rename)
+
+    backup = _swap_staged_app(staging_dir, app_dir, backups_dir, install_root)
+
+    assert backup is not None
+    assert (app_dir / "PDF2SEPA.exe").read_text(encoding="utf-8") == "version=new"
+    assert not staging_dir.exists()
+
+
+def test_rename_with_retry_eventually_succeeds(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    src = tmp_path / "src"
+    dst = tmp_path / "dst"
+    src.mkdir()
+    attempts = {"count": 0}
+
+    original_rename = Path.rename
+
+    def _flaky_rename(self: Path, target: Path) -> None:
+        attempts["count"] += 1
+        if attempts["count"] < 3:
+            raise PermissionError("locked")
+        original_rename(self, target)
+
+    monkeypatch.setattr(Path, "rename", _flaky_rename)
+
+    _rename_with_retry(src, dst, attempts=5, delay_sec=0)
+
+    assert not src.exists()
+    assert dst.is_dir()
+    assert attempts["count"] == 3
 
 
 def test_run_update_uses_gui_flow_when_enabled(tmp_path: Path, monkeypatch) -> None:

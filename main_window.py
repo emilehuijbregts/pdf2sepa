@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import json
+import os
 import re
 import shutil
 import sys
@@ -6305,11 +6306,6 @@ QTableWidget::item:selected:!active {
                 menu.addSeparator()
                 act_link = menu.addAction(tr("menu.context.link_credit"))
                 act_link.triggered.connect(lambda checked=False, r=row: self._on_link_credit_to_invoice_row(r))
-        doc_id_row = self._document_id_for_table_row(row)
-        if doc_id_row and self._invoice_for_document_id(doc_id_row) is not None:
-            menu.addSeparator()
-            act_amt = menu.addAction(tr("menu.context.adjust_amount"))
-            act_amt.triggered.connect(lambda checked=False, r=row: self._on_adjust_amount_override(r))
         if not menu.isEmpty():
             menu.exec(self._table.viewport().mapToGlobal(pos))
 
@@ -6736,6 +6732,12 @@ QTableWidget::item:selected:!active {
             if sorting_was_enabled:
                 self._table.setSortingEnabled(True)
         self._decision_table_fingerprint = None
+        row_id = entry.row_id
+        restored_dec = self._row_decision(row)
+        self._commit_decision_map_patch({row_id: restored_dec})
+        self._pending_engine_row_ids.discard(row_id)
+        if not self._pending_engine_row_ids:
+            self._engine_rerun_timer.stop()
         self._apply_row_colors()
         self._refresh_export_batch_status_label()
         self._refresh_profile_button_state()
@@ -8391,7 +8393,8 @@ def main() -> None:
     # wordt de app gewoon geopend. Bij een beschikbare update krijgt de
     # gebruiker eerst een duidelijke vraag en uitleg.
     if offer_update_if_available(auto_accept=False):
-        sys.exit(0)
+        # Hard exit: QApplication teardown can keep app/_internal DLLs locked on Windows.
+        os._exit(0)
     icon_path = app_icon_path()
     if icon_path is not None:
         app.setWindowIcon(QIcon(str(icon_path)))

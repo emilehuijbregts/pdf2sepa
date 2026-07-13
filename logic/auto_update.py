@@ -174,6 +174,7 @@ def launch_updater(info: UpdateInfo) -> None:
             "--install-root",
             install,
         ],
+        cwd=install,
         creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0,
         close_fds=True,
     )
