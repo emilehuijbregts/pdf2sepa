@@ -1,0 +1,13 @@
+{
+  "source_file": "Frencken 1800039013.PDF",
+  "invoice_number": "1800039013",
+  "supplier_name": "Frencken B.V.",
+  "iban": "BE97363080995949",
+  "amount": "428.95",
+  "amount_status": "confirmed",
+  "customer_code": "1158174",
+  "description": "1158174 / 1800039013",
+  "discount_percentage": "0.00",
+  "invoice_date": "2026-07-01",
+  "payment_terms_days": 30
+}

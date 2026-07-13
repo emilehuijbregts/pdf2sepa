@@ -220,6 +220,19 @@ class TestCustomerNumberCandidates:
         r = extract_customer_number_result(text)
         assert r.value == "NL01114276"
 
+    def test_frencken_klant_n_degree_same_line(self):
+        text = (
+            "Factuur N° 1800039013 01.07.2026 Pagina 1/1\n"
+            "Klant N° 1158174 Betalingscondities 30 dagen, factuurdatum\n"
+            "Uw BTW N° NL001740777B35 Netto gewicht 17,500 KG\n"
+        )
+        bl = normalize_internal_vat_blacklist(["NL001740777B35", "NL821165379B01"])
+        inv = extract_invoice_number_result(text, internal_vat_blacklist=bl)
+        cust = extract_customer_number_result(text, internal_vat_blacklist=bl)
+        assert inv.value == "1800039013"
+        assert cust.value == "1158174"
+        assert "17,500" not in {c.value for c in cust.candidates}
+
 
 _GOLDEN_PDF_DIR = Path(__file__).resolve().parent / "golden_dataset" / "pdfs"
 _GOLDEN_CUSTOMER_NUMBER_CASES: tuple[tuple[str, str], ...] = (
@@ -229,6 +242,7 @@ _GOLDEN_CUSTOMER_NUMBER_CASES: tuple[tuple[str, str], ...] = (
         "Caleffi Invoice Caleffi NV N° 1210001330  of 24.03.2026. pdf.pdf",
         "1025995",
     ),
+    ("Frencken 1800039013.PDF", "1158174"),
     ("Installatiebalie Verkoopfactuur VF26-05543.pdf", "K12493"),
 )
 

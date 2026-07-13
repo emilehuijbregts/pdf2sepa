@@ -538,9 +538,21 @@ _EXCL_VAT_LABEL_RE = re.compile(
     rf"\s*[:]?\s*(?:EUR\b|€)?\s*({_AMOUNT_TOKEN})",
 )
 
+# ``N°`` / ``Nr°`` (Frencken, Caleffi e.a.) naast ``nr`` / ``nummer``.
+_NR_DEGREE_SUFFIX = r"(?:N°|Nº|n°\.?|Nr°|Nrº|nr°\.?)"
+_NR_DEGREE_PREFIX_RE = re.compile(
+    rf"^\s*(?:{_NR_DEGREE_SUFFIX})\s*",
+    flags=re.IGNORECASE,
+)
+
+
+def _strip_nr_degree_prefix(text: str) -> str:
+    return _NR_DEGREE_PREFIX_RE.sub("", text or "", count=1)
+
+
 _INVOICE_LABEL_RE = re.compile(
     r"(?:Factuurnummer|Factuurnr\.?|Faktuurnummer|FaktuurNr\.?|"
-    r"Factuur(?:\s*nummer|\s*nr\.?)|Fact\.?\s*nr\.?|"
+    rf"Factuur(?:\s*nummer|\s*nr\.?|\s*{_NR_DEGREE_SUFFIX})|Fact\.?\s*nr\.?|"
     r"Document\s*nr\.?|Documentnr\.?|"
     r"Invoice\s*(?:number|no\.?|nr\.?|date)?|Invoice\s*Number|"
     r"\bINVOICE\b|"
@@ -554,7 +566,7 @@ _INVOICE_LABEL_RE = re.compile(
 # Prefer real invoice identifiers over insurance "Polisnummer" when both exist in the same document.
 _INVOICE_LABEL_RE_NO_POLIS = re.compile(
     r"(?:Factuurnummer|Factuurnr\.?|Faktuurnummer|FaktuurNr\.?|"
-    r"Factuur(?:\s*nummer|\s*nr\.?)|Fact\.?\s*nr\.?|"
+    rf"Factuur(?:\s*nummer|\s*nr\.?|\s*{_NR_DEGREE_SUFFIX})|Fact\.?\s*nr\.?|"
     r"Document\s*nr\.?|Documentnr\.?|"
     r"Invoice\s*(?:number|no\.?|nr\.?|date)?|Invoice\s*Number|"
     r"\bINVOICE\b|"
@@ -566,8 +578,8 @@ _INVOICE_LABEL_RE_NO_POLIS = re.compile(
 
 _CUSTOMER_LABEL_RE = re.compile(
     r"(?:\bKlantcode\b|\bklantnummer\b|\bklant-nummer\b|"
-    r"Klant(?:en)?(?:\s*nummer|\s*nr\.?|-nr\.?|\s*code)|Klantnr\.?|"
-    r"\bKlant\b(?=\s+\d)|"
+    rf"Klant(?:en)?(?:\s*nummer|\s*nr\.?|-nr\.?|\s*code|\s*{_NR_DEGREE_SUFFIX})|Klantnr\.?|"
+    rf"\bKlant\b(?=\s+(?:\d|{_NR_DEGREE_SUFFIX}))|"
     r"Debiteur(?:en)?(?:\s*[-]?\s*nr\.?|\s*nummer)|"
     r"Deb\.?\s*(?:nr\.?|nummer)|Debnr\.?|"
     r"Debiteur|"
@@ -1263,7 +1275,7 @@ def _extract_labeled_field(
                 continue
 
         after = line[m.end():]
-        after_stripped = re.sub(r"^[\s:\.\[\]]+", "", after)
+        after_stripped = _strip_nr_degree_prefix(re.sub(r"^[\s:\.\[\]]+", "", after))
 
         # Header rows often contain multiple labels on one line:
         # "klantnummer Factuurdatum Factuurnr Betalingstermijn …"

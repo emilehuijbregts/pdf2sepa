@@ -24,6 +24,7 @@ from parser.pdf_parser import (
     _MONTHS,
     _MONTH_DAY_YEAR_RE,
     _MONTH_NAME_DATE_RE,
+    _NR_DEGREE_SUFFIX,
     _VAT_BTW_VALUE_RE,
     _VAT_DEBTOR_HINT_RE,
     _VAT_EU_FALLBACK_RE,
@@ -34,11 +35,13 @@ from parser.pdf_parser import (
     _is_noise_value,
     _looks_like_date_token,
     _score_customer_candidate_token,
+    _strip_nr_degree_prefix,
     collapse_stutter_chars,
     _normalize_kvk_digits,
     _normalize_vat_compact,
 )
 
+_LABEL_VALUE_SUFFIX_LOOKAHEAD = r"(?=\s|:)"
 _POLIS_LABEL_RE = re.compile(
     r"(?i)\b(?:Polisnummer|Polis\s*nr\.?|Polis\s*nummer|Polis\s*[:#]?)\b"
 )
@@ -127,7 +130,8 @@ _K_NEWLINE_DIGITS_RE = re.compile(r"(?is)(?<![a-z])k\s*\n\s*(0?\d{4,10})\b")
 _COLLAPSED_K_IN_TEXT_RE = re.compile(r"(?i)k0?\d{4,7}(?!\d)")
 # Labels voor klantnummer/klantcode (layout: label + cel ernaast/eronder).
 _CUSTOMER_FIELD_LABEL_RE = re.compile(
-    r"(?i)\b(?:klantnummer|klant-nummer|klant\s*nummer|klantcode|klantnr\.?|klant-nr\.?|"
+    r"(?i)(?:"
+    r"\b(?:klantnummer|klant-nummer|klant\s*nummer|klantcode|klantnr\.?|klant-nr\.?|"
     r"klantrekening|uw\s+klant|klant(?=\s+\d)|"
     r"debiteur(?:en)?(?:\s*[-]?\s*nr\.?|\s*nummer)|"
     r"deb\.?\s*(?:nr\.?|nummer)|debnr\.?|debiteur|debtor(?:\s*(?:number|no\.?|nr\.?|id))?|"
@@ -137,6 +141,8 @@ _CUSTOMER_FIELD_LABEL_RE = re.compile(
     r"kunden(?:nummer|nr\.?|-\s*nr\.?)|"
     r"factureren\s+aan(?:\s*(?:nr\.?|nummer|no\.?|id))?|"
     r"lid(?:\s*nummer|\s*nr\.?))\b"
+    rf"|\bklant\s*{_NR_DEGREE_SUFFIX}{_LABEL_VALUE_SUFFIX_LOOKAHEAD}"
+    r")"
 )
 _REFERENTIE_ONLY_LINE_RE = re.compile(
     r"(?i)\b(?:uw|onze|jullie|your)\s+referentie\b"
@@ -155,7 +161,8 @@ _INVOICE_HINT_RE = re.compile(
     r"rechnungsnummer|documentnr\.?|nummer)\b"
 )
 _EXPLICIT_INVOICE_LABEL_RE = re.compile(
-    r"(?i)\b(?:factuurnummer|factuurnr|faktuurnummer|faktuur\s*nr|factuur\s*nr\.?|"
+    rf"(?i)\b(?:factuurnummer|factuurnr|faktuurnummer|faktuur\s*nr|factuur\s*nr\.?|"
+    rf"factuur\s*{_NR_DEGREE_SUFFIX}|"
     r"invoice\s*(?:number|no\.?|nr\.?)?|\binvoice\b|"
     r"rechnung|rechnungsnummer|belegnummer|nummer)\b"
 )
@@ -1163,7 +1170,7 @@ def _normalize_customer_token(raw: str) -> str:
 
 
 def _tokens_after_label(line: str, end: int, *, join_spaced_digits: bool) -> list[str]:
-    after = re.sub(r"^[\s:\.\[\]]+", "", (line or "")[end:])
+    after = _strip_nr_degree_prefix(re.sub(r"^[\s:\.\[\]]+", "", (line or "")[end:]))
     if not after.strip():
         return []
     if join_spaced_digits:
@@ -1179,7 +1186,9 @@ def _tokens_after_label(line: str, end: int, *, join_spaced_digits: bool) -> lis
         if m_compact and re.search(r"\d", m_compact.group(1)):
             compact_val = m_compact.group(1).strip()
             if "/" not in compact_val and re.fullmatch(r"\d{6,}", compact_val):
-                pass
+                tail = after.strip()[m_compact.end() :].lstrip()
+                if re.match(r"^\d{1,2}[./-]\d{1,2}[./-]\d{2,4}\b", tail):
+                    return [compact_val]
             else:
                 v = _normalize_ident_value(compact_val, join_spaced_digits=False)
                 if v:
@@ -1193,7 +1202,12 @@ def _tokens_after_label(line: str, end: int, *, join_spaced_digits: bool) -> lis
             v = _normalize_ident_value(joined, join_spaced_digits=False)
             if v:
                 return [v]
-        m = re.match(r"([\d][\d\s]{2,})", after)
+        after_digits = re.split(
+            r"(?<!\d)\d{1,2}[./-]\d{1,2}[./-]\d{2,4}\b",
+            after,
+            maxsplit=1,
+        )[0]
+        m = re.match(r"([\d][\d\s]{2,})", after_digits)
         if m:
             v = _normalize_ident_value(m.group(1), join_spaced_digits=True)
             if v:
@@ -1972,15 +1986,26 @@ def _line_looks_like_combined_label_value_row(line: str) -> bool:
     ln = str(line or "")
     if not (
         _CUSTOMER_FIELD_LABEL_RE.search(ln)
-        or re.search(r"(?i)\b(?:factuurnr|factuurnummer|factuur\s*nr)\b", ln)
+        or re.search(
+            rf"(?i)\b(?:factuurnr|factuurnummer|factuur\s*nr|factuur\s*{_NR_DEGREE_SUFFIX}){_LABEL_VALUE_SUFFIX_LOOKAHEAD}",
+            ln,
+        )
     ):
         return False
     date_hits = len(_DD_MM_YYYY_RE.findall(ln)) + len(_ISO_DATE_RE.findall(ln))
     num_hits = len(re.findall(r"(?<!\d)\d{5,}(?!\d)", ln))
     if date_hits >= 1 and num_hits >= 2:
         return True
+    if re.search(
+        rf"(?i)\b(?:factuur|klant|faktuur)\s*{_NR_DEGREE_SUFFIX}{_LABEL_VALUE_SUFFIX_LOOKAHEAD}",
+        ln,
+    ) and num_hits >= 1:
+        return True
     # ``Factuurnr 025261476 Ordernummer …`` / ``Factuur nr: 1620543 Ordernummer: …``
-    if re.search(r"(?i)\b(?:factuurnr|factuurnummer|factuur\s*nr)\b", ln) and num_hits >= 1:
+    if re.search(
+        rf"(?i)\b(?:factuurnr|factuurnummer|factuur\s*nr|factuur\s*{_NR_DEGREE_SUFFIX}){_LABEL_VALUE_SUFFIX_LOOKAHEAD}",
+        ln,
+    ) and num_hits >= 1:
         return True
     return False
 
@@ -2007,8 +2032,8 @@ def _line_looks_like_label_not_value(line: str) -> bool:
     if _line_looks_like_table_data_row(ln):
         return False
     if re.search(
-        r"(?i)\b(?:factuurnummer|factuurnr|invoice\s*no|debiteurnr|debiteur(?:en)?(?:\s*nr)?|"
-        r"klant\s*nr|ordernummer|leveringsnummer|leveringsnr|factuurdatum|vervaldatum|"
+        rf"(?i)\b(?:factuurnummer|factuurnr|invoice\s*no|debiteurnr|debiteur(?:en)?(?:\s*nr)?|"
+        rf"klant\s*nr|klant\s*{_NR_DEGREE_SUFFIX}|factuur\s*{_NR_DEGREE_SUFFIX}|ordernummer|leveringsnummer|leveringsnr|factuurdatum|vervaldatum|"
         r"betaler|relatie)\b",
         ln,
     ):
@@ -2232,6 +2257,8 @@ def _header_word_indices(hdr: str) -> tuple[int | None, int | None]:
                 inv_i = i
         elif w == "nr" and i > 0 and words[i - 1] in ("factuur", "faktuur"):
             inv_i = i - 1
+        elif w == "nr" and i > 0 and words[i - 1] == "klant":
+            cust_i = i - 1
         elif w == "nr" and i > 0 and words[i - 1] in ("deb", "debnr"):
             cust_i = i - 1
         elif inv_i is None and (
@@ -2329,7 +2356,10 @@ def _collect_header_value_table_candidates(
                 or re.search(
                     r"(?i)\b(?:creditnota(?:\s*nr\.?)?|creditnummer|creditnotanr)\b", hdr
                 )
-                or re.search(r"(?i)\b(?:factuurnr|factuurnummer|faktuurnummer|factuur\s*nr)\b", hdr)
+                or re.search(
+                    rf"(?i)\b(?:factuurnr|factuurnummer|faktuurnummer|factuur\s*nr|factuur\s*{_NR_DEGREE_SUFFIX})\b",
+                    hdr,
+                )
                 or (
                     re.search(r"(?i)\bfactuur\b", hdr)
                     and re.search(r"(?i)\b(?:relatie|datum)\b", hdr)
