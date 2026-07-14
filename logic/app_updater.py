@@ -155,6 +155,29 @@ def _extract_zip_to_staging(zip_path: Path, staging_dir: Path) -> None:
         zf.extractall(staging_dir)
 
 
+def _prepare_app_staging_for_swap(
+    staging_dir: Path,
+    app_staging: Path,
+    updater_staging: Path | None,
+    install_root: Path,
+) -> Path:
+    """Return app-only staging for swap when updater payload shares the extract root."""
+    if updater_staging is None or app_staging != staging_dir:
+        return app_staging
+
+    app_only = install_root / f"temp_app_payload_{_timestamp()}"
+    app_only.mkdir(parents=True, exist_ok=True)
+    for child in staging_dir.iterdir():
+        if child.name == UPDATER_DIR_NAME:
+            continue
+        dest = app_only / child.name
+        if child.is_dir():
+            shutil.copytree(child, dest)
+        else:
+            shutil.copy2(child, dest)
+    return app_only
+
+
 def _resolve_app_staging_root(staging_dir: Path) -> Path:
     nested = staging_dir / "app"
     if nested.is_dir() and (nested / "PDF2SEPA.exe").is_file():
@@ -319,6 +342,7 @@ def _apply_update(zip_path: Path, app_dir: Path, install_root: Path) -> None:
     """Apply an update atomically: verify in staging, then swap into app_dir."""
     backups_dir = install_root / "backups"
     staging_dir = install_root / f"temp_app_{_timestamp()}"
+    app_only_staging: Path | None = None
     logger = logging.getLogger("pdf2sepa.updater")
 
     try:
@@ -328,7 +352,12 @@ def _apply_update(zip_path: Path, app_dir: Path, install_root: Path) -> None:
         updater_staging = _resolve_updater_staging_root(staging_dir)
         _verify_app(app_staging)
         logger.info("Staging verification succeeded for %s", app_staging)
-        app_backup = _swap_staged_app(app_staging, app_dir, backups_dir, install_root)
+        swap_staging = _prepare_app_staging_for_swap(
+            staging_dir, app_staging, updater_staging, install_root
+        )
+        if swap_staging != app_staging:
+            app_only_staging = swap_staging
+        app_backup = _swap_staged_app(swap_staging, app_dir, backups_dir, install_root)
         if app_backup is not None:
             logger.info("Previous app backed up to %s", app_backup)
         _verify_app(app_dir)
@@ -340,6 +369,8 @@ def _apply_update(zip_path: Path, app_dir: Path, install_root: Path) -> None:
     finally:
         if staging_dir.exists():
             shutil.rmtree(staging_dir, ignore_errors=True)
+        if app_only_staging is not None and app_only_staging.exists():
+            shutil.rmtree(app_only_staging, ignore_errors=True)
 
 
 def _log_file_hint(install_root: Path) -> str:

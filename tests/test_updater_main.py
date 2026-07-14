@@ -15,6 +15,7 @@ from logic.app_updater import (
     _attempt_rollback,
     _extract_zip,
     _is_app_healthy,
+    _prepare_app_staging_for_swap,
     _refresh_updater,
     _release_cwd_lock,
     _relocate_updater_to_install_root,
@@ -381,6 +382,21 @@ def test_rollback_on_unhealthy_app(tmp_path: Path) -> None:
     assert (app_dir / "PDF2SEPA.exe").read_text(encoding="utf-8") == "version=old"
 
 
+def _write_flat_update_zip(
+    zip_path: Path,
+    *,
+    version: str,
+    include_updater: bool = False,
+) -> None:
+    with zipfile.ZipFile(zip_path, "w") as zf:
+        zf.writestr("PDF2SEPA.exe", f"version={version}")
+        zf.writestr("_internal/marker.txt", version)
+        zf.writestr("_internal/python312.dll", b"python-runtime")
+        if include_updater:
+            zf.writestr(f"{UPDATER_DIR_NAME}/{UPDATER_EXE_NAME}", f"updater={version}")
+            zf.writestr(f"{UPDATER_DIR_NAME}/_internal/marker.txt", version)
+
+
 def _write_nested_update_zip(
     zip_path: Path,
     *,
@@ -407,6 +423,56 @@ def test_resolve_nested_update_zip_layout(tmp_path: Path) -> None:
 
     assert _resolve_app_staging_root(staging).name == "app"
     assert _resolve_updater_staging_root(staging) == updater_dir
+
+
+def test_resolve_flat_update_zip_layout(tmp_path: Path) -> None:
+    staging = tmp_path / "staging"
+    staging.mkdir()
+    (staging / "PDF2SEPA.exe").write_text("version=new", encoding="utf-8")
+    updater_dir = staging / UPDATER_DIR_NAME
+    updater_dir.mkdir()
+    (updater_dir / UPDATER_EXE_NAME).write_text("updater=new", encoding="utf-8")
+
+    assert _resolve_app_staging_root(staging) == staging
+    assert _resolve_updater_staging_root(staging) == updater_dir
+
+
+def test_prepare_app_staging_excludes_updater_sibling(tmp_path: Path) -> None:
+    install_root = tmp_path / "PDF2SEPA"
+    staging = tmp_path / "staging"
+    staging.mkdir()
+    (staging / "PDF2SEPA.exe").write_text("version=new", encoding="utf-8")
+    (staging / "_internal").mkdir()
+    (staging / "_internal" / "python312.dll").write_bytes(b"python-runtime")
+    updater_dir = staging / UPDATER_DIR_NAME
+    updater_dir.mkdir()
+    (updater_dir / UPDATER_EXE_NAME).write_text("updater=new", encoding="utf-8")
+
+    app_only = _prepare_app_staging_for_swap(
+        staging, staging, updater_dir, install_root
+    )
+
+    assert app_only != staging
+    assert (app_only / "PDF2SEPA.exe").is_file()
+    assert not (app_only / UPDATER_DIR_NAME).exists()
+
+
+def test_apply_update_refreshes_updater_from_flat_zip(tmp_path: Path) -> None:
+    install_root = tmp_path / "PDF2SEPA"
+    app_dir = install_root / "app"
+    zip_path = tmp_path / "update.zip"
+
+    _write_valid_app(app_dir, version="old")
+    (install_root / UPDATER_EXE_NAME).write_text("legacy-updater", encoding="utf-8")
+    _write_flat_update_zip(zip_path, version="new", include_updater=True)
+
+    _apply_update(zip_path, app_dir, install_root)
+
+    assert (app_dir / "PDF2SEPA.exe").read_text(encoding="utf-8") == "version=new"
+    assert not (app_dir / UPDATER_DIR_NAME).exists()
+    updater_exe = install_root / UPDATER_DIR_NAME / UPDATER_EXE_NAME
+    assert updater_exe.read_text(encoding="utf-8") == "updater=new"
+    assert not (install_root / UPDATER_EXE_NAME).exists()
 
 
 def test_apply_update_refreshes_updater_from_nested_zip(tmp_path: Path) -> None:

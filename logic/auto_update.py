@@ -134,6 +134,13 @@ def _legacy_root_updater_exe_path() -> Path | None:
     return candidate if candidate.is_file() else None
 
 
+def _bundled_onedir_updater_dir() -> Path | None:
+    candidate = app_root() / UPDATER_DIR_NAME
+    if candidate.is_dir() and (candidate / UPDATER_EXE_NAME).is_file():
+        return candidate
+    return None
+
+
 def updater_exe_path() -> Path:
     """Return the updater executable path (updater/ onedir preferred)."""
     root = install_root()
@@ -155,6 +162,16 @@ def ensure_updater_at_install_root() -> Path:
     target_dir = root / UPDATER_DIR_NAME
     target_exe = target_dir / UPDATER_EXE_NAME
     if target_exe.is_file():
+        return target_exe
+
+    bundled_onedir = _bundled_onedir_updater_dir()
+    if bundled_onedir is not None:
+        if target_dir.exists():
+            shutil.rmtree(target_dir)
+        shutil.copytree(bundled_onedir, target_dir)
+        shutil.rmtree(bundled_onedir)
+        (root / UPDATER_EXE_NAME).unlink(missing_ok=True)
+        (app_root() / UPDATER_EXE_NAME).unlink(missing_ok=True)
         return target_exe
 
     legacy = _legacy_updater_exe_path()

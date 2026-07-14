@@ -140,6 +140,28 @@ def test_updater_exe_path_falls_back_to_legacy_app_bundle(monkeypatch: pytest.Mo
     assert updater_exe_path() == legacy_updater
 
 
+def test_ensure_updater_at_install_root_migrates_onedir_from_app(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    install_root = tmp_path / "PDF2SEPA"
+    app_dir = install_root / "app"
+    bundled_dir = app_dir / "updater"
+    bundled_exe = bundled_dir / "PDF2SEPAUpdater.exe"
+    bundled_dir.mkdir(parents=True)
+    bundled_exe.write_text("onedir-updater", encoding="utf-8")
+    (install_root / "PDF2SEPAUpdater.exe").write_text("legacy", encoding="utf-8")
+
+    monkeypatch.setattr("logic.auto_update.install_root", lambda: install_root)
+    monkeypatch.setattr("logic.auto_update.app_root", lambda: app_dir)
+
+    target = ensure_updater_at_install_root()
+
+    assert target == install_root / "updater" / "PDF2SEPAUpdater.exe"
+    assert target.read_text(encoding="utf-8") == "onedir-updater"
+    assert not bundled_dir.exists()
+    assert not (install_root / "PDF2SEPAUpdater.exe").exists()
+
+
 def test_ensure_updater_at_install_root_migrates_from_app(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     install_root = tmp_path / "PDF2SEPA"
     legacy_updater = tmp_path / "app" / "PDF2SEPAUpdater.exe"

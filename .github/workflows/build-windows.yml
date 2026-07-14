@@ -121,9 +121,9 @@ jobs:
         shell: pwsh
         run: |
           $stage = "update_payload"
-          New-Item -ItemType Directory -Force -Path "$stage/app" | Out-Null
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
           New-Item -ItemType Directory -Force -Path "$stage/updater" | Out-Null
-          Copy-Item packaging\dist\PDF2SEPA\* "$stage/app" -Recurse -Force
+          Copy-Item packaging\dist\PDF2SEPA\* "$stage" -Recurse -Force
           Copy-Item packaging\dist\PDF2SEPAUpdater\* "$stage/updater" -Recurse -Force
           Compress-Archive -Path "$stage/*" -DestinationPath PDF2SEPA.zip -Force
           Remove-Item -Recurse -Force $stage
