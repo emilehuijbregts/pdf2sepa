@@ -9,7 +9,10 @@ from unittest.mock import MagicMock
 import pytest
 
 from logic.auto_update import (
+    UPDATER_DIR_NAME,
+    UPDATER_EXE_NAME,
     UpdateInfo,
+    apply_pending_updater_refresh,
     download_update,
     ensure_updater_at_install_root,
     is_newer_version,
@@ -18,6 +21,16 @@ from logic.auto_update import (
     updater_exe_path,
     version_tuple,
 )
+
+
+def _write_onedir_updater(root: Path, *, marker: str = "onedir") -> Path:
+    updater_dir = root / UPDATER_DIR_NAME
+    internal = updater_dir / "_internal"
+    internal.mkdir(parents=True, exist_ok=True)
+    exe = updater_dir / UPDATER_EXE_NAME
+    exe.write_text(marker, encoding="utf-8")
+    (internal / "marker.txt").write_text(marker, encoding="utf-8")
+    return exe
 
 
 def _install_fake_ask_yes_no(monkeypatch: pytest.MonkeyPatch, *, accept: bool) -> None:
@@ -99,11 +112,8 @@ def test_launch_updater_passes_manifest_args(monkeypatch: pytest.MonkeyPatch, tm
 
 def test_updater_exe_path_prefers_onedir_updater(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     install_root = tmp_path / "PDF2SEPA"
-    onedir_updater = install_root / "updater" / "PDF2SEPAUpdater.exe"
-    legacy_updater = install_root / "PDF2SEPAUpdater.exe"
-
-    onedir_updater.parent.mkdir(parents=True, exist_ok=True)
-    onedir_updater.write_text("onedir", encoding="utf-8")
+    onedir_updater = _write_onedir_updater(install_root, marker="onedir")
+    legacy_updater = install_root / UPDATER_EXE_NAME
     legacy_updater.write_text("legacy", encoding="utf-8")
 
     monkeypatch.setattr("logic.auto_update.install_root", lambda: install_root)
@@ -112,32 +122,35 @@ def test_updater_exe_path_prefers_onedir_updater(monkeypatch: pytest.MonkeyPatch
     assert updater_exe_path() == onedir_updater
 
 
-def test_updater_exe_path_prefers_install_root_legacy(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+def test_updater_exe_path_rejects_legacy_onefile_without_internal(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     install_root = tmp_path / "PDF2SEPA"
-    root_updater = install_root / "PDF2SEPAUpdater.exe"
-    legacy_updater = tmp_path / "app" / "PDF2SEPAUpdater.exe"
-
-    root_updater.parent.mkdir(parents=True, exist_ok=True)
-    legacy_updater.parent.mkdir(parents=True, exist_ok=True)
-    root_updater.write_text("root", encoding="utf-8")
-    legacy_updater.write_text("legacy", encoding="utf-8")
+    install_root.mkdir(parents=True)
+    (install_root / UPDATER_EXE_NAME).write_text("legacy", encoding="utf-8")
 
     monkeypatch.setattr("logic.auto_update.install_root", lambda: install_root)
-    monkeypatch.setattr("logic.auto_update.app_root", lambda: legacy_updater.parent)
+    monkeypatch.setattr("logic.auto_update.app_root", lambda: tmp_path / "app")
 
-    assert updater_exe_path() == root_updater
+    with pytest.raises(FileNotFoundError):
+        updater_exe_path()
 
 
-def test_updater_exe_path_falls_back_to_legacy_app_bundle(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+def test_apply_pending_updater_refresh_swaps_directories(tmp_path: Path) -> None:
     install_root = tmp_path / "PDF2SEPA"
-    legacy_updater = tmp_path / "app" / "PDF2SEPAUpdater.exe"
-    legacy_updater.parent.mkdir(parents=True, exist_ok=True)
-    legacy_updater.write_text("legacy", encoding="utf-8")
+    _write_onedir_updater(install_root, marker="old")
+    pending_dir = install_root / "updater_pending"
+    pending_internal = pending_dir / "_internal"
+    pending_internal.mkdir(parents=True)
+    (pending_dir / UPDATER_EXE_NAME).write_text("fresh", encoding="utf-8")
+    (pending_internal / "marker.txt").write_text("fresh", encoding="utf-8")
+    (install_root / UPDATER_EXE_NAME).write_text("legacy", encoding="utf-8")
 
-    monkeypatch.setattr("logic.auto_update.install_root", lambda: install_root)
-    monkeypatch.setattr("logic.auto_update.app_root", lambda: legacy_updater.parent)
+    assert apply_pending_updater_refresh(install_root) is True
 
-    assert updater_exe_path() == legacy_updater
+    assert (install_root / UPDATER_DIR_NAME / UPDATER_EXE_NAME).read_text(encoding="utf-8") == "fresh"
+    assert not (install_root / "updater_pending").exists()
+    assert not (install_root / UPDATER_EXE_NAME).exists()
 
 
 def test_ensure_updater_at_install_root_migrates_onedir_from_app(
@@ -145,36 +158,34 @@ def test_ensure_updater_at_install_root_migrates_onedir_from_app(
 ) -> None:
     install_root = tmp_path / "PDF2SEPA"
     app_dir = install_root / "app"
-    bundled_dir = app_dir / "updater"
-    bundled_exe = bundled_dir / "PDF2SEPAUpdater.exe"
-    bundled_dir.mkdir(parents=True)
-    bundled_exe.write_text("onedir-updater", encoding="utf-8")
-    (install_root / "PDF2SEPAUpdater.exe").write_text("legacy", encoding="utf-8")
+    bundled_exe = _write_onedir_updater(app_dir, marker="onedir-updater")
+    (install_root / UPDATER_EXE_NAME).write_text("legacy", encoding="utf-8")
 
     monkeypatch.setattr("logic.auto_update.install_root", lambda: install_root)
     monkeypatch.setattr("logic.auto_update.app_root", lambda: app_dir)
 
     target = ensure_updater_at_install_root()
 
-    assert target == install_root / "updater" / "PDF2SEPAUpdater.exe"
+    assert target == install_root / UPDATER_DIR_NAME / UPDATER_EXE_NAME
     assert target.read_text(encoding="utf-8") == "onedir-updater"
-    assert not bundled_dir.exists()
-    assert not (install_root / "PDF2SEPAUpdater.exe").exists()
+    assert not (app_dir / UPDATER_DIR_NAME).exists()
+    assert not (install_root / UPDATER_EXE_NAME).exists()
 
 
-def test_ensure_updater_at_install_root_migrates_from_app(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+def test_ensure_updater_rejects_onefile_without_internal(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     install_root = tmp_path / "PDF2SEPA"
-    legacy_updater = tmp_path / "app" / "PDF2SEPAUpdater.exe"
+    legacy_updater = tmp_path / "app" / UPDATER_EXE_NAME
     legacy_updater.parent.mkdir(parents=True, exist_ok=True)
     legacy_updater.write_text("legacy", encoding="utf-8")
 
     monkeypatch.setattr("logic.auto_update.install_root", lambda: install_root)
     monkeypatch.setattr("logic.auto_update.app_root", lambda: legacy_updater.parent)
+    monkeypatch.setattr("logic.auto_update.apply_pending_updater_refresh", lambda _root: False)
 
-    target = ensure_updater_at_install_root()
-
-    assert target == install_root / "updater" / "PDF2SEPAUpdater.exe"
-    assert target.read_text(encoding="utf-8") == "legacy"
+    with pytest.raises(FileNotFoundError):
+        ensure_updater_at_install_root()
 
 
 def test_download_update_reports_progress(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:

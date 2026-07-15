@@ -9,6 +9,7 @@ from logic.runtime_paths import (
     configure_tesseract_runtime,
     data_dir,
     deps_dir,
+    install_root,
     log_dir,
     tesseract_path,
 )
@@ -59,6 +60,11 @@ def main() -> None:
     logger.info("Data path (canonical): %s", data_dir())
     logger.info("Log path: %s", log_dir())
     logger.info("Tesseract path: %s", tesseract_path())
+
+    if sys.platform.startswith("win"):
+        from logic.auto_update import apply_pending_updater_refresh
+
+        apply_pending_updater_refresh(install_root())
 
     from main_window import main as run_desktop
 

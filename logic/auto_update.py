@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable
@@ -121,7 +122,19 @@ def download_update(
 
 
 UPDATER_DIR_NAME = "updater"
+UPDATER_PENDING_DIR_NAME = "updater_pending"
 UPDATER_EXE_NAME = "PDF2SEPAUpdater.exe"
+
+
+def _is_onedir_updater(path: Path) -> bool:
+    return path.is_file() and (path.parent / "_internal").is_dir()
+
+
+def _onedir_updater_dir(root: Path) -> Path | None:
+    candidate = root / UPDATER_DIR_NAME
+    if _is_onedir_updater(candidate / UPDATER_EXE_NAME):
+        return candidate
+    return None
 
 
 def _legacy_updater_exe_path() -> Path | None:
@@ -135,56 +148,115 @@ def _legacy_root_updater_exe_path() -> Path | None:
 
 
 def _bundled_onedir_updater_dir() -> Path | None:
-    candidate = app_root() / UPDATER_DIR_NAME
-    if candidate.is_dir() and (candidate / UPDATER_EXE_NAME).is_file():
-        return candidate
-    return None
+    return _onedir_updater_dir(app_root())
+
+
+def _remove_legacy_onefile_updater(root: Path) -> None:
+    legacy = root / UPDATER_EXE_NAME
+    if legacy.is_file():
+        legacy.unlink(missing_ok=True)
+        logger.info("Removed legacy onefile updater at %s", legacy)
+
+
+def _cleanup_updater_retired_dirs(root: Path) -> None:
+    for retired in root.glob("updater_retired_*"):
+        if retired.is_dir():
+            shutil.rmtree(retired, ignore_errors=True)
+
+
+def apply_pending_updater_refresh(root: Path | None = None) -> bool:
+    """Apply a staged onedir updater refresh when no updater process is running."""
+    install = root or install_root()
+    pending_dir = install / UPDATER_PENDING_DIR_NAME
+    pending_exe = pending_dir / UPDATER_EXE_NAME
+    if not _is_onedir_updater(pending_exe):
+        return False
+
+    target_dir = install / UPDATER_DIR_NAME
+    retired_dir = install / f"updater_retired_{pending_exe.stat().st_mtime_ns}"
+
+    try:
+        if target_dir.exists():
+            _rename_with_retry_updater(target_dir, retired_dir)
+        pending_dir.rename(target_dir)
+        _remove_legacy_onefile_updater(install)
+        _cleanup_updater_retired_dirs(install)
+        if retired_dir.exists():
+            shutil.rmtree(retired_dir, ignore_errors=True)
+        logger.info("Applied pending updater refresh to %s", target_dir)
+        return True
+    except (OSError, PermissionError):
+        logger.warning("Pending updater refresh deferred", exc_info=True)
+        if not target_dir.exists() and retired_dir.exists():
+            try:
+                _rename_with_retry_updater(retired_dir, target_dir)
+            except OSError:
+                logger.warning(
+                    "Could not restore updater directory after failed refresh",
+                    exc_info=True,
+                )
+        return False
+
+
+def _rename_with_retry_updater(
+    src: Path,
+    dst: Path,
+    *,
+    attempts: int = 10,
+    delay_sec: float = 0.5,
+) -> None:
+    last_exc: OSError | None = None
+    for attempt in range(attempts):
+        try:
+            src.rename(dst)
+            return
+        except (PermissionError, OSError) as exc:
+            last_exc = exc
+            if attempt + 1 < attempts:
+                time.sleep(delay_sec)
+    if last_exc is not None:
+        raise last_exc
+    raise OSError(f"Could not rename {src} -> {dst}")
 
 
 def updater_exe_path() -> Path:
-    """Return the updater executable path (updater/ onedir preferred)."""
+    """Return the onedir updater executable path."""
     root = install_root()
-    onedir_candidate = root / UPDATER_DIR_NAME / UPDATER_EXE_NAME
-    if onedir_candidate.is_file():
-        return onedir_candidate
-    root_candidate = _legacy_root_updater_exe_path()
-    if root_candidate is not None:
-        return root_candidate
-    legacy = _legacy_updater_exe_path()
-    if legacy is not None:
-        return legacy
-    raise FileNotFoundError(f"Missing updater executable: {onedir_candidate}")
+    onedir = _onedir_updater_dir(root)
+    if onedir is not None:
+        return onedir / UPDATER_EXE_NAME
+    bundled = _bundled_onedir_updater_dir()
+    if bundled is not None:
+        return bundled / UPDATER_EXE_NAME
+    raise FileNotFoundError(
+        f"Missing onedir updater executable under {root / UPDATER_DIR_NAME}"
+    )
 
 
 def ensure_updater_at_install_root() -> Path:
-    """Return updater executable, migrating legacy locations into updater/ when needed."""
+    """Return onedir updater executable, applying pending refresh and migrations."""
     root = install_root()
-    target_dir = root / UPDATER_DIR_NAME
-    target_exe = target_dir / UPDATER_EXE_NAME
-    if target_exe.is_file():
-        return target_exe
+    apply_pending_updater_refresh(root)
+
+    onedir = _onedir_updater_dir(root)
+    if onedir is not None:
+        _remove_legacy_onefile_updater(root)
+        return onedir / UPDATER_EXE_NAME
 
     bundled_onedir = _bundled_onedir_updater_dir()
     if bundled_onedir is not None:
+        target_dir = root / UPDATER_DIR_NAME
         if target_dir.exists():
             shutil.rmtree(target_dir)
         shutil.copytree(bundled_onedir, target_dir)
         shutil.rmtree(bundled_onedir)
-        (root / UPDATER_EXE_NAME).unlink(missing_ok=True)
+        _remove_legacy_onefile_updater(root)
         (app_root() / UPDATER_EXE_NAME).unlink(missing_ok=True)
-        return target_exe
+        return target_dir / UPDATER_EXE_NAME
 
-    legacy = _legacy_updater_exe_path()
-    legacy_root = _legacy_root_updater_exe_path()
-    if legacy is None and legacy_root is None:
-        raise FileNotFoundError(f"Missing updater executable: {target_exe}")
-
-    target_dir.mkdir(parents=True, exist_ok=True)
-    source = legacy if legacy is not None else legacy_root
-    assert source is not None
-    if not target_exe.is_file() or source.stat().st_mtime > target_exe.stat().st_mtime:
-        shutil.copy2(source, target_exe)
-    return target_exe
+    raise FileNotFoundError(
+        "Missing onedir updater. Reinstall PDF2SEPA or wait for the next update cycle."
+    )
 
 
 def launch_updater(info: UpdateInfo) -> None:

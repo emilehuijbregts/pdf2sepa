@@ -14,7 +14,13 @@ import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-from logic.auto_update import UPDATER_DIR_NAME, UPDATER_EXE_NAME, UpdateInfo, download_update
+from logic.auto_update import (
+    UPDATER_DIR_NAME,
+    UPDATER_PENDING_DIR_NAME,
+    UPDATER_EXE_NAME,
+    UpdateInfo,
+    download_update,
+)
 from logic.update_qt_bootstrap import bootstrap_pyside6
 
 
@@ -97,9 +103,15 @@ def _replace_app_from_staging(staging_dir: Path, app_dir: Path) -> None:
             shutil.copy2(child, dest)
 
 
+def _terminate_updater(code: int = 0) -> None:
+    """Exit without PyInstaller onefile temp-dir cleanup on frozen Windows builds."""
+    if getattr(sys, "frozen", False):
+        os._exit(code)
+    raise SystemExit(code)
+
+
 def _terminate_updater_success() -> None:
-    """Exit without PyInstaller onefile temp-dir cleanup (avoids Windows warning dialog)."""
-    os._exit(0)
+    _terminate_updater(0)
 
 
 def _terminate_gui_updater() -> None:
@@ -194,13 +206,12 @@ def _resolve_updater_staging_root(staging_dir: Path) -> Path | None:
     return None
 
 
-def _refresh_updater(staging_updater: Path, install_root: Path) -> None:
-    target_dir = install_root / UPDATER_DIR_NAME
-    if target_dir.exists():
-        shutil.rmtree(target_dir)
-    shutil.copytree(staging_updater, target_dir)
-    legacy_root = install_root / UPDATER_EXE_NAME
-    legacy_root.unlink(missing_ok=True)
+def _stage_pending_updater(staging_updater: Path, install_root: Path) -> None:
+    """Stage a new onedir updater for application on the next app start."""
+    pending_dir = install_root / UPDATER_PENDING_DIR_NAME
+    if pending_dir.exists():
+        shutil.rmtree(pending_dir, ignore_errors=True)
+    shutil.copytree(staging_updater, pending_dir)
 
 
 def _swap_staged_app(
@@ -274,24 +285,21 @@ def _is_app_healthy(app_dir: Path) -> bool:
 
 
 def _relocate_updater_to_install_root(app_dir: Path, install_root: Path) -> None:
-    """Move updater out of app/ so future swaps do not lock it inside app/."""
+    """Stage bundled updater from app/ for deferred install; never replace live updater/."""
     bundled_dir = app_dir / UPDATER_DIR_NAME
     bundled_updater = app_dir / UPDATER_EXE_NAME
-    target_dir = install_root / UPDATER_DIR_NAME
-    target_exe = target_dir / UPDATER_EXE_NAME
 
     if bundled_dir.is_dir() and (bundled_dir / UPDATER_EXE_NAME).is_file():
-        if target_dir.exists():
-            shutil.rmtree(target_dir)
-        shutil.copytree(bundled_dir, target_dir)
+        _stage_pending_updater(bundled_dir, install_root)
         shutil.rmtree(bundled_dir)
         return
 
     if not bundled_updater.is_file():
         return
 
-    target_dir.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(bundled_updater, target_exe)
+    pending_dir = install_root / UPDATER_PENDING_DIR_NAME
+    pending_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(bundled_updater, pending_dir / UPDATER_EXE_NAME)
     bundled_updater.unlink(missing_ok=True)
     (install_root / UPDATER_EXE_NAME).unlink(missing_ok=True)
 
@@ -362,8 +370,16 @@ def _apply_update(zip_path: Path, app_dir: Path, install_root: Path) -> None:
             logger.info("Previous app backed up to %s", app_backup)
         _verify_app(app_dir)
         if updater_staging is not None:
-            _refresh_updater(updater_staging, install_root)
-            logger.info("Updater refreshed from %s", updater_staging)
+            try:
+                _stage_pending_updater(updater_staging, install_root)
+                logger.info(
+                    "Staged pending updater refresh at %s",
+                    install_root / UPDATER_PENDING_DIR_NAME,
+                )
+            except Exception:
+                logger.exception(
+                    "Pending updater staging failed (app update still applied)"
+                )
         _relocate_updater_to_install_root(app_dir, install_root)
         logger.info("Post-swap verification succeeded for %s", app_dir)
     finally:
@@ -501,7 +517,8 @@ def _run_with_gui(
             f"Zie {_log_file_hint(install_root)} voor details."
         )
         app.exec()
-        return 1
+        _terminate_updater(1)
+        return 1  # unreachable when frozen
 
 
 def run_update(
@@ -524,11 +541,11 @@ def run_update(
 
     if zip_path is not None and not zip_path.is_file():
         logger.error("Zip not found: %s", zip_path)
-        return 1
+        _terminate_updater(1)
 
     if zip_path is None and update_info is None:
         logger.error("Neither zip path nor update info provided")
-        return 1
+        _terminate_updater(1)
 
     if use_gui and sys.platform.startswith("win"):
         try:
@@ -546,12 +563,12 @@ def run_update(
     if zip_path is None:
         if update_info is None:
             logger.error("Missing update download info")
-            return 1
+            _terminate_updater(1)
         try:
             zip_path = download_update(update_info)
         except Exception:
             logger.exception("Download failed")
-            return 1
+            _terminate_updater(1)
 
     try:
         if parent_pid > 0:
@@ -565,7 +582,7 @@ def run_update(
             time.sleep(2.0)
     except TimeoutError as exc:
         logger.error("%s", exc)
-        return 1
+        _terminate_updater(1)
 
     try:
         backups_dir = install_root / "backups"
@@ -593,7 +610,7 @@ def run_update(
                 f"Zie {_log_file_hint(install_root)} voor details."
             ),
         )
-        return 1
+        _terminate_updater(1)
 
 
 def main() -> None:
@@ -628,7 +645,7 @@ def main() -> None:
         parent_pid=args.parent_pid,
         use_gui=not args.no_gui,
     )
-    raise SystemExit(code)
+    _terminate_updater(code)
 
 
 if __name__ == "__main__":

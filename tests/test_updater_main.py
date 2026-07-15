@@ -16,18 +16,18 @@ from logic.app_updater import (
     _extract_zip,
     _is_app_healthy,
     _prepare_app_staging_for_swap,
-    _refresh_updater,
-    _release_cwd_lock,
     _relocate_updater_to_install_root,
+    _release_cwd_lock,
     _rename_with_retry,
     _replace_app_from_staging,
     _resolve_app_staging_root,
     _resolve_updater_staging_root,
+    _stage_pending_updater,
     _swap_staged_app,
     _verify_app,
     run_update,
 )
-from logic.auto_update import UPDATER_DIR_NAME, UPDATER_EXE_NAME, UpdateInfo
+from logic.auto_update import UPDATER_DIR_NAME, UPDATER_PENDING_DIR_NAME, UPDATER_EXE_NAME, UpdateInfo
 
 
 def _write_valid_app(app_dir: Path, *, version: str, include_python_dll: bool = True) -> None:
@@ -76,6 +76,17 @@ def test_apply_update_replaces_existing_app(tmp_path: Path) -> None:
     assert (app_dir / "_internal" / "marker.txt").read_text(encoding="utf-8") == "new"
 
 
+def _patch_successful_headless_exit(monkeypatch) -> None:
+    monkeypatch.setattr("logic.app_updater._terminate_updater", lambda _code=0: None)
+
+
+def _patch_headless_exit_raises(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "logic.app_updater._terminate_updater",
+        lambda code=0: (_ for _ in ()).throw(SystemExit(code)),
+    )
+
+
 def test_run_update_keeps_old_app_when_zip_is_invalid(tmp_path: Path, monkeypatch) -> None:
     install_root = tmp_path / "PDF2SEPA"
     app_dir = install_root / "app"
@@ -86,22 +97,20 @@ def test_run_update_keeps_old_app_when_zip_is_invalid(tmp_path: Path, monkeypatc
 
     monkeypatch.setattr("logic.app_updater._wait_for_pid", lambda _pid: None)
     monkeypatch.setattr("logic.app_updater._restart_app", lambda _app_dir: None)
+    _patch_headless_exit_raises(monkeypatch)
 
-    result = run_update(
-        zip_path=zip_path,
-        update_info=None,
-        app_dir=app_dir,
-        install_root=install_root,
-        pid=0,
-        use_gui=False,
-    )
+    with pytest.raises(SystemExit) as exc:
+        run_update(
+            zip_path=zip_path,
+            update_info=None,
+            app_dir=app_dir,
+            install_root=install_root,
+            pid=0,
+            use_gui=False,
+        )
 
-    assert result == 1
+    assert exc.value.code == 1
     assert (app_dir / "PDF2SEPA.exe").read_text(encoding="utf-8") == "version=old"
-
-
-def _patch_successful_headless_exit(monkeypatch) -> None:
-    monkeypatch.setattr("logic.app_updater._terminate_updater_success", lambda: None)
 
 
 def test_run_update_applies_valid_zip(tmp_path: Path, monkeypatch) -> None:
@@ -457,25 +466,70 @@ def test_prepare_app_staging_excludes_updater_sibling(tmp_path: Path) -> None:
     assert not (app_only / UPDATER_DIR_NAME).exists()
 
 
-def test_apply_update_refreshes_updater_from_flat_zip(tmp_path: Path) -> None:
+def _write_onedir_updater_tree(root: Path, *, marker: str) -> Path:
+    internal = root / "_internal"
+    internal.mkdir(parents=True, exist_ok=True)
+    exe = root / UPDATER_EXE_NAME
+    exe.write_text(marker, encoding="utf-8")
+    (internal / "marker.txt").write_text(marker, encoding="utf-8")
+    return exe
+
+
+def test_stage_pending_updater_does_not_touch_live_updater(tmp_path: Path) -> None:
+    install_root = tmp_path / "PDF2SEPA"
+    live_dir = install_root / UPDATER_DIR_NAME
+    staging = tmp_path / "staging_updater"
+    _write_onedir_updater_tree(live_dir, marker="live")
+    _write_onedir_updater_tree(staging, marker="fresh")
+
+    _stage_pending_updater(staging, install_root)
+
+    assert (live_dir / UPDATER_EXE_NAME).read_text(encoding="utf-8") == "live"
+    assert (install_root / UPDATER_PENDING_DIR_NAME / UPDATER_EXE_NAME).read_text(
+        encoding="utf-8"
+    ) == "fresh"
+
+
+def test_apply_update_stages_pending_updater_from_flat_zip(tmp_path: Path) -> None:
     install_root = tmp_path / "PDF2SEPA"
     app_dir = install_root / "app"
     zip_path = tmp_path / "update.zip"
 
     _write_valid_app(app_dir, version="old")
-    (install_root / UPDATER_EXE_NAME).write_text("legacy-updater", encoding="utf-8")
+    _write_onedir_updater_tree(install_root / UPDATER_DIR_NAME, marker="live")
     _write_flat_update_zip(zip_path, version="new", include_updater=True)
 
     _apply_update(zip_path, app_dir, install_root)
 
     assert (app_dir / "PDF2SEPA.exe").read_text(encoding="utf-8") == "version=new"
     assert not (app_dir / UPDATER_DIR_NAME).exists()
-    updater_exe = install_root / UPDATER_DIR_NAME / UPDATER_EXE_NAME
-    assert updater_exe.read_text(encoding="utf-8") == "updater=new"
-    assert not (install_root / UPDATER_EXE_NAME).exists()
+    pending_exe = install_root / UPDATER_PENDING_DIR_NAME / UPDATER_EXE_NAME
+    assert pending_exe.read_text(encoding="utf-8") == "updater=new"
+    assert (install_root / UPDATER_DIR_NAME / UPDATER_EXE_NAME).read_text(
+        encoding="utf-8"
+    ) == "live"
 
 
-def test_apply_update_refreshes_updater_from_nested_zip(tmp_path: Path) -> None:
+def test_apply_update_succeeds_when_pending_stage_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    install_root = tmp_path / "PDF2SEPA"
+    app_dir = install_root / "app"
+    zip_path = tmp_path / "update.zip"
+
+    _write_valid_app(app_dir, version="old")
+    _write_flat_update_zip(zip_path, version="new", include_updater=True)
+    monkeypatch.setattr(
+        "logic.app_updater._stage_pending_updater",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("stage failed")),
+    )
+
+    _apply_update(zip_path, app_dir, install_root)
+
+    assert (app_dir / "PDF2SEPA.exe").read_text(encoding="utf-8") == "version=new"
+
+
+def test_apply_update_stages_pending_updater_from_nested_zip(tmp_path: Path) -> None:
     install_root = tmp_path / "PDF2SEPA"
     app_dir = install_root / "app"
     zip_path = tmp_path / "update.zip"
@@ -487,36 +541,36 @@ def test_apply_update_refreshes_updater_from_nested_zip(tmp_path: Path) -> None:
     _apply_update(zip_path, app_dir, install_root)
 
     assert (app_dir / "PDF2SEPA.exe").read_text(encoding="utf-8") == "version=new"
-    updater_exe = install_root / UPDATER_DIR_NAME / UPDATER_EXE_NAME
-    assert updater_exe.read_text(encoding="utf-8") == "updater=new"
-    assert not (install_root / UPDATER_EXE_NAME).exists()
+    pending_exe = install_root / UPDATER_PENDING_DIR_NAME / UPDATER_EXE_NAME
+    assert pending_exe.read_text(encoding="utf-8") == "updater=new"
 
 
-def test_refresh_updater_replaces_existing_tree(tmp_path: Path) -> None:
+def test_stage_pending_updater_replaces_existing_pending(tmp_path: Path) -> None:
     install_root = tmp_path / "PDF2SEPA"
     staging = tmp_path / "staging_updater"
-    staging.mkdir()
-    (staging / UPDATER_EXE_NAME).write_text("fresh", encoding="utf-8")
+    pending_dir = install_root / UPDATER_PENDING_DIR_NAME
+    _write_onedir_updater_tree(pending_dir, marker="old")
+    _write_onedir_updater_tree(staging, marker="fresh")
 
-    target_dir = install_root / UPDATER_DIR_NAME
-    target_dir.mkdir(parents=True)
-    (target_dir / UPDATER_EXE_NAME).write_text("old", encoding="utf-8")
-    (install_root / UPDATER_EXE_NAME).write_text("legacy", encoding="utf-8")
+    _stage_pending_updater(staging, install_root)
 
-    _refresh_updater(staging, install_root)
-
-    assert (target_dir / UPDATER_EXE_NAME).read_text(encoding="utf-8") == "fresh"
-    assert not (install_root / UPDATER_EXE_NAME).exists()
+    assert (pending_dir / UPDATER_EXE_NAME).read_text(encoding="utf-8") == "fresh"
 
 
 def test_relocate_updater_to_install_root(tmp_path: Path) -> None:
     install_root = tmp_path / "PDF2SEPA"
     app_dir = install_root / "app"
     _write_valid_app(app_dir, version="new")
-    (app_dir / UPDATER_EXE_NAME).write_text("updater", encoding="utf-8")
+    bundled_dir = app_dir / UPDATER_DIR_NAME
+    _write_onedir_updater_tree(bundled_dir, marker="updater")
+    _write_onedir_updater_tree(install_root / UPDATER_DIR_NAME, marker="live")
 
     _relocate_updater_to_install_root(app_dir, install_root)
 
-    assert (install_root / UPDATER_DIR_NAME / UPDATER_EXE_NAME).read_text(encoding="utf-8") == "updater"
-    assert not (app_dir / UPDATER_EXE_NAME).exists()
-    assert not (install_root / UPDATER_EXE_NAME).exists()
+    assert (install_root / UPDATER_PENDING_DIR_NAME / UPDATER_EXE_NAME).read_text(
+        encoding="utf-8"
+    ) == "updater"
+    assert not bundled_dir.exists()
+    assert (install_root / UPDATER_DIR_NAME / UPDATER_EXE_NAME).read_text(
+        encoding="utf-8"
+    ) == "live"
