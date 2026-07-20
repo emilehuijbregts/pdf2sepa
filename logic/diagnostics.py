@@ -64,6 +64,7 @@ _SNAPSHOT_FIELDS = (
     "source_file",
     "load_error",
     "supplier_name",
+    "supplier_key",
     "supplier_hint",
     "match_status",
     "supplier_match_source",
@@ -549,4 +550,9 @@ def _can_set_document_type(snap: dict[str, Any]) -> bool:
     match_status = str(snap.get("match_status") or "").strip()
     if match_status not in ("confirmed", "needs_review"):
         return False
-    return bool(str(snap.get("supplier_key") or "").strip())
+    doc_type = str(snap.get("type") or "").strip()
+    if doc_type not in ("invoice", "credit_note"):
+        return False
+    if str(snap.get("supplier_key") or "").strip():
+        return True
+    return bool(str(snap.get("supplier_name") or "").strip())

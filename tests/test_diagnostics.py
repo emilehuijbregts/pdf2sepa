@@ -67,6 +67,7 @@ def test_snapshot_whitelist_and_deepcopy_amount_result() -> None:
             "source_file",
             "load_error",
             "supplier_name",
+            "supplier_key",
             "supplier_hint",
             "match_status",
             "supplier_match_source",
@@ -629,3 +630,26 @@ def test_build_diagnostics_includes_document_type() -> None:
     snap = build_invoice_diagnostics_snapshot(_base_invoice(type="credit_note"))
     diag = build_diagnostics(snap)
     assert diag["general"]["document_type"] == "credit_note"
+
+
+def test_build_diagnostics_allows_document_type_buttons_with_supplier_key() -> None:
+    snap = build_invoice_diagnostics_snapshot(
+        _base_invoice(type="credit_note", supplier_key="acme-bv")
+    )
+    diag = build_diagnostics(snap)
+    assert diag["general"]["can_set_document_type"] is True
+
+
+def test_build_diagnostics_allows_document_type_buttons_with_supplier_name_fallback() -> None:
+    inv = _base_invoice(type="invoice")
+    snap = build_invoice_diagnostics_snapshot(inv)
+    diag = build_diagnostics(snap)
+    assert diag["general"]["can_set_document_type"] is True
+
+
+def test_build_diagnostics_blocks_document_type_buttons_without_supplier_context() -> None:
+    snap = build_invoice_diagnostics_snapshot(
+        _base_invoice(type="invoice", supplier_name="", supplier_hint="", match_status="confirmed")
+    )
+    diag = build_diagnostics(snap)
+    assert diag["general"]["can_set_document_type"] is False
