@@ -5972,6 +5972,7 @@ QTableWidget::item:selected:!active {
             hdr.sortIndicatorChanged.connect(self._on_sort_indicator_changed)
             self._sort_persist_connected = True
         if not self._is_loading_batch:
+            self._restore_persisted_approvals_to_table()
             self._sync_decision_store_from_table(force=True)
             self._apply_row_colors()
         self._apply_filter_to_table(self._filter_edit.text())
@@ -6413,6 +6414,25 @@ QTableWidget::item:selected:!active {
                 "suppliers_path": self._supplier_db_path(),
             }
         )
+
+    def _restore_persisted_approvals_to_table(self) -> dict[str, dict[str, Any]]:
+        """Re-apply persisted user approvals after table repopulate (expand/rerun)."""
+        persisted = self._approval_store.load_batch(self._batch_approval_key())
+        if not persisted:
+            return {}
+        restored: dict[str, dict[str, Any]] = {}
+        for r in range(self._table.rowCount()):
+            if self._is_row_blank(r) or self._is_settlement_child_row(r):
+                continue
+            rid = self._row_id(r)
+            dec = persisted.get(rid) or persisted.get(self._legacy_row_id(r))
+            if not isinstance(dec, dict):
+                continue
+            if str(dec.get("reason_code") or "") != REASON_USER_APPROVED:
+                continue
+            restored[rid] = dict(dec)
+            self._set_row_decision(r, dec)
+        return restored
 
     def _revoke_user_approval_for_row(self, row: int) -> None:
         rid = self._row_id(row)

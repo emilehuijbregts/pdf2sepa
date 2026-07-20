@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
-from typing import Literal
+from typing import Any, Literal
 
 from logic.engine_result import EngineResult
 from logic.batch_trace import log_batch_stage, log_batch_summary
@@ -74,6 +74,29 @@ TRACE_REASON_VAT_INFERRED_FROM_RATE = "vat_inferred_from_rate"
 TRACE_REASON_AMOUNT_SELECTED_AMOUNT_RESULT = "amount_selected_amount_result"
 TRACE_REASON_AMOUNT_SELECTED_INVOICE_FIELD = "amount_selected_invoice_field"
 TRACE_REASON_AMOUNT_BLOCKED_FAILED_UPSTREAM = "amount_blocked_failed_upstream"
+
+_REVIEW_NEUTRAL_CREDIT_WARNINGS = frozenset({"user_override", "user_detached"})
+
+
+def _credit_allocation_needs_review(details: list[dict[str, Any]]) -> bool:
+    """True when credits linked to this invoice still require human review."""
+    for d in details:
+        if Decimal(str(d.get("remaining_credit") or "0")) > Decimal("0"):
+            return True
+        method = str(d.get("match_method") or "").strip()
+        if method == "user_override":
+            continue
+        if method == "manual_review":
+            return True
+        warnings = d.get("warnings") or ()
+        if not isinstance(warnings, (list, tuple)):
+            warnings = (warnings,)
+        for w in warnings:
+            w_s = str(w or "").strip()
+            if w_s and w_s not in _REVIEW_NEUTRAL_CREDIT_WARNINGS:
+                return True
+    return False
+
 
 # region agent log
 def _agent_log(hypothesis_id: str, location: str, message: str, data: dict) -> None:
@@ -1046,12 +1069,7 @@ def _process_supplier_group_settlement(
             te_betalen_dec = (saldo_incl - korting).quantize(_MONEY_QUANT)
 
         inv_credit_match_details = _credit_match_details_for_credits(creds, match_results)
-        if inv_credit_match_details and any(
-            d.get("match_method") == "manual_review"
-            or d.get("warnings")
-            or Decimal(str(d.get("remaining_credit") or "0")) > Decimal("0")
-            for d in inv_credit_match_details
-        ):
+        if inv_credit_match_details and _credit_allocation_needs_review(inv_credit_match_details):
             warn_parts.append("credit_match_needs_review")
 
         warning: str | None = "|".join(warn_parts) if warn_parts else None

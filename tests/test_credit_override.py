@@ -17,7 +17,9 @@ from logic.credit_override_store import (
     override_session_fingerprint,
 )
 from logic.credit_matching import match_credits_in_batch
+from logic.payment_decisions import DECISION_INCLUDED, REASON_EXPORT_ALLOWED
 from logic.payment_engine import calculate_payments, calculate_payments_with_overrides
+from logic.settlement_export import exportable_groups
 
 
 def _base_invoice(**overrides):
@@ -184,6 +186,39 @@ def test_multiple_overrides():
     result = calculate_payments_with_overrides([inv, cr1, cr2], override_session=session)
     assert _max_group_amount(auto) == Decimal("150.00")
     assert _max_group_amount(result) == Decimal("180.00")
+
+
+def test_user_override_reassign_group_is_exportable():
+    inv_a = _base_invoice(invoice_number="INV-A", amount=300.0, source_file="a.pdf")
+    inv_b = _base_invoice(invoice_number="INV-B", amount=200.0, source_file="b.pdf")
+    credit = _base_invoice(
+        amount=50.0,
+        type="credit_note",
+        invoice_number="CR-1",
+        source_file="cr1.pdf",
+    )
+    session = OverrideSession(
+        batch_key="test",
+        overrides=(
+            make_reassign_override(
+                "cr1.pdf",
+                (
+                    CreditOverrideAllocation(
+                        invoice_document_id="b.pdf",
+                        invoice_number="INV-B",
+                        amount_applied=Decimal("50.00"),
+                    ),
+                ),
+            ),
+        ),
+        history=(),
+    )
+    result = calculate_payments_with_overrides([inv_a, inv_b, credit], override_session=session)
+    linked = next(g for g in result.settlement_groups if "INV-B" in str(g.get("description") or ""))
+    assert linked.get("exportable") is True
+    assert (linked.get("decision") or {}).get("status") == DECISION_INCLUDED
+    assert (linked.get("decision") or {}).get("reason_code") == REASON_EXPORT_ALLOWED
+    assert exportable_groups(result).groups
 
 
 def test_orphan_override_ignored():
