@@ -640,20 +640,20 @@ class DiagnosticsDialog(QDialog):
     @staticmethod
     def _candidate_detail_lines(cand: dict[str, Any], *, conf: int, reason: str = "") -> list[str]:
         lines = [f"Betrouwbaarheid: {conf}%"]
-        source = str(cand.get("label") or cand.get("source_nl") or "").strip()
+        source = _display_text(str(cand.get("label") or cand.get("source_nl") or ""))
         if source:
             lines.append(f"Bron: {source}")
-        hint = str(cand.get("context_hint_nl") or "").strip()
+        hint = _display_text(str(cand.get("context_hint_nl") or ""))
         if hint:
             lines.append(f"Locatie: {hint}")
-        method = str(cand.get("extraction_method_nl") or "").strip()
+        method = _display_text(str(cand.get("extraction_method_nl") or ""))
         if method:
             lines.append(method)
-        label_reason = str(cand.get("label_reason_nl") or "").strip()
+        label_reason = _display_text(str(cand.get("label_reason_nl") or ""))
         if label_reason:
             lines.append(label_reason)
         if reason:
-            lines.append(f"Niet gekozen: {reason}")
+            lines.append(f"Niet gekozen: {_display_text(reason)}")
         return lines
 
     def _why_chosen_lines(self, field: dict, *, field_id: str) -> list[str]:
@@ -677,17 +677,17 @@ class DiagnosticsDialog(QDialog):
                     if reason:
                         lines.append(f"• {reason}.")
                     break
-        src = str(winner.get("label") or winner.get("source_nl") or "").strip()
+        src = _display_text(str(winner.get("label") or winner.get("source_nl") or ""))
         if src:
             lines.append(f"• Bron: {src}.")
-        hint = str(winner.get("context_hint_nl") or "").strip()
+        hint = _display_text(str(winner.get("context_hint_nl") or ""))
         if hint:
             lines.append(f"• Waarde stond in de {hint}.")
-        method = str(winner.get("extraction_method_nl") or "").strip()
+        method = _display_text(str(winner.get("extraction_method_nl") or ""))
         if method:
             lines.append(f"• {method}.")
         if field_id == "amount":
-            override_reason = str(field.get("override_reason_nl") or "").strip()
+            override_reason = _display_text(str(field.get("override_reason_nl") or ""))
             if override_reason:
                 lines.append(f"• {override_reason}.")
         return lines

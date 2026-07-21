@@ -4818,9 +4818,8 @@ QTableWidget::item:selected:!active {
             return
         self._matched_invoices = matched
         self._engine_cache.invalidate("profile_saved")
-        doc_id = self._document_id_for_table_row(row)
-        focus = {doc_id} if doc_id else None
-        self._rerun_settlement_engine(focus_doc_ids=focus, clear_undo=True)
+        # Herlaad alle rijen — profiel geldt voor de hele leverancier, niet alleen deze factuur.
+        self._rerun_settlement_engine(clear_undo=True)
 
     def _refresh_profile_button_state(self) -> None:
         btn = getattr(self, "_btn_create_profile", None)

@@ -406,6 +406,26 @@ def resolve_field(
                 winner = db_pick
                 forced_final_reason = "db_master_over_brand_token"
 
+    if (
+        field_id == "customer_number"
+        and user_pick is None
+        and not generic.user_overridden
+    ):
+        best_db = next(
+            (c for c in ranked if str(c.source or "").strip().lower() == "db_master"),
+            None,
+        )
+        if (
+            best_db is not None
+            and not _is_override_source(str(winner.source or ""))
+            and str(winner.source or "").strip().lower() != "db_master"
+        ):
+            forced_excluded_reasons[
+                (str(winner.source or ""), str(winner.value or ""))
+            ] = "db_master_priority_over_pdf"
+            winner = best_db
+            forced_final_reason = "db_master_priority_over_pdf"
+
     if winner is not ranked[0]:
         winner_key = (str(winner.source or ""), str(winner.value or ""))
         ranked = [winner] + [c for c in ranked if (str(c.source or ""), str(c.value or "")) != winner_key]

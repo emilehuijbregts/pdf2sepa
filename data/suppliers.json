@@ -1124,11 +1124,12 @@
       ]
     },
     {
-      "name": "Omniplast BV",
+      "name": "Omniplast B.V.",
       "iban": "NL98RABO0303915781",
       "discount": 0.0,
       "aliases": [
-        "Omniplast BV"
+        "Omniplast BV",
+        "Omniplast B.V."
       ],
       "customer_codes": [
         "12040"
@@ -1788,7 +1789,9 @@
         "VentTrade International BV,",
         "VentTrade International B.V."
       ],
-      "customer_codes": [],
+      "customer_codes": [
+        "237242"
+      ],
       "default_payment_term_days": 30,
       "vat_rate": 21,
       "vat_numbers": [
@@ -1798,15 +1801,33 @@
         "13043168"
       ],
       "email_domains": [
-        "venttrade.com"
+        "venttrade.com",
+        "interduct.nl"
       ],
       "extraction_profile": {
-        "learned_from": "Venttrade Factuur_1100_220_10022887.pdf",
+        "learned_from": "Venttrade Factuur_1100_220_10024240.pdf",
         "amount": {
-          "label": "Totaal",
+          "label": "Totaal inclusief BTW",
           "strategy": "same_line_last_amount",
-          "confirmed_value": "799.13",
+          "confirmed_value": "1021.97",
           "confidence": 100
+        },
+        "invoice_number": {
+          "label": "INT000000270 100013577 17-07-2026 17-07-2026 16-08-2026",
+          "strategy": "same_line_value_after_label",
+          "confirmed_value": "1100/220/10024240",
+          "confidence": 100
+        },
+        "customer_number": {
+          "label": "20261297 /",
+          "strategy": "same_line_value_after_label",
+          "confirmed_value": "237242",
+          "confidence": 100
+        },
+        "iban": {
+          "strategy": "iban_full_text_scan",
+          "confirmed_value": "NL25RABO0309081084",
+          "confidence": 88
         }
       }
     },
@@ -2874,6 +2895,60 @@
       "email_domains": [
         "unatherm.com"
       ]
+    },
+    {
+      "name": "SFS Group the Netherlands B.V.",
+      "iban": "DE30690700320041441700",
+      "discount": 0.0,
+      "aliases": [
+        "SFS Group the Netherlands B.V."
+      ],
+      "customer_codes": [
+        "412857"
+      ],
+      "default_payment_term_days": 30,
+      "vat_rate": 21,
+      "vat_numbers": [
+        "NL850126836B01"
+      ],
+      "kvk_numbers": [
+        "51684586"
+      ],
+      "email_domains": [
+        "guardian.nl"
+      ],
+      "extraction_profile": {
+        "learned_from": "SFS Invoice 2450016881 - SFS Group the Netherlands.PDF",
+        "amount": {
+          "label": "EUR",
+          "strategy": "same_line_last_amount",
+          "confirmed_value": "943.33",
+          "confidence": 100
+        },
+        "invoice_number": {
+          "label": "Invoice ",
+          "strategy": "same_line_after_colon",
+          "confirmed_value": "2450016881",
+          "confidence": 100
+        },
+        "customer_number": {
+          "label": "5216 JW 'S-HERTOGENBOSCH Customer number",
+          "strategy": "same_line_value_after_label",
+          "confirmed_value": "412857",
+          "confidence": 100
+        },
+        "iban": {
+          "strategy": "iban_full_text_scan",
+          "confirmed_value": "DE30690700320041441700",
+          "confidence": 88
+        },
+        "vat_number": {
+          "label": "VAT",
+          "strategy": "same_line_after_colon",
+          "confirmed_value": "NL850126836B01",
+          "confidence": 90
+        }
+      }
     }
   ]
 }

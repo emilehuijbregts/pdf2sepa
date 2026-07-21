@@ -879,6 +879,54 @@ class TestProfilePipeline:
         assert result["customer_number"] == "113073/17078"
         assert result["description"] == "113073/17078 / 260789"
 
+    def test_matched_supplier_uses_db_customer_code_over_pdf_generic(self, tmp_path):
+        data = {
+            "suppliers": [
+                {
+                    "name": "Frencken B.V.",
+                    "iban": "BE97363080995949",
+                    "discount": 0.0,
+                    "aliases": ["Frencken"],
+                    "customer_codes": ["1234"],
+                },
+            ]
+        }
+        p = tmp_path / "suppliers.json"
+        p.write_text(json.dumps(data), encoding="utf-8")
+        db = SupplierDB(path=str(p))
+        inv = {
+            "supplier_hint": "Frencken B.V.",
+            "iban": "BE97363080995949",
+            "customer_number": "1158174",
+            "customer_number_result": {
+                "value": "1158174",
+                "selected_value": "1158174",
+                "status": "confirmed",
+                "source": "label_block_same_line",
+                "confidence": 95,
+                "candidates": [
+                    {
+                        "value": "1158174",
+                        "source": "label_block_same_line",
+                        "confidence": 95,
+                    }
+                ],
+            },
+            "amount": 428.95,
+            "amount_result": {
+                "status": "confirmed",
+                "value": "428.95",
+                "confidence": 90,
+                "candidates": [{"value": "428.95"}],
+            },
+            "raw_text": "Frencken test",
+        }
+        result = match_suppliers([inv], db)[0]
+        assert result["customer_number"] == "1234"
+        cr = result.get("customer_number_result") or {}
+        assert cr.get("source") == "db_master"
+        assert result.get("pdf_customer_number") == "1158174"
+
 
 class TestLoadFailedShortcut:
     def test_load_error_skips_matching(self, empty_db, tmp_path):

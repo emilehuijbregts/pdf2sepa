@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from parser.field_adapters import field_result_from_legacy_dict
 from parser.field_candidates import IdentFieldCandidate, build_ident_field_result
 from parser.field_model import FieldCandidate, FieldResult
 from parser.field_resolver import resolve_field
@@ -147,3 +148,33 @@ class TestDeterministicResolverParity:
             )
             for e in out.decision_trace
         )
+
+    def test_db_master_customer_beats_higher_confidence_pdf_generic(self):
+        generic = field_result_from_legacy_dict(
+            {
+                "value": "1158174",
+                "selected_value": "1158174",
+                "status": "confirmed",
+                "source": "label_block_same_line",
+                "confidence": 95,
+                "candidates": [
+                    {
+                        "value": "1158174",
+                        "source": "label_block_same_line",
+                        "confidence": 95,
+                    }
+                ],
+            },
+            field_id="customer_number",
+        )
+        overrides = [
+            FieldCandidate(
+                value="1234",
+                source="db_master",
+                confidence=88,
+                context="Leveranciers-DB",
+            )
+        ]
+        out = resolve_field("customer_number", generic, overrides)
+        assert out.selected_value == "1234"
+        assert out.source == "db_master"

@@ -203,18 +203,10 @@ def _build_db_override_candidates(
         return out
 
     if field_id == "customer_number":
-        pdf_cc = str(invoice.get("customer_number") or "").strip()
         db_codes = supplier.get("customer_codes") or []
         if not db_codes:
             return out
-        matched_code = None
-        if pdf_cc:
-            norm_pdf = db._normalize_customer_code(pdf_cc)
-            for code in db_codes:
-                if norm_pdf and db._normalize_customer_code(code) == norm_pdf:
-                    matched_code = code
-                    break
-        db_cc = matched_code or db_codes[0]
+        db_cc = str(db_codes[0] or "").strip()
         if db_cc:
             out.append(
                 FieldCandidate(

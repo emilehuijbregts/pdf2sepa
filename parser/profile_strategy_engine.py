@@ -76,7 +76,7 @@ _FACTUUR_INLINE_PAGINA_RE = re.compile(
     r"(?i)\bFactuur\s+([A-Za-z0-9][A-Za-z0-9\-\/]{4,})\s+Pagina\b"
 )
 _EXCL_BTW_LINE_RE = re.compile(
-    r"(?i)\b(?:excl\.?\s*btw|netto\s+goederenbedrag)\b"
+    r"(?i)\b(?:excl\.?\s*btw|exclusief\s+btw|netto\s+goederenbedrag)\b"
 )
 _INCL_BTW_RE = re.compile(r"(?i)\b(?:incl\.?\s*btw|inclusief\s*btw|te\s+betalen)\b")
 _VAT_PERCENT_LINE_RE = re.compile(r"(?i)\bbtw\s*(?:\d{1,2}\s*%|:)")
@@ -336,6 +336,14 @@ def extend_payable_amount_label_span(line: str, start: int, end: int) -> str:
     m2 = re.match(r"\s*\(\s*(?:incl|excl)\b[^)]*\)", line[end:], re.IGNORECASE)
     if m2:
         end = end + m2.end()
+    # Venttrade-style: disambiguate ``Totaal inclusief BTW`` vs ``Totaal exclusief BTW``.
+    m3 = re.match(
+        r"\s+(?:(?:inclusief|incl\.?)|(?:exclusief|excl\.?))\s+btw\b",
+        line[end:],
+        re.IGNORECASE,
+    )
+    if m3:
+        end = end + m3.end()
     return line[start:end].strip()
 
 
@@ -567,6 +575,27 @@ def _string_target_matches(val: Any, target: str) -> bool:
     return False
 
 
+_AMOUNT_LINE_STRATEGIES = frozenset(
+    {
+        "same_line_last_amount",
+        "same_line_first_amount",
+        "next_line_last_amount",
+        "next_line_first_token",
+        "unlabeled_prefix_amount",
+    }
+)
+
+
+def _amount_line_preference(line: str) -> int:
+    """Prefer incl-BTW payable lines over ambiguous/excl lines (Venttrade e.a.)."""
+    ln = line or ""
+    if _INCL_BTW_RE.search(ln):
+        return 2
+    if _EXCL_BTW_LINE_RE.search(ln):
+        return 0
+    return 1
+
+
 def find_label_line(
     lines: list[str],
     label: str,
@@ -579,6 +608,8 @@ def find_label_line(
     if not indices:
         return None
     if strategy:
+        best_idx: int | None = None
+        best_pref = -1
         for idx in indices:
             val = apply_strategy(
                 lines,
@@ -601,8 +632,14 @@ def find_label_line(
             ):
                 if not _string_target_matches(val, string_target):
                     continue
+            if strategy in _AMOUNT_LINE_STRATEGIES and amount_target is None:
+                pref = _amount_line_preference(lines[idx] if idx < len(lines) else "")
+                if pref > best_pref:
+                    best_pref = pref
+                    best_idx = idx
+                continue
             return idx
-        return None
+        return best_idx
     return indices[0]
 
 
@@ -974,6 +1011,18 @@ def _line_eligible_for_amount(line: str, target: Decimal | None = None) -> bool:
     if _TOTAL_LINE_EXCLUDE_RE.search(line):
         return has_payable_label
     return has_payable_label or bool(_TOTAL_LINE_HINT_RE.search(line))
+
+
+def _amount_line_ok_for_profile_learn(line: str, target: Decimal | None = None) -> bool:
+    """Payable/total lines only — reject product rows (Venttrade orderregels e.a.)."""
+    if not _line_eligible_for_amount(line, target):
+        return False
+    ln = line or ""
+    if _AMOUNT_PROFILE_LABEL_RE.search(ln):
+        return True
+    if _INCL_BTW_RE.search(ln) or _EXCL_BTW_LINE_RE.search(ln):
+        return True
+    return False
 
 
 def _iban_candidates_scored(raw_text: str) -> list[tuple[str, float]]:
@@ -1535,8 +1584,9 @@ def _strategy_token_matching_confirmed_amount(ctx: StrategyContext, lines: list[
     target = confirmed_amount_decimal(ctx.confirmed_value)
     if target is None:
         return _attempt("token_matching_confirmed_amount", None, reason="invalid_amount")
+    line_ok = _amount_line_ok_for_profile_learn if ctx.mode == "learn" else _line_eligible_for_amount
     for i, line in enumerate(lines):
-        if not _line_eligible_for_amount(line, target):
+        if not line_ok(line, target):
             continue
         for m in re.finditer(_AMOUNT_TOKEN, line or ""):
             d = normalize_amount_decimal(m.group(0))
@@ -1640,6 +1690,8 @@ def _strategy_amount_derived_excl_vat(ctx: StrategyContext, lines: list[str]) ->
 
 
 def _strategy_unlabeled_prefix_amount(ctx: StrategyContext, lines: list[str]) -> StrategyAttempt | None:
+    if ctx.mode == "learn":
+        return _attempt("unlabeled_prefix_amount", None, reason="learn_requires_payable_line")
     target = confirmed_amount_decimal(ctx.confirmed_value)
     if target is None:
         return None
@@ -1686,10 +1738,11 @@ def _strategy_amount_from_context(ctx: StrategyContext, lines: list[str]) -> Str
     target = confirmed_amount_decimal(ctx.confirmed_value)
     if target is None:
         return None
+    line_ok = _amount_line_ok_for_profile_learn if ctx.mode == "learn" else _line_eligible_for_amount
     for i, line in enumerate(lines):
         if not _line_matches_context(line, ctx.context_line):
             continue
-        if not _line_eligible_for_amount(line, target):
+        if not line_ok(line, target):
             continue
         for m in re.finditer(_AMOUNT_TOKEN, line or ""):
             d = normalize_amount_decimal(m.group(0))
@@ -1727,8 +1780,9 @@ def _strategy_amount_fallback_scan(ctx: StrategyContext, lines: list[str]) -> St
     target = confirmed_amount_decimal(ctx.confirmed_value)
     if target is None:
         return None
+    line_ok = _amount_line_ok_for_profile_learn if ctx.mode == "learn" else _line_eligible_for_amount
     for i, line in enumerate(lines):
-        if not _line_eligible_for_amount(line, target):
+        if not line_ok(line, target):
             continue
         decs = positive_amounts_on_line(line)
         if not any(amount_decimal_matches(d, target) for d in decs):

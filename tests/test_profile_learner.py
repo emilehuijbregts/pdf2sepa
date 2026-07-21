@@ -221,8 +221,8 @@ class TestLearnProfileFromResolvedFields:
         )
         assert profile is not None
         assert profile["invoice_number"]["strategy"] == "same_line_value_after_label"
-        assert profile["amount"]["strategy"] == "same_line_last_amount"
-        assert profile["amount"]["label"] == "EUR"
+        assert profile["amount"]["strategy"] == "next_line_last_amount"
+        assert profile["amount"]["label"] == "Te betalen"
 
     def test_learns_polyglass_totale_factuur_amount(self) -> None:
         from pathlib import Path
