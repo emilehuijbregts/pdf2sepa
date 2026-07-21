@@ -353,6 +353,30 @@ class TestBatch6LayoutSnippets:
         assert inv.value == "20260075"
         assert cust.value == "20180168"
 
+    def test_berdal_header_table_with_order_on_header_line(self):
+        """Berdal: kolomkop + Ons ordernummer op dezelfde regel — geen combined data row."""
+        text = (
+            "FACTUUR Uw BTW-nummer: NL148005664B01\n"
+            "DEBITEURNUMMER FACTUURNUMMER FACTUURDATUM Ons ordernummer:2014267\n"
+            "616511 8014501 21-07-2026 Uw ref.: 20261162\n"
+        )
+        inv = extract_invoice_number_result(text)
+        cust = extract_customer_number_result(text)
+        assert inv.value == "8014501"
+        assert "8014501" in {c.value for c in inv.candidates}
+        assert "2014267" not in {c.value for c in inv.candidates if c.source == "header_table_invoice"}
+        assert cust.value == "616511"
+
+    def test_combined_label_value_row_still_skipped(self):
+        from parser.field_candidates import _line_looks_like_combined_label_value_row
+
+        assert _line_looks_like_combined_label_value_row(
+            "Deb. nr. 114080 Factuur nr: 76793"
+        ) is True
+        assert _line_looks_like_combined_label_value_row(
+            "DEBITEURNUMMER FACTUURNUMMER FACTUURDATUM Ons ordernummer:2014267"
+        ) is False
+
     def test_prima_arbo_split_header_amount_row_not_customer(self):
         text = (
             "Factuur datum Factuur nummer Debiteur nummer\n"

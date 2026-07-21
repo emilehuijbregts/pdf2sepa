@@ -1981,6 +1981,19 @@ def _truncate_at_next_field_label(segment: str) -> str:
     return segment
 
 
+def _line_has_inline_invoice_or_customer_value(line: str) -> bool:
+    """Echt label+waarde op één regel (``Deb. nr. 114080``), geen kale kolomkop."""
+    ln = str(line or "")
+    return bool(
+        re.search(
+            rf"(?i)\b(?:deb\.?\s*nr|debiteurnr(?:\.|\b)|debiteurnummer|klant\s*{_NR_DEGREE_SUFFIX}|"
+            rf"factuurnr(?:\.|\b)|factuurnummer|factuur\s*nr|factuur\s*{_NR_DEGREE_SUFFIX})"
+            rf"\s*[:.]?\s*\d",
+            ln,
+        )
+    )
+
+
 def _line_looks_like_combined_label_value_row(line: str) -> bool:
     """``Deb. nr. 114080 Factuur nr.76793 …`` — data row, not a table header."""
     ln = str(line or "")
@@ -1996,16 +2009,24 @@ def _line_looks_like_combined_label_value_row(line: str) -> bool:
     num_hits = len(re.findall(r"(?<!\d)\d{5,}(?!\d)", ln))
     if date_hits >= 1 and num_hits >= 2:
         return True
-    if re.search(
-        rf"(?i)\b(?:factuur|klant|faktuur)\s*{_NR_DEGREE_SUFFIX}{_LABEL_VALUE_SUFFIX_LOOKAHEAD}",
-        ln,
-    ) and num_hits >= 1:
+    if (
+        re.search(
+            rf"(?i)\b(?:factuur|klant|faktuur)\s*{_NR_DEGREE_SUFFIX}{_LABEL_VALUE_SUFFIX_LOOKAHEAD}",
+            ln,
+        )
+        and num_hits >= 1
+        and _line_has_inline_invoice_or_customer_value(ln)
+    ):
         return True
     # ``Factuurnr 025261476 Ordernummer …`` / ``Factuur nr: 1620543 Ordernummer: …``
-    if re.search(
-        rf"(?i)\b(?:factuurnr|factuurnummer|factuur\s*nr|factuur\s*{_NR_DEGREE_SUFFIX}){_LABEL_VALUE_SUFFIX_LOOKAHEAD}",
-        ln,
-    ) and num_hits >= 1:
+    if (
+        re.search(
+            rf"(?i)\b(?:factuurnr|factuurnummer|factuur\s*nr|factuur\s*{_NR_DEGREE_SUFFIX}){_LABEL_VALUE_SUFFIX_LOOKAHEAD}",
+            ln,
+        )
+        and num_hits >= 1
+        and _line_has_inline_invoice_or_customer_value(ln)
+    ):
         return True
     return False
 
@@ -2158,7 +2179,7 @@ _HEADER_COLUMN_PATTERN_SPECS: tuple[tuple[re.Pattern[str], str], ...] = (
     ),
     (
         re.compile(
-            r"(?i)debiteurennummer|debiteurnr\.?|klantnummer|klantnr\.?|klant\.?nr|"
+            r"(?i)debiteurennummer|debiteurnummer|debiteurnr\.?|klantnummer|klantnr\.?|klant\.?nr|"
             r"customer(?:\s*number)?|kundennummer|relatienummer|relatie\s*nr\.?"
         ),
         "customer",
